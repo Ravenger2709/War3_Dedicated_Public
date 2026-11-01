@@ -15,6 +15,7 @@ import tempfile
 
 # Source checkout: amp.production/amp.account. Installed control: flat siblings.
 account = import_module(".account", __package__) if __package__ else import_module("account")
+map_discovery = import_module(".map_discovery", __package__) if __package__ else import_module("map_discovery")
 
 DOCKER = ["docker", "--host", "unix:///var/run/docker.sock"]
 CHECKS = {"clean_build", "unit", "integration", "native_sanitizers", "star_relay_mock",
@@ -394,13 +395,13 @@ class _PresetTransaction:
 
 
 @contextmanager
-def preset_update(instance):
+def preset_update(instance, discovery_spec=None):
     """Called under profile_update's accepted-image/stopped checks and setup flock."""
     text = _preset_inputs(instance)
     if ((instance / PRESET_RECOVERY).exists() or (instance / PRESET_RECOVERY).is_symlink()
             or any((instance / "control").glob("war3-preset-*"))):
         raise SettingsError("PRESET_EXTERNAL_CONFLICT")
-    if not (instance / PRESET_EDITOR).exists():
+    if not (instance / PRESET_EDITOR).exists() and discovery_spec is None:
         yield None
         return
     snapshot = _preset_snapshot(instance / PRESETS)
@@ -429,11 +430,26 @@ def preset_update(instance):
     transaction = _PresetTransaction(instance, snapshot)
     state_written = False
     try:
+        if discovery_spec is not None:
+            account.directory(instance / "data")
+            account.directory(instance / "data/maps")
+            base = desired if changed else current
+            if base is None:
+                base = {"version": 1, "presets": [{"id": "manual", "enabled": True}]}
+            generated, skipped = map_discovery.discover(instance, base, discovery_spec, DOCKER, environment(),
+                                                       account.generator_owner(discovery_spec))
+            transaction.check()
+            _preset_document(generated)
+            if generated != base:
+                desired = generated
+                changed = True
+            if skipped:
+                print(f"Map discovery: skipped {skipped} invalid or changing map(s).")
         if changed:
             transaction.install(desired)
         yield transaction.check
         transaction.check()
-        if not unchanged:
+        if not unchanged or changed:
             state_written = True
             private_json(instance / PRESET_BASELINE, {"version": 1, "editor": editor_document,
                                                    "file": desired if desired is not None else current})
@@ -637,7 +653,7 @@ def prepare(instance, image_id, acceptance, supervisor_config, native_config, ma
         for name in VENDOR:
             (instance / "vendor" / name).mkdir(mode=0o700, parents=True)
         (instance / "control").mkdir(mode=0o700)
-        for name in ("production.py", "production-launch.py", "account.py"):
+        for name in ("production.py", "production-launch.py", "account.py", "map_discovery.py"):
             shutil.copyfile(Path(__file__).parent / name, instance / "control" / name)
             (instance / "control" / name).chmod(0o600)
         shutil.copyfile(Path(__file__).parent / "war3-productionconfig.json", instance / PRESET_MANIFEST)
@@ -710,7 +726,7 @@ def main(argv=None):
         return 0
     # Offline setup precedes full preflight (including the first-ever profile).
     # A failed preflight/merge rolls the profile transaction back before returning.
-    with account.profile_update(instance, spec), preset_update(instance) as check_revision:
+    with account.profile_update(instance, spec), preset_update(instance, discovery_spec=spec) as check_revision:
         with preset_manifest_update(instance, check_revision):
             validated = validate_preset_selection(instance)
             preflight(instance, spec)

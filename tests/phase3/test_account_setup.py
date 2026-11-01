@@ -254,7 +254,7 @@ class TransactionTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "instance"
         self.root.mkdir(mode=0o700)
-        for name in ("control", "vendor", "vendor/star", "vendor/profile", "data", "data/config"):
+        for name in ("control", "vendor", "vendor/star", "vendor/profile", "data", "data/config", "data/maps"):
             (self.root / name).mkdir(mode=0o700)
         self.profile = self.root / "vendor/profile"
         synthetic_profile(self.profile)

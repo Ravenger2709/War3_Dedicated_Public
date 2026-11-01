@@ -260,3 +260,46 @@ one and AI target/support/skill/minimum-humans `6/1/1/1`. The generated map conf
 preserved all twelve slots and their four teams. Operator files were unchanged.
 This validates static analysis and configuration compilation only;
 `runtime_tested` remains false and no Warcraft engine or gameplay was executed.
+# Automatic discovery on start
+
+When AMP or the standalone CLI starts the instance, the controller examines
+new `.w3x` and `.w3m` files directly under `data/maps` (including files uploaded
+through AMP File Manager). It uses the accepted image's static map analyzer in
+a temporary network-isolated container; map scripts and Warcraft are not run.
+Valid maps get a basic entry in `data/config/presets.json`, with the title and
+slot count read from the map, AI disabled and auto-start disabled. Select and
+edit the entry to configure the map. AI requires the existing explicit,
+hash-bound capability approval; detection alone does not grant it.
+
+An existing entry for the same filename is never replaced, even if the map file
+changes. A second filename with identical contents is also skipped when its
+existing map file is available. Invalid or changing maps are skipped, and a
+short count is logged. A maximum of 32 presets and 32 new candidates per scan
+is enforced; remove invalid files if they prevent later files from being scanned.
+No subdirectories are scanned. A repeated start does not create another preset.
+The current selection does not change automatically. The selector manifest is
+refreshed at start; AMP may need its configuration view reloaded before new
+choices appear. The runtime mounts config read-only, while the stopped host-side
+controller performs this update before starting the container.
+
+The preset update checks the File Manager revision and uses the existing
+transaction and recovery mechanism. If a concurrent edit is detected, startup
+fails closed and retains recovery data in `control/preset-conflict` or a
+`control/war3-preset-*` directory. Resolve that conflict before retrying. Do not
+edit the preset file while the instance is starting.
+
+Existing installations have a copied controller and must be updated explicitly
+from the same trusted checkout while the instance is stopped, as the instance
+owner. `INSTANCE` is the instance's application directory (the directory
+containing `control` and `data`):
+
+```sh
+INSTANCE=/path/to/instance
+install -m 600 amp/production.py amp/map_discovery.py "$INSTANCE/control/"
+```
+
+Then start the instance normally. The `production-launch.py` and `account.py`
+already installed are retained; the accepted image needs the existing
+`src.runtime.presets` analyzer. For standalone installations, use the updated
+checkout's `scripts/war3.py`. Updating these controller files does not change the
+runtime image or its acceptance receipt.

@@ -171,12 +171,13 @@ def prepare_start(instance, spec):
     bootstrap.supervisor_source(private_object(instance / "acceptance.json"))
     # Shared helper performs offline profile generation, stopped/image checks and
     # rollback. All its contexts/locks must close before the runtime is launched.
-    with account.profile_update(instance, spec), production.preset_update(instance):
-        validated = production.validate_preset_selection(instance)
-        production.preflight(instance, spec)
-        production.merge_settings(instance / "data/config/supervisor.json", instance / "data/config/amp-settings.json",
-                                  validated=validated)
-        bootstrap.validate_startup_config(instance / "data/config/supervisor.json")
+    with account.profile_update(instance, spec), production.preset_update(instance, discovery_spec=spec) as check:
+        with production.preset_manifest_update(instance, check):
+            validated = production.validate_preset_selection(instance)
+            production.preflight(instance, spec)
+            production.merge_settings(instance / "data/config/supervisor.json", instance / "data/config/amp-settings.json",
+                                      validated=validated)
+            bootstrap.validate_startup_config(instance / "data/config/supervisor.json")
 
 
 def start_container(instance, spec, marker, *, foreground=False, restart_policy=None):
