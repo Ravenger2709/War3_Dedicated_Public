@@ -1,6 +1,6 @@
 # Operator quickstart
 
-This public source snapshot contains no accepted image or release identity. First follow [source build and validation](build-from-source.md). Use a trusted release checkout, its maintainer-exported release identity, an
+Use a trusted release checkout and its maintainer-exported release identity. The runtime image and identity can be downloaded from GitHub Releases as described in [standalone setup](standalone.md), or built and validated following [source build and validation](build-from-source.md). Use an
 already installed Docker service and AMP, and your own licensed Star/Warcraft
 files. Routine setup needs no AI, manual 31-file copying, or host dependency
 installation. The setup command prepares files locally; AMP Start later starts
@@ -15,8 +15,7 @@ an approval document: receiving an arbitrary JSON from an unknown source does
 not establish trust. It contains public gate/source hashes and image metadata,
 with no proprietary assets or account credentials.
 
-For a private registry, authenticate with ordinary `docker login` using your own
-registry access, then pull the supplied runtime and control digest references:
+If using a registry rather than the release archive, authenticate as needed and pull the supplied runtime and control digest references:
 
 ```bash
 docker pull "$RUNTIME_PULL_REF"

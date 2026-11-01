@@ -1,53 +1,3 @@
-diff --git a/StormLib/stormlib/StormPort.h b/StormLib/stormlib/StormPort.h
-index 8001a6a..7a8c452 100644
---- a/StormLib/stormlib/StormPort.h
-+++ b/StormLib/stormlib/StormPort.h
-@@ -128,7 +128,7 @@
-   typedef uint16_t       USHORT;
-   typedef int32_t        LONG;
-   typedef uint32_t       DWORD;
--  typedef intptr_t       DWORD_PTR;
-+  typedef uintptr_t      DWORD_PTR;
-   typedef intptr_t       LONG_PTR;
-   typedef intptr_t       INT_PTR;
-   typedef int64_t        LONGLONG;
-diff --git a/StormLib/stormlib/StormPortLinux.cpp b/StormLib/stormlib/StormPortLinux.cpp
-index 0fe3784..2c7acfb 100644
---- a/StormLib/stormlib/StormPortLinux.cpp
-+++ b/StormLib/stormlib/StormPortLinux.cpp
-@@ -79,11 +79,11 @@ HANDLE CreateFile(const char *sFileName, DWORD ulMode, DWORD ulSharing, void *pS
-         return (HANDLE)open(sFileName, O_RDONLY | O_LARGEFILE);
- 
-     case OPEN_ALWAYS:
--        return (HANDLE)open(sFileName, O_RDWR | O_CREAT);
-+        return (HANDLE)open(sFileName, O_RDWR | O_CREAT, 0600);
- 
-     case CREATE_ALWAYS:
-     case CREATE_NEW:
--        return (HANDLE)open(sFileName, O_RDWR | O_CREAT | O_TRUNC);
-+        return (HANDLE)open(sFileName, O_RDWR | O_CREAT | O_TRUNC, 0600);
- 
-     default:
-         return INVALID_HANDLE_VALUE;
-@@ -118,12 +118,15 @@ DWORD GetFileSize(HANDLE hFile, DWORD *ulOffSetHigh)
- 
- DWORD SetFilePointer(HANDLE hFile, LONG lOffSetLow, LONG *pOffSetHigh, DWORD ulMethod)
- {
--    off64_t nFileOffset = (DWORD)lOffSetLow;
-+    off64_t nFileOffset = lOffSetLow;
- 
-     if(pOffSetHigh != NULL)
--        nFileOffset |= (*(off64_t *)pOffSetHigh) << 32;
-+        nFileOffset = (off64_t)(((uint64_t)(uint32_t)*pOffSetHigh << 32) | (uint32_t)lOffSetLow);
- 
--    return lseek64((intptr_t)hFile, nFileOffset, ulMethod);
-+    off64_t nResult = lseek64((intptr_t)hFile, nFileOffset, ulMethod);
-+    if(pOffSetHigh != NULL && nResult != (off64_t)-1)
-+        *pOffSetHigh = (LONG)((uint64_t)nResult >> 32);
-+    return (DWORD)nResult;
- }
- 
- BOOL SetEndOfFile(HANDLE hFile)
 diff --git a/bncsutil/src/bncsutil/Makefile b/bncsutil/src/bncsutil/Makefile
 index 090fdbe..104e4c6 100644
 --- a/bncsutil/src/bncsutil/Makefile
@@ -1750,7 +1700,7 @@ index ed6c35a..a378af2 100644
  	virtual void SwapSlots( unsigned char SID1, unsigned char SID2 );
  	virtual void OpenSlot( unsigned char SID, bool kick );
 diff --git a/ghost/ghost.cpp b/ghost/ghost.cpp
-index c723c77..395fbc1 100644
+index c723c77..b8fa947 100644
 --- a/ghost/ghost.cpp
 +++ b/ghost/ghost.cpp
 @@ -30,6 +30,7 @@
@@ -1761,6 +1711,15 @@ index c723c77..395fbc1 100644
  #include "map.h"
  #include "packed.h"
  #include "savegame.h"
+@@ -48,7 +49,7 @@
+ #endif
+ 
+ #define __STORMLIB_SELF__
+-#include <stormlib/StormLib.h>
++#include <StormLib.h>
+ 
+ /*
+ 
 @@ -70,6 +71,7 @@
  #include "bnlsclient.h"
  #include "bnetprotocol.h"
@@ -2193,6 +2152,33 @@ index c723c77..395fbc1 100644
  	m_Latency = CFG->GetInt( "bot_latency", 100 );
  	m_SyncLimit = CFG->GetInt( "bot_synclimit", 50 );
  	m_VoteKickAllowed = CFG->GetInt( "bot_votekickallowed", 1 ) == 0 ? false : true;
+@@ -1392,7 +1682,7 @@ void CGHost :: ExtractScripts( )
+ 	string PatchMPQFileName = m_Warcraft3Path + "War3Patch.mpq";
+ 	HANDLE PatchMPQ;
+ 
+-	if( SFileOpenArchive( PatchMPQFileName.c_str( ), 0, MPQ_OPEN_FORCE_MPQ_V1, &PatchMPQ ) )
++	if( SFileOpenArchive( PatchMPQFileName.c_str( ), 0, MPQ_OPEN_FORCE_MPQ_V1 | MPQ_OPEN_READ_ONLY, &PatchMPQ ) )
+ 	{
+ 		CONSOLE_Print( "[GHOST] loading MPQ file [" + PatchMPQFileName + "]" );
+ 		HANDLE SubFile;
+@@ -1408,7 +1698,7 @@ void CGHost :: ExtractScripts( )
+ 				char *SubFileData = new char[FileLength];
+ 				DWORD BytesRead = 0;
+ 
+-				if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead ) )
++				if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) )
+ 				{
+ 					CONSOLE_Print( "[GHOST] extracting Scripts\\common.j from MPQ file to [" + m_MapCFGPath + "common.j]" );
+ 					UTIL_FileWrite( m_MapCFGPath + "common.j", (unsigned char *)SubFileData, BytesRead );
+@@ -1435,7 +1725,7 @@ void CGHost :: ExtractScripts( )
+ 				char *SubFileData = new char[FileLength];
+ 				DWORD BytesRead = 0;
+ 
+-				if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead ) )
++				if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) )
+ 				{
+ 					CONSOLE_Print( "[GHOST] extracting Scripts\\blizzard.j from MPQ file to [" + m_MapCFGPath + "blizzard.j]" );
+ 					UTIL_FileWrite( m_MapCFGPath + "blizzard.j", (unsigned char *)SubFileData, BytesRead );
 @@ -1655,6 +1945,8 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
  	else
  		m_CurrentGame = new CGame( this, map, NULL, m_HostPort, gameState, gameName, ownerName, creatorName, creatorServer );
@@ -2251,6 +2237,208 @@ index c9678d3..36dbd55 100644
  	uint32_t m_Latency;						// config value: the latency (by default)
  	uint32_t m_SyncLimit;					// config value: the maximum number of packets a player can fall out of sync before starting the lag screen (by default)
  	bool m_VoteKickAllowed;					// config value: if votekicks are allowed or not
+diff --git a/ghost/map.cpp b/ghost/map.cpp
+index 2bc089b..742e522 100644
+--- a/ghost/map.cpp
++++ b/ghost/map.cpp
+@@ -26,7 +26,7 @@
+ #include "map.h"
+ 
+ #define __STORMLIB_SELF__
+-#include <stormlib/StormLib.h>
++#include <StormLib.h>
+ 
+ #define ROTL(x,n) ((x)<<(n))|((x)>>(32-(n)))	// this won't work with signed types
+ #define ROTR(x,n) ((x)>>(n))|((x)<<(32-(n)))	// this won't work with signed types
+@@ -246,7 +246,7 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 	HANDLE MapMPQ;
+ 	bool MapMPQReady = false;
+ 
+-	if( SFileOpenArchive( MapMPQFileName.c_str( ), 0, MPQ_OPEN_FORCE_MPQ_V1, &MapMPQ ) )
++	if( SFileOpenArchive( MapMPQFileName.c_str( ), 0, MPQ_OPEN_FORCE_MPQ_V1 | MPQ_OPEN_READ_ONLY, &MapMPQ ) )
+ 	{
+ 		CONSOLE_Print( "[MAP] loading MPQ file [" + MapMPQFileName + "]" );
+ 		MapMPQReady = true;
+@@ -313,7 +313,7 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 							char *SubFileData = new char[FileLength];
+ 							DWORD BytesRead = 0;
+ 
+-							if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead ) )
++							if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) )
+ 							{
+ 								CONSOLE_Print( "[MAP] overriding default common.j with map copy while calculating map_crc/sha1" );
+ 								OverrodeCommonJ = true;
+@@ -349,7 +349,7 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 							char *SubFileData = new char[FileLength];
+ 							DWORD BytesRead = 0;
+ 
+-							if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead ) )
++							if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) )
+ 							{
+ 								CONSOLE_Print( "[MAP] overriding default blizzard.j with map copy while calculating map_crc/sha1" );
+ 								OverrodeBlizzardJ = true;
+@@ -407,7 +407,7 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 								char *SubFileData = new char[FileLength];
+ 								DWORD BytesRead = 0;
+ 
+-								if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead ) )
++								if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) )
+ 								{
+ 									if( *i == "war3map.j" || *i == "scripts\\war3map.j" )
+ 										FoundScript = true;
+@@ -474,7 +474,7 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 					char *SubFileData = new char[FileLength];
+ 					DWORD BytesRead = 0;
+ 
+-					if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead ) )
++					if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) )
+ 					{
+ 						istringstream ISS( string( SubFileData, BytesRead ) );
+ 
+diff --git a/ghost/socket.cpp b/ghost/socket.cpp
+index 9198e6b..e8f181e 100644
+--- a/ghost/socket.cpp
++++ b/ghost/socket.cpp
+@@ -25,7 +25,7 @@
+ #include <string.h>
+ 
+ #ifndef WIN32
+- int GetLastError( ) { return errno; }
++ int GHostSocketLastError( ) { return errno; }
+ #endif
+ 
+ //
+@@ -132,7 +132,7 @@ void CSocket :: Allocate( int type )
+ 	if( m_Socket == INVALID_SOCKET )
+ 	{
+ 		m_HasError = true;
+-		m_Error = GetLastError( );
++		m_Error = GHostSocketLastError( );
+ 		CONSOLE_Print( "[SOCKET] error (socket) - " + GetErrorString( ) );
+ 		return;
+ 	}
+@@ -262,12 +262,12 @@ void CTCPSocket :: DoRecv( fd_set *fd )
+ 			m_RecvBuffer += string( buffer, c );
+ 			m_LastRecv = GetTime( );
+ 		}
+-		else if( c == SOCKET_ERROR && GetLastError( ) != EWOULDBLOCK )
++		else if( c == SOCKET_ERROR && GHostSocketLastError( ) != EWOULDBLOCK )
+ 		{
+ 			// receive error
+ 
+ 			m_HasError = true;
+-			m_Error = GetLastError( );
++			m_Error = GHostSocketLastError( );
+ 			CONSOLE_Print( "[TCPSOCKET] error (recv) - " + GetErrorString( ) );
+ 			return;
+ 		}
+@@ -311,12 +311,12 @@ void CTCPSocket :: DoSend( fd_set *send_fd )
+ 			m_SendBuffer = m_SendBuffer.substr( s );
+ 			m_LastSend = GetTime( );
+ 		}
+-		else if( s == SOCKET_ERROR && GetLastError( ) != EWOULDBLOCK )
++		else if( s == SOCKET_ERROR && GHostSocketLastError( ) != EWOULDBLOCK )
+ 		{
+ 			// send error
+ 
+ 			m_HasError = true;
+-			m_Error = GetLastError( );
++			m_Error = GHostSocketLastError( );
+ 			CONSOLE_Print( "[TCPSOCKET] error (send) - " + GetErrorString( ) );
+ 			return;
+ 		}
+@@ -386,7 +386,7 @@ void CTCPClient :: Connect( string localaddress, string address, uint16_t port )
+ 		if( bind( m_Socket, (struct sockaddr *)&LocalSIN, sizeof( LocalSIN ) ) == SOCKET_ERROR )
+ 		{
+ 			m_HasError = true;
+-			m_Error = GetLastError( );
++			m_Error = GHostSocketLastError( );
+ 			CONSOLE_Print( "[TCPCLIENT] error (bind) - " + GetErrorString( ) );
+ 			return;
+ 		}
+@@ -416,12 +416,12 @@ void CTCPClient :: Connect( string localaddress, string address, uint16_t port )
+ 
+ 	if( connect( m_Socket, (struct sockaddr *)&m_SIN, sizeof( m_SIN ) ) == SOCKET_ERROR )
+ 	{
+-		if( GetLastError( ) != EINPROGRESS && GetLastError( ) != EWOULDBLOCK )
++		if( GHostSocketLastError( ) != EINPROGRESS && GHostSocketLastError( ) != EWOULDBLOCK )
+ 		{
+ 			// connect error
+ 
+ 			m_HasError = true;
+-			m_Error = GetLastError( );
++			m_Error = GHostSocketLastError( );
+ 			CONSOLE_Print( "[TCPCLIENT] error (connect) - " + GetErrorString( ) );
+ 			return;
+ 		}
+@@ -452,7 +452,7 @@ bool CTCPClient :: CheckConnect( )
+ #endif
+ 	{
+ 		m_HasError = true;
+-		m_Error = GetLastError( );
++		m_Error = GHostSocketLastError( );
+ 		return false;
+ 	}
+ 
+@@ -508,7 +508,7 @@ bool CTCPServer :: Listen( string address, uint16_t port )
+ 	if( bind( m_Socket, (struct sockaddr *)&m_SIN, sizeof( m_SIN ) ) == SOCKET_ERROR )
+ 	{
+ 		m_HasError = true;
+-		m_Error = GetLastError( );
++		m_Error = GHostSocketLastError( );
+ 		CONSOLE_Print( "[TCPSERVER] error (bind) - " + GetErrorString( ) );
+ 		return false;
+ 	}
+@@ -518,7 +518,7 @@ bool CTCPServer :: Listen( string address, uint16_t port )
+ 	if( listen( m_Socket, 8 ) == SOCKET_ERROR )
+ 	{
+ 		m_HasError = true;
+-		m_Error = GetLastError( );
++		m_Error = GHostSocketLastError( );
+ 		CONSOLE_Print( "[TCPSERVER] error (listen) - " + GetErrorString( ) );
+ 		return false;
+ 	}
+@@ -722,7 +722,7 @@ bool CUDPServer :: Bind( struct sockaddr_in sin )
+ 	if( bind( m_Socket, (struct sockaddr *)&m_SIN, sizeof( m_SIN ) ) == SOCKET_ERROR )
+ 	{
+ 		m_HasError = true;
+-		m_Error = GetLastError( );
++		m_Error = GHostSocketLastError( );
+ 		CONSOLE_Print( "[UDPSERVER] error (bind) - " + GetErrorString( ) );
+ 		return false;
+ 	}
+@@ -776,12 +776,12 @@ void CUDPServer :: RecvFrom( fd_set *fd, struct sockaddr_in *sin, string *messag
+ 
+ 			*message = string( buffer, c );
+ 		}
+-		else if( c == SOCKET_ERROR && GetLastError( ) != EWOULDBLOCK )
++		else if( c == SOCKET_ERROR && GHostSocketLastError( ) != EWOULDBLOCK )
+ 		{
+ 			// receive error
+ 
+ 			m_HasError = true;
+-			m_Error = GetLastError( );
++			m_Error = GHostSocketLastError( );
+ 			CONSOLE_Print( "[UDPSERVER] error (recvfrom) - " + GetErrorString( ) );
+ 		}
+ 	}
+diff --git a/ghost/socket.h b/ghost/socket.h
+index 8fa879b..c5492a1 100644
+--- a/ghost/socket.h
++++ b/ghost/socket.h
+@@ -80,7 +80,11 @@
+ 
+  #define closesocket close
+ 
+- extern int GetLastError( );
++ extern int GHostSocketLastError( );
++#endif
++
++#ifdef WIN32
++ #define GHostSocketLastError GetLastError
+ #endif
+ 
+ #ifndef INADDR_NONE
 diff --git a/ghost/sqlite3.c b/ghost/sqlite3.c
 index f69816e..e36c0f5 100644
 --- a/ghost/sqlite3.c

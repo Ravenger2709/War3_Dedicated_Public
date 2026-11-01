@@ -52,7 +52,7 @@ def storm_api(library=LIBRARY):
 def _extract(path, library):
     api = storm_api(library)
     archive = C.c_void_p()
-    if not api['open'](os.fsencode(path), 0, 0x100, C.byref(archive)):
+    if not api['open'](os.fsencode(path), 0, 0x00080100, C.byref(archive)):
         raise ValueError('MAP_MPQ_REJECTED')
     out = {}
     try:

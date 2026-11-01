@@ -71,6 +71,12 @@
     }
   ],
   "patch_sha256": {
-    "patches/ghostplusplus-modern-linux.patch": "d10bfedd130463bc143ce55154c154730244784371b5f0f5c21e1b0a30b1a5cd"
+    "patches/ghostplusplus-modern-linux.patch": "1aee4af70af05bd328810eb7b5df244efb07c0c02e0c77e825bc130dbdce0c79"
+  },
+  "stormlib": {
+    "repository": "https://github.com/ladislav-zezula/StormLib.git",
+    "revision": "3846f0b8e2c47320c6b499492496f3e3f2e76821",
+    "version": "9.24",
+    "license": "MIT"
   }
 }

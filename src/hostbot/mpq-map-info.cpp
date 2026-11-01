@@ -1,12 +1,11 @@
 // Read only war3map.w3i via the same native StormLib used by GHost++.
 #include <cstdio>
 #include <vector>
-#define __STORMLIB_SELF__
-#include <stormlib/StormLib.h>
+#include <StormLib.h>
 int main(int argc, char **argv) {
     if (argc != 2) return 2;
     HANDLE archive = NULL, file = NULL;
-    if (!SFileOpenArchive(argv[1], 0, MPQ_OPEN_FORCE_MPQ_V1, &archive)) return 3;
+    if (!SFileOpenArchive(argv[1], 0, MPQ_OPEN_FORCE_MPQ_V1 | MPQ_OPEN_READ_ONLY, &archive)) return 3;
     if (!SFileOpenFileEx(archive, "war3map.w3i", 0, &file)) {
         SFileCloseArchive(archive); return 4;
     }

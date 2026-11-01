@@ -18,6 +18,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 BUILDER = 'sha256:c6e84f827e7b3483a56f67755ff1cbca3f5bb7a90e0253c4379a504ef5e7e62f'
 REVISION = '6ba90f426e96f80fe013a468d1e07151a510adbe'
+STORM_REVISION = '3846f0b8e2c47320c6b499492496f3e3f2e76821'
 FILES = ['scripts/build-ghost.sh', 'scripts/ghost-check-source.py',
          'tests/offline/test_ghost_source_guard.py', 'tests/phase3/native-build.sh',
          'tests/phase3/native-driver.cpp', 'tests/phase3/native-test.py',
@@ -29,10 +30,14 @@ FILES = ['scripts/build-ghost.sh', 'scripts/ghost-check-source.py',
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, default=ROOT/'vendor/ghostplusplus')
+    parser.add_argument('--storm-source', type=Path, default=ROOT/'vendor/stormlib')
+    parser.add_argument('--builder', default=BUILDER, help='local test builder image containing CMake and a compiler')
     parser.add_argument('--deps', type=Path, required=True)
     parser.add_argument('--sanitizers', choices=['address,undefined'], default=None)
     args = parser.parse_args()
-    source, deps = args.source.resolve(), args.deps.resolve()
+    source, storm_source, deps = args.source.resolve(), args.storm_source.resolve(), args.deps.resolve()
+    if subprocess.check_output(['git', '-C', str(storm_source), 'rev-parse', 'HEAD'], text=True).strip() != STORM_REVISION:
+        parser.error('StormLib source must have the pinned upstream HEAD')
     if not (deps/'usr/include/boost').is_dir():
         parser.error('deps must be the existing public native dependency directory')
     head = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
@@ -48,8 +53,13 @@ def main():
     (vendor/'.git/info/sparse-checkout').write_text('/*\n!*.exe\n!*.dll\n!*.w3x\n!*.w3m\n!*.mpq\n!*.icc\n')
     subprocess.run(['git', '-C', str(vendor), 'checkout', '--quiet', '--detach', REVISION], check=True)
     subprocess.run(['git', '-C', str(vendor), 'apply', str(stage/'patches/ghostplusplus-modern-linux.patch')], check=True)
+    storm=stage/'vendor/stormlib'
+    subprocess.run(['git', 'clone', '--quiet', '--no-checkout', '--no-hardlinks', str(storm_source), str(storm)], check=True)
+    subprocess.run(['git', '-C', str(storm), 'config', 'core.sparseCheckout', 'true'], check=True)
+    (storm/'.git/info/sparse-checkout').write_text('/*\n!*.exe\n!*.dll\n!*.w3x\n!*.w3m\n!*.mpq\n!*.icc\n')
+    subprocess.run(['git', '-C', str(storm), 'checkout', '--quiet', '--detach', STORM_REVISION], check=True)
     forbidden={'.exe','.dll','.w3x','.w3m','.mpq','.icc'}
-    if any(p.suffix.lower() in forbidden for p in vendor.rglob('*') if '.git' not in p.parts):
+    if any(p.suffix.lower() in forbidden for tree in (vendor, storm) for p in tree.rglob('*') if '.git' not in p.parts):
         raise SystemExit('refusing binary/game artifacts in source mount')
     log=stage/'native-test.log'
     cmd=['docker','--host','unix:///var/run/docker.sock','run','--rm','--pull=never','--network=none',
@@ -59,13 +69,13 @@ def main():
          '--mount',f'type=bind,src={stage},dst=/repo',
          '--mount',f'type=bind,src={deps},dst=/deps,readonly','--workdir','/repo','--entrypoint','/bin/bash']
     if args.sanitizers: cmd += ['-e',f'GHOST_SANITIZERS={args.sanitizers}']
-    cmd += [BUILDER,'tests/phase3/native-build.sh']
+    cmd += [args.builder,'tests/phase3/native-build.sh']
     started = time.monotonic()
     with log.open('w') as out:
         code=subprocess.run(cmd,stdout=out,stderr=subprocess.STDOUT).returncode
     log_bytes = log.read_bytes()
     summaries = re.findall(rb'Ran (\d+) tests in ([\d.]+)s', log_bytes)
-    result=dict(version=2, builder=BUILDER, upstream_revision=REVISION,
+    result=dict(version=2, builder=args.builder, upstream_revision=REVISION, stormlib_revision=STORM_REVISION,
                 patch_sha256=hashlib.sha256((stage/'patches/ghostplusplus-modern-linux.patch').read_bytes()).hexdigest(),
                 staged_inputs_sha256={name:hashlib.sha256((stage/name).read_bytes()).hexdigest() for name in FILES},
                 network='none',sanitizers=args.sanitizers or '',exit_code=code,log=str(log),

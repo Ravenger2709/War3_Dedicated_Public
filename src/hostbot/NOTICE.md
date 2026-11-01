@@ -1,35 +1,9 @@
-# Исходники и уведомления зависимостей
+# Native host dependencies and notices
 
-Исходники GHost++ не включены в Git этого проекта. Сборка загружает
-`https://github.com/ghostBot/ghostplusplus.git`, строго
-`6ba90f426e96f80fe013a468d1e07151a510adbe`; локальные изменения перечислены
-в `patches/ghostplusplus-modern-linux.patch`. Исходный checkout с применённым
-патчем остаётся в игнорируемом `vendor/ghostplusplus/`.
+GHost++ is fetched at build time from [ghostBot/ghostplusplus](https://github.com/ghostBot/ghostplusplus/tree/6ba90f426e96f80fe013a468d1e07151a510adbe), revision `6ba90f426e96f80fe013a468d1e07151a510adbe`. Trevor Hogan's GHost++ is Apache-2.0; the integration patch is maintained in this repository. The upstream source checkout and its bundled historical StormLib are not included in the runtime image.
 
-| Компонент | Проверенное уведомление |
-| --- | --- |
-| GHost++ 17.2 | Copyright Trevor Hogan 2008, Apache License 2.0; `license.txt`, заголовки `ghost/*.cpp` |
-| BNCSutil | Copyright Eric Naeseth 2004–2006; LGPL 2.1 или более поздняя; заголовки `bncsutil/src/bncsutil/{bncsutil.h,nls.c}`. Отдельного COPYING в данном snapshot нет. |
-| SQLite 3.7.13 | Встроен в `ghost/sqlite3.c`; авторский отказ от copyright в начале amalgamation |
-| Старый StormLib | Copyright Ladislav Zezula 1998–2009, Linux port Marko Friedemann 2001, Mac port Sam Wilkins. В этом snapshot нет отдельной лицензии основного StormLib; заголовки и уведомления сохранены. |
-| StormLib PKLIB | В исходниках есть copyright Ladislav Zezula и строковое уведомление PKWARE Inc. 1989–1995. Не считаем весь этот каталог автоматически Apache/GPL/MIT. |
-| zlib | Системная zlib, не bundled zlib 1.2.3. Уведомление пакета Ubuntu копируется при наличии. |
-| bzip2 | Системная libbz2; bundled `StormLib/stormlib/bzip2/LICENSE` сохранена отдельно как исторический notice |
-| Boost 1.83 | Системные/распакованные Boost.Filesystem и Boost.System; copyright-файлы пакетов Ubuntu сохраняются |
-| GMP 6.3 | Системная/распакованная shared library; copyright-файл пакета Ubuntu и доступные стандартные тексты LGPL/GPL сохраняются |
+GHost++ uses BNCSutil by Eric Naeseth (LGPL-2.1-or-later) and its upstream SQLite amalgamation (public domain). Builds use dynamic linking for BNCSutil and retain upstream notices. Source for the pinned components and the exact changes can be obtained using `scripts/build-ghost.sh` and `third_party/ghost.lock.json`; upstream LGPL obligations continue to apply.
 
-Первичные ссылки на snapshot:
+MPQ handling uses pinned [StormLib 9.24](https://github.com/ladislav-zezula/StormLib/tree/3846f0b8e2c47320c6b499492496f3e3f2e76821) by Ladislav Zezula and contributors, under MIT. It uses the upstream fixes for failed file opens. LibTomCrypt and LibTomMath sources bundled with StormLib are public domain; system zlib and bzip2 retain their package notices. The old GHost++ bundled StormLib, including the historical Linux port, is **not compiled or linked**. Package copyright files are installed under `/opt/war3/share/licenses/`.
 
-- https://github.com/ghostBot/ghostplusplus/blob/6ba90f426e96f80fe013a468d1e07151a510adbe/license.txt
-- https://github.com/ghostBot/ghostplusplus/blob/6ba90f426e96f80fe013a468d1e07151a510adbe/bncsutil/src/bncsutil/nls.c
-- https://github.com/ghostBot/ghostplusplus/blob/6ba90f426e96f80fe013a468d1e07151a510adbe/StormLib/stormlib/StormLib.h
-- https://github.com/ghostBot/ghostplusplus/blob/6ba90f426e96f80fe013a468d1e07151a510adbe/StormLib/stormlib/pklib/explode.c
-- https://github.com/ghostBot/ghostplusplus/blob/6ba90f426e96f80fe013a468d1e07151a510adbe/StormLib/stormlib/bzip2/LICENSE
-- https://github.com/ghostBot/ghostplusplus/blob/6ba90f426e96f80fe013a468d1e07151a510adbe/ghost/sqlite3.c
-
-Современный авторский StormLib публикует MIT:
-https://github.com/ladislav-zezula/StormLib/blob/master/LICENSE.
-Это справочная информация, а не доказательство лицензии каждого файла старого
-snapshot. До публичной поставки образа нужно уточнить условия старого StormLib
-и сохранить соответствующие исходники/уведомления динамических зависимостей.
-Автоматической публикации образа наш build-скрипт не выполняет.
+Other dynamic dependencies include Boost.Filesystem/System, GMP, zlib and bzip2; retain their package copyright files and comply with their own licenses. Star, Warcraft III, maps and account files are user-provided runtime inputs, never build inputs or image contents.

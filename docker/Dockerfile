@@ -16,7 +16,7 @@ RUN dpkg-deb -x /tmp/ca-certificates.deb / \
 FROM packages AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates git g++ make python3 libboost-filesystem-dev \
-    libboost-system-dev libbz2-dev libgmp-dev zlib1g-dev \
+    libboost-system-dev libbz2-dev libgmp-dev zlib1g-dev cmake \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY scripts/build-ghost.sh scripts/build-ghost.sh
@@ -27,7 +27,7 @@ COPY src/hostbot/ src/hostbot/
 RUN JOBS=2 bash scripts/build-ghost.sh \
     && mkdir -p /install/bin /install/lib /install/share \
     && cp build/ghost/ghost++ /install/bin/ghost++ \
-    && cp build/ghost/lib/*.so /install/lib/ \
+    && cp -a build/ghost/lib/. /install/lib/ \
     && cp -a build/ghost/share/. /install/share/ \
     && cp build/ghost/upstream-revision /install/share/ \
     && dpkg-query -W > /install/share/build-packages.txt \

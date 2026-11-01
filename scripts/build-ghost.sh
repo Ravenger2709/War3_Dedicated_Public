@@ -52,11 +52,23 @@ elif ! git -C vendor/ghostplusplus apply --reverse --check "$PATCH" 2>/dev/null;
     echo 'Checkout does not match the expected compatibility patch' >&2; exit 1
 fi
 python3 scripts/ghost-check-source.py vendor/ghostplusplus
-INC= LIB=
+STORM_REV=3846f0b8e2c47320c6b499492496f3e3f2e76821
+if [[ ! -d vendor/stormlib/.git ]]; then
+    git clone --no-checkout https://github.com/ladislav-zezula/StormLib.git vendor/stormlib
+    git -C vendor/stormlib checkout --detach "$STORM_REV"
+fi
+[[ $(git -C vendor/stormlib rev-parse HEAD) == "$STORM_REV" ]] || { echo 'Unpinned StormLib checkout' >&2; exit 1; }
+[[ -z $(git -C vendor/stormlib status --porcelain --untracked-files=all) ]] || { echo 'Modified StormLib checkout refused' >&2; exit 1; }
+cmake -S vendor/stormlib -B build/stormlib -DBUILD_SHARED_LIBS=ON -DSTORM_BUILD_TESTS=OFF \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_C_FLAGS="$OPT $SANFLAGS" -DCMAKE_CXX_FLAGS="$OPT $SANFLAGS" \
+    -DCMAKE_SHARED_LINKER_FLAGS="$SANFLAGS"
+cmake --build build/stormlib --parallel "$JOBS"
+INC="-I$ROOT/vendor/stormlib/src" LIB="-L$ROOT/build/stormlib"
 if [[ -n "$DEPS_ROOT" ]]; then
     DEPS_ROOT=$(cd "$DEPS_ROOT" && pwd)
-    INC="-I$DEPS_ROOT/usr/include -I$DEPS_ROOT/usr/include/x86_64-linux-gnu"
-    LIB="-L$DEPS_ROOT/usr/lib/x86_64-linux-gnu"
+    INC="$INC -I$DEPS_ROOT/usr/include -I$DEPS_ROOT/usr/include/x86_64-linux-gnu"
+    LIB="$LIB -L$DEPS_ROOT/usr/lib -L$DEPS_ROOT/usr/lib/x86_64-linux-gnu"
 fi
 # Upstream makefiles do not track changes to command-line compiler flags.
 # Clean our own vendor products when the profile changes, including returning
@@ -64,7 +76,7 @@ fi
 GHOST_PATCH_SHA=$(sha256sum "$PATCH" | cut -d ' ' -f 1)
 PROFILE="$OPT|$SANFLAGS|$INC|$LIB|$GHOST_PATCH_SHA"
 if [[ ! -f build/ghost-build-profile ]] || [[ $(cat build/ghost-build-profile) != "$PROFILE" ]]; then
-    for directory in bncsutil/src/bncsutil StormLib/stormlib ghost; do
+    for directory in bncsutil/src/bncsutil ghost; do
         make -C "vendor/ghostplusplus/$directory" clean
     done
     printf '%s\n' "$PROFILE" > build/ghost-build-profile
@@ -72,14 +84,11 @@ fi
 make -C vendor/ghostplusplus/bncsutil/src/bncsutil -j"$JOBS" \
     CXXFLAGS="-std=gnu++11 $OPT $SANFLAGS -I../ -fPIC $INC" \
     CCFLAGS="$OPT $SANFLAGS -I../ -fPIC $INC" LDFLAGS="-shared $SANFLAGS $LIB -lgmp"
-make -C vendor/ghostplusplus/StormLib/stormlib -j"$JOBS" \
-    'C++=g++ -std=gnu++11' CFLAGS="$OPT $SANFLAGS -fPIC -D__SYS_ZLIB $INC" \
-    LFLAGS="-shared $SANFLAGS $LIB -lbz2 -lz"
 # SQLite is bundled upstream; MySQL is intentionally disabled. Modern Boost
 # libraries have no -mt suffix. Thread/date_time are unused without MySQL.
 make -C vendor/ghostplusplus/ghost -j"$JOBS" 'C++=g++ -std=gnu++11' \
     DFLAGS= OFLAGS="$OPT $SANFLAGS $INC" \
-    LFLAGS="$SANFLAGS -L../bncsutil/src/bncsutil -L../StormLib/stormlib $LIB -lbncsutil -lpthread -ldl -lz -lStorm -lboost_filesystem -lboost_system -lrt"
+    LFLAGS="$SANFLAGS -L../bncsutil/src/bncsutil  $LIB -lbncsutil -lpthread -ldl -lz -lstorm -lboost_filesystem -lboost_system -lrt"
 publish_elf() {
     local source=$1 destination=$2 temporary
     temporary=$(mktemp "${destination}.XXXXXXXX")
@@ -88,17 +97,15 @@ publish_elf() {
 }
 publish_elf vendor/ghostplusplus/ghost/ghost++ build/ghost/ghost++
 publish_elf vendor/ghostplusplus/bncsutil/src/bncsutil/libbncsutil.so build/ghost/lib/libbncsutil.so
-publish_elf vendor/ghostplusplus/StormLib/stormlib/libStorm.so build/ghost/lib/libStorm.so
-g++ -std=gnu++11 $OPT $SANFLAGS -Ivendor/ghostplusplus/StormLib src/hostbot/mpq-map-info.cpp \
-    -Lbuild/ghost/lib -lStorm -Wl,-rpath,'$ORIGIN/lib' -o build/ghost/mpq-map-info
+publish_elf build/stormlib/libstorm.so.9.22.0 build/ghost/lib/libstorm.so.9
+ln -sf libstorm.so.9 build/ghost/lib/libStorm.so
+g++ -std=gnu++11 $OPT $SANFLAGS  $INC src/hostbot/mpq-map-info.cpp \
+    $LIB -lstorm -Wl,-rpath,'$ORIGIN/lib' -o build/ghost/mpq-map-info
 install -m644 vendor/ghostplusplus/language.cfg build/ghost/share/language.cfg
 install -m644 vendor/ghostplusplus/license.txt build/ghost/share/licenses/ghostplusplus-Apache-2.0.txt
+install -m644 vendor/stormlib/LICENSE build/ghost/share/licenses/StormLib-MIT.txt
 install -m644 src/hostbot/NOTICE.md build/ghost/share/licenses/NOTICE.md
-install -m644 vendor/ghostplusplus/StormLib/stormlib/bzip2/LICENSE build/ghost/share/licenses/historical-bzip2.txt
 head -n 28 vendor/ghostplusplus/bncsutil/src/bncsutil/nls.c > build/ghost/share/licenses/bncsutil-source-notice.txt
-head -n 59 vendor/ghostplusplus/StormLib/stormlib/StormLib.h > build/ghost/share/licenses/StormLib-source-notice.txt
-head -n 25 vendor/ghostplusplus/StormLib/stormlib/StormPort.h > build/ghost/share/licenses/StormPort-source-notice.txt
-head -n 125 vendor/ghostplusplus/StormLib/stormlib/pklib/explode.c > build/ghost/share/licenses/PKLIB-source-notice.txt
 for license in LGPL-2.1 GPL-2 GPL-3; do
     [[ ! -f "/usr/share/common-licenses/$license" ]] || cp "/usr/share/common-licenses/$license" build/ghost/share/licenses/
 done

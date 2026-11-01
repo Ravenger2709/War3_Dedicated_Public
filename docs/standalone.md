@@ -13,15 +13,19 @@ UID/GID for every command. The CLI does not install dependencies or change Docke
 permissions. Only one instance can use the fixed container name and TCP 6113 on
 this host; an existing AMP or unrelated container is never adopted or stopped.
 
-This public source tree does not contain any accepted runtime image or release identity. Follow [source build and validation](build-from-source.md) first. Obtain the matching trusted source checkout, verified runtime image and maintainer's
-`release-identity.json`. The latter contains the original approved gate and full
-image Config/RootFS/platform identity. Authenticate to a private registry with
-ordinary `docker login`, then pull the maintainer's immutable digest reference:
+Download the matching source archive, Docker image, release identity and
+`SHA256SUMS` from the same [GitHub Release](https://github.com/Ravenger2709/War3_Dedicated_Public/releases). Verify the downloads, then import the image:
 
 ```bash
-: "${RUNTIME_PULL_REF:?Set an immutable trusted registry@sha256 reference first}"
-docker pull "$RUNTIME_PULL_REF"
+sha256sum --check SHA256SUMS
+docker load --input war3-runtime-linux-amd64.tar.gz
+export RUNTIME_PULL_REF=war3-dedicated:v0.4.0
 ```
+
+Use the tagged source checkout accompanying the release, and the accompanying
+`release-identity.json` from a trusted release. Setup checks the local image's
+complete configuration, layer identity and source digest against that identity.
+The release archive does not contain Star, Warcraft III, maps or credentials.
 
 The CLI does not change repository/registry visibility. It never pulls or builds
 an image, invents approval, deploys remotely, or discovers credentials.

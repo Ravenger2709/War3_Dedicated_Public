@@ -69,8 +69,9 @@ The source profile is unchanged. Vendor files and profile copies are mode 0600.
 
 Use non-root Linux amd64, read-only container root, `--cap-drop ALL`,
 `no-new-privileges`, writable private data and a writable `/tmp` tmpfs.
-Wine/Xvfb/system tools come from the pinned authentication image
-`sha256:11af7c6327c55676747362e0da362c32f8bb04c058e875936294020669ccfec1`.
+Wine/Xvfb/system tools come from the explicitly pinned Wine base image. The
+actual base image ID is recorded in the `war3.production.wine-id` image label
+and build receipt.
 The image supplies `wine`, `wineboot`, `wineserver`, `Xvfb`, `xdpyinfo` and
 Python 3; no native BNCS library is required by this worker. Build
 `quit-launcher.exe` from `docker/wine-research/quit-launcher.c`; no opaque helper

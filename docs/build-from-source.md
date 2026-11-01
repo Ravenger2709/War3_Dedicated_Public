@@ -1,6 +1,6 @@
 # Building and validating from source
 
-**This repository is source-only.** It does not ship a prebuilt runtime or an approved release identity. The instructions below document the build inputs; they are **not** a claim that an untested local build is production-ready. The exact build remains deliberately pinned and rejects mismatched source or image IDs.
+Prebuilt runtime images and matching identities are distributed separately through GitHub Releases. The instructions below document the build inputs; they are **not** a claim that an untested local build is production-ready. The exact build remains deliberately pinned and rejects mismatched source or image IDs.
 
 Requirements: Linux amd64, Docker Engine/BuildKit, Python 3.10+, network access to the official upstream dependencies for the initial builds, and sufficient disk space. Only build from a source revision you trust. None of the commands require proprietary Warcraft, map, account or Star files.
 

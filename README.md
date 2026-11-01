@@ -4,7 +4,7 @@
 
 An open-source, headless Warcraft III 1.26a lobby hostbot for iCCup. It combines a native **GHost++** game host with the user's own **Star** client running under Wine, a Python supervisor and a loopback relay. It can host supported AI maps, replace AI-controlled lobby slots with real players, vote to start and recreate lobbies after games. Only game TCP **6113** is exposed by the production runtime.
 
-**No Warcraft III, Star, maps, account profiles, passwords or private runtime images are included.** You must supply files you are legally permitted to use. This is a **source-only public snapshot**; it does not publish the former maintainer's private GHCR image or acceptance/release identity. Do not expect `docker compose up` or `scripts/war3.py start` to work without preparing and verifying a compatible production runtime first.
+**No Warcraft III, Star, maps, account profiles, passwords or private runtime images are included.** You must supply files you are legally permitted to use. Download the tested runtime image and matching release identity from [GitHub Releases](https://github.com/Ravenger2709/War3_Dedicated_Public/releases). The legacy Compose prototype is not the production iCCup runtime.
 
 ## Components
 
@@ -21,7 +21,7 @@ No external database server is required; runtime state uses local SQLite. Wine a
 
 ## Installation and development
 
-1. Read [building a runtime from source](docs/build-from-source.md): build a GHost++ native base, a Wine base, the helper stage and a production image. The production image must be subjected to your own tests and acceptance checks. A build receipt alone does not certify it.
+1. Download the release image and its identity as described in [standalone setup](docs/standalone.md), or read [building a runtime from source](docs/build-from-source.md).
 2. For a verified immutable runtime plus corresponding trusted release identity, use [Docker standalone setup](docs/standalone.md) (Linux amd64, Docker, Python 3.10+) or the [AMP operator guide](docs/operator-quickstart.md).
 3. Supply your own licensed Warcraft III 1.26a and Star files, map and iCCup account via the private setup process. Account passwords are entered interactively or into AMP's private instance settings and must never be committed.
 4. For maps with verified AI support, edit `data/config/presets.json` and select the desired preset. See [presets](docs/map-presets.md) and [account setup](docs/account-setup.md).
@@ -46,4 +46,4 @@ The project's original integration code is provided under the [Apache License 2.
 
 ## По-русски
 
-Этот репозиторий содержит исходники хост-бота Warcraft III для iCCup. Можно использовать Docker без AMP или подключить Generic-шаблон AMP. Для запуска нужны собственные файлы Star/Warcraft III, карта, отдельный iCCup-аккаунт и собранный/проверенный runtime-образ. Приватные конфигурации и готовые образы автора здесь не публикуются. Параметры автостарта, голосования и ИИ редактируются в [пресетах](docs/map-presets.md); инструкции по [Docker](docs/standalone.md) и [AMP](docs/operator-quickstart.md) доступны в репозитории.
+Этот репозиторий содержит исходники хост-бота Warcraft III для iCCup. Можно использовать Docker без AMP или подключить Generic-шаблон AMP. Для запуска нужны собственные файлы Star/Warcraft III, карта, отдельный iCCup-аккаунт и собранный/проверенный runtime-образ. Приватные конфигурации не публикуются; готовый образ и данные проверки доступны в GitHub Releases. Параметры автостарта, голосования и ИИ редактируются в [пресетах](docs/map-presets.md); инструкции по [Docker](docs/standalone.md) и [AMP](docs/operator-quickstart.md) доступны в репозитории.

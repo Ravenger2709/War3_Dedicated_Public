@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import shutil
 import struct
+import subprocess
+import sys
 import tempfile
 import time
 from types import SimpleNamespace
@@ -303,18 +305,27 @@ class MPQTests(unittest.TestCase):
         self.extract.start()
         self.addCleanup(self.extract.stop)
 
+    def test_missing_archive_never_closes_standard_input(self):
+        code = "import ctypes as c,os,sys; from src.runtime.mpq import storm_api; api=storm_api(sys.argv[1]); h=c.c_void_p(); assert not api['open'](b'/nonexistent-war3-test.mpq',0,0x80100,c.byref(h)); os.fstat(0)"
+        result = subprocess.run([sys.executable, '-c', code, str(STORM)], input=b'',
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+
     def mpq(self, script=AI_SCRIPT, info=None, members=None, name='test.w3x'):
         path = self.root / 'maps' / name
         # Production extractor only binds read APIs. Fixture creation stays in tests.
         lib = C.CDLL(STORM)
-        create = getattr(lib, 'SFileCreateArchiveEx', None) or getattr(lib, '_Z20SFileCreateArchiveExPKcjjPPv')
+        create = getattr(lib, 'SFileCreateArchive', None)
+        create_flags = 0 if create else 2
+        if create is None:
+            create = getattr(lib, 'SFileCreateArchiveEx', None) or getattr(lib, '_Z20SFileCreateArchiveExPKcjjPPv')
         create.argtypes = [C.c_char_p, C.c_uint32, C.c_uint32, C.POINTER(C.c_void_p)]
         create.restype = C.c_bool
         add = getattr(lib, 'SFileAddFileEx', None) or getattr(lib, '_Z14SFileAddFileExPvPKcS1_jji')
         add.argtypes = [C.c_void_p, C.c_char_p, C.c_char_p, C.c_uint32, C.c_uint32, C.c_int]
         add.restype = C.c_bool
         archive = C.c_void_p()
-        self.assertTrue(create(os.fsencode(path), 2, 32, C.byref(archive)))
+        self.assertTrue(create(os.fsencode(path), create_flags, 32, C.byref(archive)))
         api = storm_api(STORM)
         try:
             data = members if members is not None else {'war3map.w3i': info or info_fixture(), 'war3map.j': script}

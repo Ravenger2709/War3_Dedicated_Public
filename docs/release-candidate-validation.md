@@ -1,4 +1,6 @@
-# Candidate validation: 2026-11-01
+# Historical candidate validation: 2026-11-01
+
+This report describes the pre-migration candidate and its historical dependency. The StormLib migration is validated separately in the release notes.
 
 This documents local test evidence, **not a production acceptance gate or a public binary release**. Source tested: `d0294064016673aa4128ad382064e61981b4fe8b`; candidate Docker image ID `sha256:de03c04084a98671add6108ed7866382930a2b919a3f10dc8406c2b69d8174d7`. Native patch SHA-256: `d10bfedd130463bc143ce55154c154730244784371b5f0f5c21e1b0a30b1a5cd`.
 
