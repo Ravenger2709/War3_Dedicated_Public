@@ -51,3 +51,13 @@ python3 scripts/check-public-tree.py
 ```
 
 These tests are **not** a substitute for a release gate. The production image and pinned base images must be validated in their actual target environment before hosting users.
+
+## One-command local candidate build
+
+To build the three bases and assemble a candidate from this checkout, run:
+
+```bash
+scripts/build-release-candidate.sh war3-production:local /absolute/private/build-receipt.json
+```
+
+The receipt path must not already exist. Docker needs network access to the pinned upstream sources when preparing the bases; final assembly itself runs without network access. The resulting local image and receipt are **not** an accepted release: complete the checks above before issuing an acceptance gate or distributing an image. The builder keeps the named input images in the local Docker cache for reuse.
