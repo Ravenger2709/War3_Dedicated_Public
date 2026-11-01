@@ -44,7 +44,13 @@ path: the ownership marker and Docker bind sources must match.
 ## Set up and enter the account
 
 Supply your licensed Star directory, Warcraft III 1.26a directory, selected map
-and VC2015 x86 installer:
+and VC2015 x86 installer. The runtime requires Star Launcher **4.3.75.75** and
+the exact 31 files recorded in `config/star-vendor-files.json`; a different Star
+version is rejected. Download Star from the [official iCCup page](https://iccup.com/files/view/iCCup_BETA_Star_Launcher.html)
+and allow its official updater to update a separate installation if needed. The
+VC2015 x86 installer hash is documented in the [AMP guide](operator-quickstart.md).
+Never add the Star installation or its profile to Git or the Docker image:
+
 
 ```bash
 python3 scripts/war3.py setup --noninteractive \
