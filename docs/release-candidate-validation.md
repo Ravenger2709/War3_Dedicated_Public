@@ -33,7 +33,9 @@ under `/opt/wine-stable` matched the previously verified base. A separate
 no-cache final packaging build used the same base IDs and source digest;
 runtime source, libraries and GHost++ matched, and the helper matched after
 excluding PE timestamp and checksum fields. The phase-3 suite passed 251 tests
-(four optional skips), and 152 bridge tests passed. A separate offline cohort
+(four optional skips), and 152 bridge tests passed. A fresh ASan/UBSan build
+with native inputs matched against the candidate passed 73 gameplay tests and
+7 publication tests; its raw log and source-hash receipt were checked. A separate offline cohort
 test recovered Star, relay and native GHost after SIGKILL, preserved SQLite,
 reported no false authentication, and found no remaining vendor processes or
 zombies. A 21-layer path audit passed; a content audit of 15,453 image files and
@@ -44,6 +46,8 @@ The new image archive was loaded successfully and preserved the candidate ID.
 A 900-second offline soak completed in 1012.134 seconds with the original Star,
 synthetic profile, no network and no game-engine execution. It verified cold
 and persistent-prefix starts, native crash recovery, SQLite persistence and
-orderly stop; no zombie processes or OOM kills were observed. AMP dynamic
-selector validation remains in progress. No gate or release identity has been
-issued for this candidate at the time of this record.
+orderly stop; no zombie processes or OOM kills were observed. All twelve
+acceptance gate checks passed against the recorded evidence, and the identity
+was exported for this exact image. A fresh standalone setup using that identity
+and Angel Arena generated a valid base preset. AMP dynamic-selector validation
+remains separate; no real iCCup session or client game was tested on this image.
