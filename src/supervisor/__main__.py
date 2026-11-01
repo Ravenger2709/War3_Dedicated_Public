@@ -67,8 +67,14 @@ def main():
     except Exception as error:
         # Config values and account files must not be printed on error.
         from src.connector import UnsupportedAuthentication
-        code = "ICCup_AUTH_BLOCKED" if isinstance(error, UnsupportedAuthentication) else "configuration_or_startup_failed"
-        print(json.dumps({"error": code, "type": type(error).__name__}), file=sys.stderr)
+        from src.runtime.presets import AIEvidenceError
+        if isinstance(error, AIEvidenceError):
+            print(json.dumps({"error": "PRESET_AI_EVIDENCE_REJECTED", "message":
+                              "AI cannot be enabled: no unique evidence matches this map and script. "
+                              "Disable AI or check the map and preset approvals."}), file=sys.stderr)
+        else:
+            code = "ICCup_AUTH_BLOCKED" if isinstance(error, UnsupportedAuthentication) else "configuration_or_startup_failed"
+            print(json.dumps({"error": code, "type": type(error).__name__}), file=sys.stderr)
         return 2
 
     def shutdown(*_):

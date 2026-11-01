@@ -561,7 +561,8 @@ else:
         with patch.object(production, "prepare", side_effect=extended):
             self.setup()
         expected = next(p for p in presets["presets"] if p["id"] == "footman-ultimate-ai")
-        self.assertEqual(self.generated(), {"version": 1, "presets": [{**expected, "map_filename": "selected.w3x"}],
+        expected = {**expected, "map_filename": "selected.w3x"}
+        self.assertEqual(self.generated(), {"version": 1, "presets": [expected],
                                            "capabilities": presets["capabilities"]})
         self.assertEqual(production.read_json(self.destination / "control/account-input.json"), {})
         self.assertTrue((self.destination / "control/account_setup.py").is_file())
@@ -575,6 +576,7 @@ else:
         self.assertEqual(len(document["presets"]), 1)
         self.assertEqual(document["capabilities"], example["capabilities"])
         self.assertFalse(document["capabilities"][0]["runtime_tested"])
+        self.assertTrue(document["presets"][0]["ai"]["enabled"])
         self.assertEqual(production.read_json(self.destination / "acceptance.json"), self.accepted)
         config = boot.validate_startup_config(self.destination / "data/config/supervisor.json")
         self.assertEqual(config["gameplay"]["map_preset"], "footman-ultimate-ai")
@@ -616,7 +618,15 @@ else:
             self.destination = self.root / ("unknown-" + mismatch)
             with self.subTest(mismatch=mismatch):
                 self.setup()
-                self.assertEqual(self.generated()["capabilities"], [])
+                records = self.generated()["capabilities"]
+                if mismatch == "features":
+                    self.assertEqual(records, [])
+                    entry = self.generated()["presets"][0]
+                    self.assertFalse(entry["ai"]["enabled"])
+                    continue
+                self.assertEqual(len(records), 1)
+                self.assertEqual(records[0]["review"], "automatic static evidence; no runtime validation")
+                self.assertFalse(records[0]["runtime_tested"])
                 entry = self.generated()["presets"][0]
                 self.assertEqual(entry["id"], "selected-map")
                 self.assertEqual(entry["lobby_name"], self.analysis["lobby_name"])

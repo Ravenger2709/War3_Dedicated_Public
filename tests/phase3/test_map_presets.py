@@ -23,7 +23,8 @@ from src.runtime.mpq import LIBRARY, extract_map, storm_api
 from src.runtime.native import native_state, prepare_native
 from src.runtime.presets import (AI_OFF, analyze_map, load_presets, lobby_name,
                                  map_basename, map_info, resolve_preset,
-                                 script_evidence, short_title)
+                                 script_evidence, short_title, matching_ai_approval)
+from amp.map_discovery import automatic_approval
 from src.supervisor.__main__ import serve
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +41,76 @@ call TriggerAddAction(CreateTrigger(), function Act)
 endfunction
 '''
 PLAIN_SCRIPT = b'function main takes nothing returns nothing\nendfunction\n'
+
+
+class ApprovalSelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.analysis = {'map_sha256': 'a' * 64, 'script_sha256': 'b' * 64,
+                         'ai_evidence': script_evidence(AI_SCRIPT)}
+        self.record = automatic_approval(self.analysis, [])
+
+    def test_implicit_unique_match_and_explicit_legacy(self):
+        self.assertEqual(matching_ai_approval({}, {'reviewed': self.record}, self.analysis), self.record)
+        self.assertEqual(matching_ai_approval({'capability': 'reviewed'}, {'reviewed': self.record}, self.analysis), self.record)
+        with self.assertRaisesRegex(ValueError, 'AI_EVIDENCE'):
+            matching_ai_approval({'capability': 'other'}, {'reviewed': self.record}, self.analysis)
+
+    def test_mismatches_and_ambiguity_fail_closed(self):
+        for field in ('map_sha256', 'script_sha256'):
+            changed = copy.deepcopy(self.record)
+            changed[field] = 'c' * 64
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'AI_EVIDENCE'):
+                matching_ai_approval({}, {'reviewed': changed}, self.analysis)
+        with self.assertRaisesRegex(ValueError, 'AI_EVIDENCE'):
+            matching_ai_approval({}, {'a': self.record, 'b': self.record}, self.analysis)
+        no_features = {**self.analysis, 'ai_evidence': {'features': []}}
+        with self.assertRaisesRegex(ValueError, 'AI_EVIDENCE'):
+            matching_ai_approval({}, {'a': self.record}, no_features)
+
+    def test_record_needs_evidence_and_makes_no_runtime_claim(self):
+        trigger = b'function f takes nothing returns nothing\nif GetPlayerController(Player(0)) == MAP_CONTROL_COMPUTER then\ncall IssueImmediateOrder(Player(0), "attack")\ncall TriggerAddAction(CreateTrigger(), function f)\nendif\nendfunction'
+        data = {**self.analysis, 'ai_evidence': script_evidence(trigger)}
+        self.assertEqual(automatic_approval(data, [])['features'], ['computer_control'])
+        self.assertFalse(automatic_approval(data, [])['runtime_tested'])
+        self.assertIsNone(automatic_approval({**data, 'ai_evidence': script_evidence(PLAIN_SCRIPT)}, []))
+
+    def test_resolve_enabled_selection_and_changed_map(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'config').mkdir()
+            (root / 'maps').mkdir()
+            (root / 'maps' / 'test.w3x').write_bytes(b'fixture')
+            source = root / 'config' / 'supervisor.json'
+            source.write_text('{}')
+            doc = document()
+            doc['presets'][1]['ai'] = {'enabled': True, 'target': 4, 'skill': 2}
+            doc['capabilities'] = [self.record]
+            (root / 'config' / 'presets.json').write_text(json.dumps(doc))
+            slots = [[0, 255, 0, 0, 0, i, 32, 1, 100] for i in range(12)]
+            analysis = {**self.analysis, 'slots': slots, 'human_capacity': 12, 'lobby_name': 'Test'}
+            with patch('src.runtime.presets.analyze_map', return_value=analysis):
+                _, native, _ = resolve_preset(source, {'map_preset': 'test-map'})
+                self.assertEqual((native['bot_lobby_ai_supported'], native['bot_lobby_ai_target'], native['bot_lobby_ai_skill']), ('1', '4', '2'))
+            with patch('src.runtime.presets.analyze_map', return_value={**analysis, 'map_sha256': 'c' * 64}):
+                with self.assertRaisesRegex(ValueError, 'AI_EVIDENCE'):
+                    resolve_preset(source, {'map_preset': 'test-map'})
+            doc['presets'][1]['ai']['enabled'] = False
+            (root / 'config' / 'presets.json').write_text(json.dumps(doc))
+            with patch('src.runtime.presets.analyze_map', return_value=analysis):
+                self.assertEqual(resolve_preset(source, {'map_preset': 'test-map'})[1], AI_OFF)
+
+    def test_startup_emits_only_fixed_actionable_ai_error(self):
+        from src.supervisor.__main__ import main
+        from src.runtime.presets import AIEvidenceError
+        error = io.StringIO()
+        with patch('sys.argv', ['supervisor', '--config', 'ignored']), \
+             patch('src.supervisor.__main__.load_config', side_effect=AIEvidenceError('secret')), \
+             patch('sys.stderr', error):
+            self.assertEqual(main(), 2)
+        message = json.loads(error.getvalue())
+        self.assertEqual(message['error'], 'PRESET_AI_EVIDENCE_REJECTED')
+        self.assertIn('Disable AI', message['message'])
+        self.assertNotIn('secret', error.getvalue())
 
 
 def uint(*values):

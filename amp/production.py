@@ -48,11 +48,19 @@ class SettingsError(ValueError):
     @property
     def public_message(self):
         code = self.args[0] if self.args and type(self.args[0]) is str else ""
+        if code == "PRESET_HISTORY_CONFLICT":
+            path = self.args[1] if len(self.args) > 1 and type(self.args[1]) is str else "control"
+            if not re.fullmatch(r"control(?:/preset-(?:deletion|metadata)-history(?:/war3-preset-[A-Za-z0-9_-]+/displaced\.json)?)?", path):
+                path = "control"
+            return ("A retained preset or selector may contain a later edit. Close editors, inspect and merge "
+                    f"the retained file, then remove its reviewed history folder: {path}")
         return {
             "PRESET_ID_INVALID": "Settings rejected: invalid preset ID; choose a valid lowercase preset identifier.",
             "PRESET_JSON_INVALID": "Settings rejected: invalid preset JSON; check version, unique IDs, enabled flags and any explicit manual entry.",
             "PRESET_NONE_ENABLED": "Settings rejected: enable at least one preset in the JSON document.",
             "PRESET_SELECTION_REQUIRED": "Select an enabled preset from Preset definitions JSON before Start. Apply presets and restart AMP to reload choices if needed.",
+            "PRESET_ACTIVE_MAP_MISSING": "The selected map was missing and its preset was removed. Select an available preset, then start again.",
+            "PRESET_SELECTION_CHANGED": "The selected preset changed during map discovery. Retry start.",
             "PRESET_EDIT_CONFLICT": "Settings rejected: preset editor and File Manager both changed; clear the editor and apply to adopt the file first.",
             "PRESET_EXTERNAL_CONFLICT": "Preset file changed during apply. Keep stopped and inspect control/preset-conflict and any control/war3-preset-* recovery directory before retrying; external edits were preserved.",
             "RUNTIME_STILL_RUNNING": "A War3 container already exists. Stop the instance before applying presets or starting it; if AMP shows stopped, inspect the existing container before removing it.",
@@ -220,38 +228,53 @@ def preset_manifest_update(instance, check_revision=None):
     # Do not read GenericModule.kvp or accept an arbitrary manifest path.
     live = [instance.parent / name for name in ("war3-productionconfig.json", "configmanifest.json")]
     targets = [path for path in live if path.exists() or path.is_symlink()] or [instance / PRESET_MANIFEST]
-    prepared, written = [], []
+    prepared, transactions = [], []
     if check_revision:
         check_revision()
     options = preset_options(instance)
     for target in targets:
-        original, mode = _preset_file(target, limit=2 * 1024 * 1024)
-        if original is None:
+        snapshot = _preset_snapshot(target, limit=2 * 1024 * 1024)
+        if snapshot[0] is None:
             continue  # Older source-only skeleton without either live or staged manifest.
-        manifest = _preset_json(original)
+        manifest = _preset_json(snapshot[0])
         if not isinstance(manifest, list) or any(not isinstance(f, dict) for f in manifest):
             raise ValueError("preset selector manifest rejected")
         fields = [f for f in manifest if f.get("ParamFieldName") == "map_preset"]
         if len(fields) != 1 or fields[0].get("Category") != "War3_Dedicated:sports_esports":
             raise ValueError("preset selector must belong to this War3_Dedicated manifest")
+        if fields[0].get("InputType") == "enum" and fields[0].get("EnumValues") == options:
+            continue
         fields[0]["InputType"] = "enum"
         fields[0]["EnumValues"] = options
-        prepared.append((target, original, mode, manifest))
+        prepared.append((target, snapshot, manifest))
     try:
-        for target, original, mode, manifest in prepared:
+        for target, snapshot, manifest in prepared:
             if check_revision:
                 check_revision()
-            private_json(target, manifest)
-            written.append((target, original, mode))
+            transaction = _PresetTransaction(instance, snapshot, path=target, limit=2 * 1024 * 1024,
+                                             history_name="preset-metadata-history")
+            transaction.preserve_original = True
+            transactions.append(transaction)
+            transaction.install(manifest)
             if check_revision:
                 check_revision()
+            transaction.check()
         yield
         if check_revision:
             check_revision()
+        for transaction in transactions:
+            transaction.check()
     except BaseException:
-        for target, original, mode in reversed(written):
-            _preset_restore(target, original, mode)
+        for transaction in reversed(transactions):
+            if not transaction.conflicted:
+                try:
+                    transaction.rollback()
+                except (OSError, ValueError):
+                    pass  # conflict() retains both revisions and blocks the next run.
         raise
+    finally:
+        for transaction in transactions:
+            transaction.close()
 
 
 def apply_presets(instance, spec):
@@ -305,13 +328,14 @@ class _PresetTransaction:
     File Manager does not share our flock. Exchange preserves the displaced inode;
     it is not a compare-and-swap and cannot prevent all concurrent replacement.
     """
-    def __init__(self, instance, original):
-        self.instance, self.path, self.original = instance, instance / PRESETS, original
+    def __init__(self, instance, original, path=None, limit=65536, history_name="preset-deletion-history"):
+        self.instance, self.path, self.original = instance, path or instance / PRESETS, original
+        self.limit, self.history_name = limit, history_name
         self.expected = original
         self.work = Path(tempfile.mkdtemp(prefix="war3-preset-", dir=instance / "control"))
         self.displaced = self.work / "displaced.json"
         self.attempted = None
-        self.installed = self.conflicted = self.keep = False
+        self.installed = self.conflicted = self.keep = self.preserve_original = self.retain_rollback = False
 
     @staticmethod
     def moved_matches(actual, expected):
@@ -345,7 +369,7 @@ class _PresetTransaction:
 
     def check(self):
         try:
-            current = _preset_snapshot(self.path)
+            current = _preset_snapshot(self.path, limit=self.limit)
         except (OSError, ValueError):
             self.conflict()
         if current != self.expected:
@@ -354,21 +378,21 @@ class _PresetTransaction:
     def install(self, document):
         self.attempted = format_preset_json(document).encode()
         _preset_restore(self.displaced, self.attempted, 0o600)
-        candidate = _preset_snapshot(self.displaced)
+        candidate = _preset_snapshot(self.displaced, limit=self.limit)
         self.check()  # Compare again immediately before mutating the file.
         with account.atomic_signals():
             if self.original[0] is None:
                 try:
                     os.link(self.displaced, self.path)  # Atomic create, never replace a new FM save.
                 except FileExistsError:
-                    self.conflict(_preset_snapshot(self.path))
+                    self.conflict(_preset_snapshot(self.path, limit=self.limit))
                 self.displaced.unlink()
             else:
                 account.exchange(self.displaced, self.path)
             self.installed = True
-        current = _preset_snapshot(self.path)
+        current = _preset_snapshot(self.path, limit=self.limit)
         if self.original[0] is not None:
-            displaced = _preset_snapshot(self.displaced)
+            displaced = _preset_snapshot(self.displaced, limit=self.limit)
             if not self.moved_matches(displaced, self.original):
                 self.conflict(current)
         if not self.moved_matches(current, candidate):
@@ -384,20 +408,73 @@ class _PresetTransaction:
                 os.replace(self.path, self.displaced)
             else:
                 account.exchange(self.displaced, self.path)
-        displaced = _preset_snapshot(self.displaced)
+        displaced = _preset_snapshot(self.displaced, limit=self.limit)
         if not self.moved_matches(displaced, self.expected):
-            self.conflict(_preset_snapshot(self.path))
+            self.conflict(_preset_snapshot(self.path, limit=self.limit))
         self.installed = False
+        self.retain_rollback = True
 
     def close(self):
+        if self.preserve_original and (self.installed or self.retain_rollback) and not self.keep and self.displaced.exists():
+            # A File Manager writer may still hold the exchanged old inode open.
+            # Keep it reachable even if that writer finishes after our commit.
+            self.keep = True
+            baseline = self.original[0] if self.installed else self.expected[0]
+            if baseline is None:
+                raise ValueError("missing retained preset baseline")
+            metadata = {"version": 1, "size": len(baseline), "sha256": hashlib.sha256(baseline).hexdigest()}
+            _preset_restore(self.work / "retained-baseline.json", json.dumps(metadata, sort_keys=True).encode(), 0o600)
+            history = self.instance / "control" / self.history_name
+            history.mkdir(mode=0o700, exist_ok=True)
+            account.directory(history)
+            os.rename(self.work, history / self.work.name)
+            return
         if not self.keep:
             shutil.rmtree(self.work)
+
+
+def check_retained_history(instance):
+    """Fail closed if a retained exchanged inode received a later write."""
+    for name in ("preset-deletion-history", "preset-metadata-history"):
+        history = instance / "control" / name
+        relative = f"control/{name}"
+        try:
+            try:
+                history.lstat()
+            except FileNotFoundError:
+                continue
+            account.directory(history)
+            with os.scandir(history) as entries:
+                names = sorted(item.name for item in entries if item.name.startswith('war3-preset-'))
+        except (OSError, ValueError, account.AccountError):
+            raise SettingsError("PRESET_HISTORY_CONFLICT", relative) from None
+        for child in names:
+            entry = history / child
+            recover = f"{relative}/{child}/displaced.json"
+            try:
+                account.directory(entry)
+                baseline_data = _preset_snapshot(entry / 'retained-baseline.json', private=True, limit=8192)[0]
+                if baseline_data is None:
+                    raise ValueError('missing baseline')
+                baseline = _preset_json(baseline_data)
+                if (not isinstance(baseline, dict) or set(baseline) != {'version', 'size', 'sha256'}
+                        or type(baseline['version']) is not int or baseline['version'] != 1
+                        or type(baseline['size']) is not int or not 0 < baseline['size'] <= 2 * 1024 * 1024
+                        or not isinstance(baseline['sha256'], str)
+                        or not re.fullmatch(r'[0-9a-f]{64}', baseline['sha256'])):
+                    raise ValueError('invalid baseline')
+                data = _preset_snapshot(entry / 'displaced.json', limit=2 * 1024 * 1024)[0]
+                if data is None or len(data) != baseline['size'] or hashlib.sha256(data).hexdigest() != baseline['sha256']:
+                    raise ValueError('retained file changed')
+            except (OSError, ValueError, account.AccountError):
+                raise SettingsError("PRESET_HISTORY_CONFLICT", recover) from None
 
 
 @contextmanager
 def preset_update(instance, discovery_spec=None):
     """Called under profile_update's accepted-image/stopped checks and setup flock."""
     text = _preset_inputs(instance)
+    check_retained_history(instance)
     if ((instance / PRESET_RECOVERY).exists() or (instance / PRESET_RECOVERY).is_symlink()
             or any((instance / "control").glob("war3-preset-*"))):
         raise SettingsError("PRESET_EXTERNAL_CONFLICT")
@@ -428,7 +505,15 @@ def preset_update(instance, discovery_spec=None):
         raise SettingsError("PRESET_EDIT_CONFLICT")
     changed = not unchanged and desired is not None and desired != current
     transaction = _PresetTransaction(instance, snapshot)
+    map_revisions = {}
+    selection_revision = None
     state_written = False
+    def check():
+        transaction.check()
+        map_discovery.verify_revisions(map_revisions)
+        if selection_revision is not None and _preset_snapshot(instance / "data/config/amp-settings.json") != selection_revision:
+            raise SettingsError("PRESET_SELECTION_CHANGED")
+    check.selected_removed = False
     try:
         if discovery_spec is not None:
             account.directory(instance / "data")
@@ -436,9 +521,18 @@ def preset_update(instance, discovery_spec=None):
             base = desired if changed else current
             if base is None:
                 base = {"version": 1, "presets": [{"id": "manual", "enabled": True}]}
+            before_settings = _preset_snapshot(instance / "data/config/amp-settings.json")
             generated, skipped = map_discovery.discover(instance, base, discovery_spec, DOCKER, environment(),
-                                                       account.generator_owner(discovery_spec))
-            transaction.check()
+                                                       account.generator_owner(discovery_spec), revisions=map_revisions)
+            check()
+            removed = {entry['id'] for entry in base['presets']} - {entry['id'] for entry in generated['presets']}
+            if removed:
+                transaction.preserve_original = True
+                selection_revision = before_settings
+                check()
+                selected = settings(_preset_json(before_settings[0]))['map_preset'] if before_settings[0] else 'manual'
+                if selected in removed:
+                    check.selected_removed = True
             _preset_document(generated)
             if generated != base:
                 desired = generated
@@ -446,14 +540,19 @@ def preset_update(instance, discovery_spec=None):
             if skipped:
                 print(f"Map discovery: skipped {skipped} invalid or changing map(s).")
         if changed:
+            # Every replacement can race a File Manager writer holding the old
+            # inode, not only replacements caused by a deletion.
+            transaction.preserve_original = True
+            check()
             transaction.install(desired)
-        yield transaction.check
-        transaction.check()
+            check()
+        yield check
+        check()
         if not unchanged or changed:
             state_written = True
             private_json(instance / PRESET_BASELINE, {"version": 1, "editor": editor_document,
                                                    "file": desired if desired is not None else current})
-            transaction.check()
+            check()
     except BaseException:
         if not transaction.conflicted:
             try:
@@ -726,12 +825,16 @@ def main(argv=None):
         return 0
     # Offline setup precedes full preflight (including the first-ever profile).
     # A failed preflight/merge rolls the profile transaction back before returning.
-    with account.profile_update(instance, spec), preset_update(instance, discovery_spec=spec) as check_revision:
-        with preset_manifest_update(instance, check_revision):
-            validated = validate_preset_selection(instance)
-            preflight(instance, spec)
-            merge_settings(instance / "data/config/supervisor.json", instance / "data/config/amp-settings.json",
-                           validated=validated)
+    with account.profile_update(instance, spec):
+        with preset_update(instance, discovery_spec=spec) as check_revision:
+            with preset_manifest_update(instance, check_revision):
+                if not check_revision.selected_removed:
+                    validated = validate_preset_selection(instance)
+                    preflight(instance, spec)
+                    merge_settings(instance / "data/config/supervisor.json", instance / "data/config/amp-settings.json",
+                                   validated=validated)
+        if check_revision.selected_removed:
+            raise SettingsError("PRESET_ACTIVE_MAP_MISSING")
     # No shell, no detached container, no TTY. exec preserves stdin and AMP's SIGTERM chain.
     os.execvpe(DOCKER[0], command(instance, spec), environment())
 

@@ -147,9 +147,10 @@ an unsupported one rather than preparing an unusable lobby.
 
 The exact Footman map can instead get `footman-ultimate-ai`: the source preset
 example must match its gate hash, and the whole-map SHA, script SHA and detected
-features must match the curated proof. Only its filename changes; the original
-review and `runtime_tested` value remain intact. Candidate detection never grants
-approval. Setup refreshes the staged selector manifest; after installing or
+features must match the curated proof. Its AI and vote settings, review and
+`runtime_tested` value remain intact. Other maps with detected `computer_control` get a
+hash-bound static record, with AI still disabled and no runtime validation claim.
+Setup refreshes the staged selector manifest; after installing or
 refreshing the AMP template, verify **Map preset** shows that generated ID.
 For later maps, edit the JSON, add the matching files and apply/refresh the
 selector through the supplied AMP actions. The gameplay display name defaults

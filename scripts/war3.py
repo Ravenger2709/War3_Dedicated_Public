@@ -171,13 +171,17 @@ def prepare_start(instance, spec):
     bootstrap.supervisor_source(private_object(instance / "acceptance.json"))
     # Shared helper performs offline profile generation, stopped/image checks and
     # rollback. All its contexts/locks must close before the runtime is launched.
-    with account.profile_update(instance, spec), production.preset_update(instance, discovery_spec=spec) as check:
-        with production.preset_manifest_update(instance, check):
-            validated = production.validate_preset_selection(instance)
-            production.preflight(instance, spec)
-            production.merge_settings(instance / "data/config/supervisor.json", instance / "data/config/amp-settings.json",
-                                      validated=validated)
-            bootstrap.validate_startup_config(instance / "data/config/supervisor.json")
+    with account.profile_update(instance, spec):
+        with production.preset_update(instance, discovery_spec=spec) as check:
+            with production.preset_manifest_update(instance, check):
+                if not check.selected_removed:
+                    validated = production.validate_preset_selection(instance)
+                    production.preflight(instance, spec)
+                    production.merge_settings(instance / "data/config/supervisor.json", instance / "data/config/amp-settings.json",
+                                              validated=validated)
+                    bootstrap.validate_startup_config(instance / "data/config/supervisor.json")
+        if check.selected_removed:
+            raise production.SettingsError("PRESET_ACTIVE_MAP_MISSING")
 
 
 def start_container(instance, spec, marker, *, foreground=False, restart_policy=None):
@@ -309,6 +313,9 @@ def main(argv=None):
             os.execvpe(command[0], command, production.environment())
     except StandaloneError as error:
         print(str(error), file=sys.stderr)
+        return 2
+    except production.SettingsError as error:
+        print(error.public_message, file=sys.stderr)
         return 2
     except (OSError, ValueError, TypeError, KeyError, AttributeError, EOFError, subprocess.SubprocessError) as error:
         # Only exact fixed bootstrap messages may select a more specific hint.

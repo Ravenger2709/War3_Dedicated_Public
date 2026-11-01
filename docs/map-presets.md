@@ -24,9 +24,10 @@ keys are errors, including within disabled templates.
 
 In AMP's **Preset definitions JSON** editor, `capabilities` may be omitted:
 applying the editor preserves the existing approval records in
-`data/config/presets.json`. Keep the preset's `ai.capability` reference to the
-matching record. The records and their map/script hash checks are still required
-for AI, and a different map must be reviewed before receiving its own approval.
+`data/config/presets.json`. A preset may omit `ai.capability` when exactly one
+approval matches its map and script hashes, and its features are detected.
+The records and their checks are still required for AI, and a different map
+must be reviewed before receiving its own approval.
 When editing the file directly, retain the `capabilities` records there.
 
 Stop the application before using **Apply presets**. Applying updates the file
@@ -62,7 +63,7 @@ Set `ai.skill` independently in each preset:
 For example, change the existing Footman preset's AI object to:
 
 ```json
-"ai": {"enabled": true, "target": 6, "skill": 2, "capability": "footman-v11-static"}
+"ai": {"enabled": true, "target": 6, "skill": 2}
 ```
 
 In AMP use **War3_Dedicated → Map presets → Preset definitions JSON**, or edit
@@ -131,19 +132,34 @@ before identifying these features:
 
 `none` means neither feature nor computer-controller evidence was found.
 `detected` means controller evidence only. `candidate` means script features were
-found, including potentially unused functions. These levels never grant AI.
+found, including potentially unused functions. These levels never enable AI.
 Arbitrary JASS reachability and runtime correctness cannot be proved statically.
 
-AI compilation additionally requires an explicit `approved_preset` record with
+AI compilation requires an `approved_preset` record with
 the exact whole-MPQ SHA-256, exact extracted script SHA-256, a nonempty subset of
-detected features, review text, and a `runtime_tested` boolean. These are curated
-operator approvals, not self-authenticating facts. Editing the approval list is
-a trust decision. Matching hashes are checked again on every preparation; an
-unknown or changed map/script or an absent feature rejects selection. Copying a
-hash into an approval without reviewing the script is not verification.
-`runtime_tested: false` permits a reviewed static approval but explicitly records
-that real-client testing remains pending. No approved capability is bundled in
-Python source, and analysis never writes an approval automatically.
+detected features, review text, and a `runtime_tested` boolean. Discovery and
+initial setup automatically generate this record only when `computer_control`
+is detected. An AI starter call alone does not generate one. It says
+`automatic static evidence; no runtime validation` and sets
+`runtime_tested: false`; it does not prove that AI works in a real match. AI
+remains disabled until the operator explicitly sets `enabled` to true. Hashes
+and detected features are checked again on every preparation; changed map or
+script bytes reject the old record.
+
+Newly discovered presets include `"ai": {"enabled": false, "target": 6,
+"skill": 1}` (target is reduced for maps with fewer than six slots). Existing
+presets are not rewritten. Changing `enabled` to true requires a matching
+approval: a missing or ambiguous match prevents startup. An explicit legacy
+`capability` remains supported and selects only that record, which must still
+match both hashes and detected features. If several approvals match, delete the
+unneeded records or explicitly select one by ID.
+
+Trigger-based AI may be detected as `computer_control` without `ai_start`;
+these are lexical signals, not proof that a trigger is reachable or that any
+referenced AI resource exists. A feature can occur in unused code or may not work. A map
+without detectable features receives no record and cannot use this automatic
+AI path, even if it implements AI in another way. Test the selected map with
+real clients. An unrelated map's approval must never be copied or reused.
 
 The only path to `vote.min_players: 1` is successful compilation of an AI preset.
 Raw `gameplay.vote_min_players` remains bounded to 2–12; no raw minimum-human or
@@ -268,14 +284,34 @@ through AMP File Manager). It uses the accepted image's static map analyzer in
 a temporary network-isolated container; map scripts and Warcraft are not run.
 Valid maps get a basic entry in `data/config/presets.json`, with the title and
 slot count read from the map, AI disabled and auto-start disabled. Select and
-edit the entry to configure the map. AI requires the existing explicit,
-hash-bound capability approval; detection alone does not grant it.
+edit the entry to configure the map. Detectable `computer_control` generates a separate
+hash-bound static record, but do not enable computers.
 
 An existing entry for the same filename is never replaced, even if the map file
 changes. A second filename with identical contents is also skipped when its
 existing map file is available. Invalid or changing maps are skipped, and a
-short count is logged. A maximum of 32 presets and 32 new candidates per scan
-is enforced; remove invalid files if they prevent later files from being scanned.
+short count is logged. A maximum of 32 presets is enforced. Existing and new
+maps have separate limits of 32 analyses/candidates per scan, so old maps do not
+consume the new-map budget. Files with invalid size or failed digest do not use
+the new-map analysis budget. The first 32 remaining candidates still bound the
+scan: 32 files that pass digest but fail the analyzer can block later files on
+every start. Remove or move those invalid maps to proceed; no cursor is used.
+Existing presets are also analyzed without changing their settings; a missing
+static record is added only for a stable map with detectable `computer_control`. When a
+map changes, its old record stays unchanged; a successful fresh analysis can add
+a separate record for the new hashes. A missing or changing file gets no record.
+Existing maps whose whole-map hash already has a record skip the analyzer;
+runtime still verifies the extracted script hash before enabling AI. If the
+32-record limit is reached, new presets are still added with AI off and a warning
+is printed; no new AI record can be added until the operator frees space.
+Entries for maps absent from a stable, readable maps directory are removed;
+manual and existing capability records are retained. Case-only filename
+matches are retained conservatively. If the missing map is selected, start
+commits its removal and stops until the operator selects another preset; the
+selection file is not changed. If no presets remain, an enabled manual entry is
+created without selecting it. Directory or File Manager conflicts stop the
+transaction. See the standalone guide for retained deletion history and recovery
+after an interrupted exchange.
 No subdirectories are scanned. The bootstrap-owned `selected.w3x` is excluded
 from discovery; its original preset is managed by setup. A repeated start does
 not create another preset.

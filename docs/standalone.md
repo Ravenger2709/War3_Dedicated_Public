@@ -152,11 +152,39 @@ different selection midway through startup.
 
 For later map/gameplay changes, edit
 `~/.war3-dedicated/instance/data/config/presets.json`, put each additional licensed map
-under `data/maps/` using the exact `map_filename`, and select its ID through
+under `data/maps/`. On `start` or `restart`, the same discovery as AMP adds a
+basic preset for each new supported map and removes entries whose map files are
+absent, after checking a stable maps directory. The built-in `manual` entry and
+AI records are retained. If the selected preset's map is missing, start stops
+with an error after removing that preset; the selection file remains unchanged.
+Select an available preset, then start again. Select the desired ID through
 `map_preset` in the settings JSON. Preserve private ownership and permissions.
+When no preset would remain, discovery creates an enabled `manual` entry but
+does not select it automatically. Every preset replacement, including additions,
+AI records and rollbacks, retains the displaced inode under the historical name
+`control/preset-deletion-history` so a concurrent File Manager writer can
+finish without losing its edits. Selector updates similarly retain
+their replaced files under `control/preset-metadata-history`. These histories
+carry a hash of the retained bytes at exchange time. Before a later start or
+preset apply, the controller checks the histories; if an old editor saved after
+the exchange, it refuses to start and reports the `displaced.json` recovery path.
+Close the editor, review and merge its changes into the current file, then
+remove the reviewed history folder. This is detected at the next operation, not
+immediately in an already running instance. Histories created by older versions
+without a baseline must also be reviewed and removed before proceeding.
+Histories
+have **no automatic expiry** and grow when changes are made: periodically stop
+the instance, close all File Manager/editor sessions, review each retained
+`displaced.json`, and delete the reviewed `war3-preset-*` subdirectories through
+File Manager. Never delete `control/preset-conflict` or an active top-level
+`control/war3-preset-*` as routine cleanup: they can contain recovery data.
+An interrupted exchange leaves a top-level `control/war3-preset-*` directory;
+startup stops for operator recovery, preserving the old file there.
 Configure automatic countdown per preset with `start.autostart_enabled` and
-`start.autostart_players`. AI requires the release's explicit hash-bound map
-approval; the CLI never manufactures one. Setup's initial preset already names
+`start.autostart_players`. For detected `computer_control`, setup and discovery
+create a hash-bound static record; an AI starter call alone is insufficient.
+AI remains off until enabled by the operator. Static
+evidence does not prove in-game behavior. Setup's initial preset already names
 `selected.w3x`; additional presets must name the actual added map files.
 
 After editing, run `start` or `restart`. Keep the account JSON and preset editor

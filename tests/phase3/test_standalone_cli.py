@@ -128,6 +128,74 @@ class StandaloneTests(unittest.TestCase):
             code = war3.main([action, "--instance-dir", str(self.instance), *args])
         return code, stdout.getvalue(), stderr.getvalue()
 
+    def test_prepare_start_discovers_selects_removes_and_rediscovers_maps(self):
+        instance = self.instance
+        maps = instance / 'data/maps'
+        map_file = maps / 'Example.w3x'
+        map_file.write_bytes(b'map fixture' * 10)
+        presets = instance / war3.production.PRESETS
+        war3.production.private_json(presets, {'version': 1, 'presets': [{'id': 'manual', 'enabled': True}]})
+        manifest = instance / war3.production.PRESET_MANIFEST
+        war3.production.private_json(manifest, [{'Category': 'War3_Dedicated:sports_esports', 'ParamFieldName': 'map_preset'}])
+        settings_path = instance / 'data/config/amp-settings.json'
+        data = war3.production.read_json(settings_path)
+        data['map_preset'] = 'manual'
+        war3.production.private_json(settings_path, data)
+        discover = war3.production.map_discovery.discover
+        def analyze(path, *_):
+            return {'map_sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'script_sha256': 'a' * 64,
+                    'lobby_name': 'Example', 'slots': [[0, 255, 0, 0, 0, i, 32, 1, 100] for i in range(4)],
+                    'human_capacity': 4, 'ai_evidence': {'level': 'candidate', 'features': ['computer_control']}}
+        from contextlib import nullcontext
+        with patch.object(war3.account, 'profile_update', return_value=nullcontext()), \
+             patch.object(war3.bootstrap, 'supervisor_source'), \
+             patch.object(war3.production, 'preflight'), \
+             patch.object(war3.bootstrap, 'validate_startup_config'), \
+             patch.object(war3.production.map_discovery, 'discover', side_effect=lambda i, d, spec, docker, env, owner, **kw: discover(i, d, spec, docker, env, owner, analyze, **kw)):
+            spec = war3.production.deployment(instance)
+            war3.prepare_start(instance, spec)
+            doc = war3.production.read_json(presets)
+            chosen = next(p['id'] for p in doc['presets'] if p['id'] != 'manual')
+            self.assertEqual(len(doc['capabilities']), 1)
+            data['map_preset'] = chosen
+            war3.production.private_json(settings_path, data)
+            war3.prepare_start(instance, spec)
+            self.assertEqual(war3.production.read_json(instance / 'data/config/supervisor.json')['gameplay']['map_preset'], chosen)
+            map_file.unlink()
+            settings_before = settings_path.read_bytes()
+            with self.assertRaisesRegex(war3.production.SettingsError, 'PRESET_ACTIVE_MAP_MISSING'):
+                war3.prepare_start(instance, spec)
+            self.assertEqual([p['id'] for p in war3.production.read_json(presets)['presets']], ['manual'])
+            self.assertEqual(settings_path.read_bytes(), settings_before)
+            self.assertEqual(set(json.loads(manifest.read_text())[0]['EnumValues']), {'manual'})
+            data['map_preset'] = 'manual'
+            war3.production.private_json(settings_path, data)
+            war3.prepare_start(instance, spec)
+            self.assertEqual([p['id'] for p in war3.production.read_json(presets)['presets']], ['manual'])
+            map_file.write_bytes(b'map fixture' * 10)
+            war3.prepare_start(instance, spec)
+            self.assertEqual(len(war3.production.read_json(presets)['presets']), 2)
+            self.assertEqual(len(war3.production.read_json(presets)['capabilities']), 1)
+
+    def test_prepare_start_removes_last_selected_and_refreshes_manual_selector(self):
+        from contextlib import nullcontext
+        instance = self.instance
+        presets = instance / war3.production.PRESETS
+        manifest = instance / war3.production.PRESET_MANIFEST
+        settings_path = instance / 'data/config/amp-settings.json'
+        war3.production.private_json(presets, {'version': 1, 'presets': [{'id': 'gone', 'enabled': True, 'map_filename': 'gone.w3x'}]})
+        war3.production.private_json(manifest, [{'Category': 'War3_Dedicated:sports_esports', 'ParamFieldName': 'map_preset',
+                                                  'InputType': 'enum', 'EnumValues': {'gone': 'Gone'}}])
+        war3.production.private_json(settings_path, {**war3.production.DEFAULTS, 'map_preset': 'gone'})
+        before = settings_path.read_bytes()
+        with patch.object(war3.account, 'profile_update', return_value=nullcontext()), \
+             patch.object(war3.bootstrap, 'supervisor_source'):
+            with self.assertRaisesRegex(war3.production.SettingsError, 'PRESET_ACTIVE_MAP_MISSING'):
+                war3.prepare_start(instance, war3.production.deployment(instance))
+        self.assertEqual(war3.production.read_json(presets)['presets'], [{'id': 'manual', 'enabled': True}])
+        self.assertEqual(set(json.loads(manifest.read_text())[0]['EnumValues']), {'manual'})
+        self.assertEqual(settings_path.read_bytes(), before)
+
     def started(self, *args):
         code, output, error = self.call("start", *args)
         self.assertEqual(code, 0, error)
@@ -314,9 +382,17 @@ class StandaloneTests(unittest.TestCase):
         self.assertEqual(self.docker.mutations(), [])
 
     def test_removed_manual_or_disabled_preset_is_rejected_before_merge_or_launch(self):
+        proofs = []
+        for name in ('custom.w3x', 'disabled.w3x'):
+            path = self.instance / 'data/maps' / name
+            path.write_bytes((name * 8).encode())
+            proofs.append({'id': name.split('.')[0], 'level': 'approved_preset',
+                           'map_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                           'script_sha256': 'a' * 64, 'features': ['ai_start'],
+                           'review': 'synthetic fixture', 'runtime_tested': False})
         presets = {"version": 1, "presets": [
             {"id": "custom", "enabled": True, "map_filename": "custom.w3x"},
-            {"id": "disabled", "enabled": False, "map_filename": "disabled.w3x"}]}
+            {"id": "disabled", "enabled": False, "map_filename": "disabled.w3x"}], 'capabilities': proofs}
         war3.production.private_json(self.instance / "data/config/presets.json", presets)
         config_path = self.instance / "data/config/supervisor.json"
         original = config_path.read_bytes()
@@ -334,8 +410,12 @@ class StandaloneTests(unittest.TestCase):
                 self.assertEqual(list((self.instance / "control").glob("war3-preset-*")), [])
 
     def test_merge_uses_validated_selection_if_settings_file_changes_during_preflight(self):
+        map_path = self.instance / 'data/maps/custom.w3x'
+        map_path.write_bytes(b'fixture map' * 10)
+        proof = {'id': 'fixture', 'level': 'approved_preset', 'map_sha256': hashlib.sha256(map_path.read_bytes()).hexdigest(),
+                 'script_sha256': 'a' * 64, 'features': ['ai_start'], 'review': 'synthetic test', 'runtime_tested': False}
         war3.production.private_json(self.instance / "data/config/presets.json", {"version": 1, "presets": [
-            {"id": "custom", "enabled": True, "map_filename": "custom.w3x"}]})
+            {"id": "custom", "enabled": True, "map_filename": "custom.w3x"}], 'capabilities': [proof]})
         settings_path = self.instance / "data/config/amp-settings.json"
         war3.production.private_json(settings_path, {**war3.production.DEFAULTS, "map_preset": "custom"})
         real_preflight = war3.production.preflight

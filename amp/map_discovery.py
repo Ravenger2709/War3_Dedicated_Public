@@ -12,6 +12,36 @@ import uuid
 
 MAP_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_. ()+-]{0,119}\.(?:w3x|w3m)\Z', re.I)
 HASH = re.compile(r'[0-9a-f]{64}\Z')
+AI_FEATURES = {'ai_start', 'computer_control'}
+
+
+def automatic_approval(analysis, records):
+    """Prepare one hash-bound static record, never alter existing approvals."""
+    evidence = analysis.get('ai_evidence')
+    if (not isinstance(evidence, dict) or evidence.get('level') not in ('none', 'detected', 'candidate')
+            or not isinstance(evidence.get('features'), list)
+            or any(not isinstance(f, str) or f not in AI_FEATURES for f in evidence['features'])
+            or len(set(evidence['features'])) != len(evidence['features'])
+            or (bool(evidence['features']) != (evidence['level'] == 'candidate'))):
+        raise ValueError('invalid AI analysis')
+    # AI starter calls alone can reference missing resources or dead code.
+    # Require controller checks plus trigger/order syntax detected by runtime.
+    if 'computer_control' not in evidence['features']:
+        return None
+    if any(r['map_sha256'] == analysis['map_sha256'] and r['script_sha256'] == analysis['script_sha256'] for r in records):
+        return None
+    if len(records) >= 32:
+        print('Map discovery: AI evidence limit reached; no AI evidence was added for this map.')
+        return None
+    ids = {r['id'] for r in records}
+    digest_id = hashlib.sha256((analysis['map_sha256'] + analysis['script_sha256']).encode()).hexdigest()
+    for index in range(64):
+        key = 'auto-' + hashlib.sha256((digest_id + str(index)).encode()).hexdigest()[:27]
+        if key not in ids:
+            return {'id': key, 'level': 'approved_preset', 'map_sha256': analysis['map_sha256'],
+                    'script_sha256': analysis['script_sha256'], 'features': evidence['features'][:],
+                    'review': 'automatic static evidence; no runtime validation', 'runtime_tested': False}
+    raise ValueError('AI approval ID collision')
 
 
 def digest(path):
@@ -110,55 +140,128 @@ def make_entry(filename, analysis, expected_hash, existing_ids):
     return {'id': key, 'enabled': True, 'map_filename': filename, 'lobby_name': title,
             'max_players': len(slots), 'start': {'autostart_enabled': False, 'autostart_players': min(10, humans), 'countdown_seconds': 5},
             'vote': {'enabled': True, 'required_percent': 60, 'min_players': 2, 'timeout': 60, 'cooldown': 30},
-            'ai': {'enabled': False}}
+            'ai': {'enabled': False, 'target': min(6, len(slots)), 'skill': 1}}
 
 
-def discover(instance, document, spec, docker, env, owner, analyzer=analyze):
-    """Return additions without mutating input; skip existing filenames and invalid maps."""
+def verify_revisions(revisions):
+    for path, expected in revisions.items():
+        try:
+            current = directory_snapshot(path) if expected[0] == 'directory' else digest(path)
+            if current != (expected[1] if expected[0] == 'directory' else expected):
+                raise ValueError('map changed')
+        except (OSError, ValueError):
+            raise ValueError('Map discovery: a map changed or became unavailable; retry start.') from None
+
+
+def directory_snapshot(path):
+    """Read a real, unchanged maps directory through its opened inode."""
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        before = os.fstat(fd)
+        names = tuple(sorted(os.listdir(fd)))
+        after = os.fstat(fd)
+        visible = os.stat(path, follow_symlinks=False)
+        def identity(info):
+            return info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns
+        if not stat.S_ISDIR(visible.st_mode) or identity(before) != identity(after) or identity(after) != identity(visible):
+            raise ValueError('maps directory changed')
+        return identity(after), names
+    finally:
+        os.close(fd)
+
+
+def discover(instance, document, spec, docker, env, owner, analyzer=analyze, revisions=None):
+    """Add safe presets and evidence without mutating operator entries."""
     maps = instance / 'data/maps'
     host_instance = Path(spec.get('host_instance_dir', str(instance)))
-    if maps.is_symlink() or not maps.is_dir():
-        raise ValueError('unsafe maps directory')
-    result = {**document, 'presets': list(document['presets'])}
+    snapshot = directory_snapshot(maps)
+    if revisions is not None:
+        revisions[maps] = ('directory', snapshot)
+    names = snapshot[1]
+    folded = {name.casefold() for name in names}
+    kept = [x for x in document['presets'] if x.get('id') == 'manual'
+            or not isinstance(x.get('map_filename'), str)
+            or x['map_filename'].casefold() in folded]
+    if not any(entry.get('enabled') for entry in kept) and len(kept) < len(document['presets']):
+        kept.append({'id': 'manual', 'enabled': True})
+    result = {**document, 'presets': kept}
+    records = list(document.get('capabilities', []))
+    revisions = {} if revisions is None else revisions
     ids = {x['id'] for x in result['presets']}
     existing = {x.get('map_filename', '').casefold() for x in result['presets'] if isinstance(x.get('map_filename', ''), str)}
-    paths = sorted(maps.iterdir(), key=lambda p: (p.name.casefold(), p.name))
+    paths = [maps / name for name in sorted(names, key=lambda name: (name.casefold(), name))]
     known_hashes = set()
-    for path in paths:
-        if path.name.casefold() in existing and MAP_NAME.fullmatch(path.name) and '..' not in path.name:
-            try:
-                known_hashes.add(digest(path)[0])
-            except (OSError, ValueError):
-                pass
     skipped = 0
-    examined = 0
+    existing_examined = 0
+    new_examined = 0
+    existing_limit_reported = False
+    exact_existing = {x.get('map_filename') for x in result['presets'] if isinstance(x.get('map_filename'), str)}
+    for path in paths:
+        if path.name in exact_existing and MAP_NAME.fullmatch(path.name) and '..' not in path.name:
+            try:
+                sha, revision = digest(path)
+                known_hashes.add(sha)
+                # Exact whole-map hashes bind the script too; runtime rechecks
+                # the extracted script hash before ever enabling computers.
+                if any(r['map_sha256'] == sha for r in records):
+                    continue
+                if existing_examined >= 32:
+                    if not existing_limit_reported:
+                        print('Map discovery: existing map scan limit reached.')
+                        existing_limit_reported = True
+                    continue
+                existing_examined += 1
+                data = analyzer(path, host_instance / 'data/maps' / path.name, spec['image_id'], docker, env, owner)
+                if (digest(path) != (sha, revision) or not isinstance(data, dict)
+                        or data.get('map_sha256') != sha or not isinstance(data.get('script_sha256'), str)
+                        or not HASH.fullmatch(data['script_sha256'])):
+                    raise ValueError('map changed or analysis mismatch')
+                record = automatic_approval(data, records)
+                if record:
+                    candidate = {**result, 'capabilities': [*records, record]}
+                    if len((json.dumps(candidate, indent=2, sort_keys=True) + '\n').encode()) > 65536:
+                        raise ValueError('preset file size limit reached')
+                    records.append(record)
+                    result['capabilities'] = records[:]
+                    revisions[path] = (sha, revision)
+            except (OSError, ValueError, TypeError, subprocess.SubprocessError, UnicodeError):
+                skipped += 1
     for path in paths:
         if len(result['presets']) >= 32:
             break
         # Bootstrap owns selected.w3x as an internal copy of the initial map.
         if path.name.casefold() == 'selected.w3x' or not MAP_NAME.fullmatch(path.name) or '..' in path.name or path.name.casefold() in existing:
             continue
-        examined += 1
-        if examined > 32:
-            print('Map discovery: scan limit reached; remove invalid maps to continue.')
-            break
         try:
             sha, revision = digest(path)
             if sha in known_hashes:
                 continue
+            if new_examined >= 32:
+                print('Map discovery: new map scan limit reached; remove invalid maps to continue.')
+                break
+            new_examined += 1
             data = analyzer(path, host_instance / 'data/maps' / path.name, spec['image_id'], docker, env, owner)
             if digest(path) != (sha, revision):
                 raise ValueError('map changed during analysis')
             entry = make_entry(path.name, data, sha, ids)
+            record = automatic_approval(data, records)
         except (OSError, ValueError, TypeError, subprocess.SubprocessError, UnicodeError):
             skipped += 1
             continue
         candidate = {**result, 'presets': [*result['presets'], entry]}
+        if record:
+            candidate['capabilities'] = [*records, record]
         if len((json.dumps(candidate, indent=2, sort_keys=True) + '\n').encode()) > 65536:
             print('Map discovery: preset file size limit reached.')
             break
         result['presets'].append(entry)
+        if record:
+            records.append(record)
+            result['capabilities'] = records[:]
+        revisions[path] = (sha, revision)
         ids.add(entry['id'])
         existing.add(path.name.casefold())
         known_hashes.add(sha)
+    if directory_snapshot(maps) != snapshot:
+        raise ValueError('Map discovery: maps directory changed; retry start.')
     return result, skipped

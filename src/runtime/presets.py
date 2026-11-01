@@ -21,6 +21,10 @@ AI_OFF = {'bot_lobby_ai_target': '0', 'bot_lobby_ai_supported': '0',
           'bot_lobby_ai_skill': '1', 'bot_lobby_min_humans': '2'}
 
 
+class AIEvidenceError(ValueError):
+    """No unique hash-bound AI evidence is valid for the selected map."""
+
+
 def preset_id(value):
     if not isinstance(value, str) or not ID.fullmatch(value):
         raise ValueError('PRESET_ID_REJECTED')
@@ -312,6 +316,21 @@ def analyze_map(path):
             'script_sha256': hashlib.sha256(script).hexdigest(), 'ai_evidence': evidence}
 
 
+def matching_ai_approval(ai, capabilities, analysis):
+    def same_hashes(record):
+        return (record['map_sha256'] == analysis['map_sha256']
+                and record['script_sha256'] == analysis['script_sha256'])
+    if 'capability' in ai:
+        record = capabilities.get(ai['capability'])
+        candidates = [record] if record and same_hashes(record) else []
+    else:
+        candidates = [record for record in capabilities.values() if same_hashes(record)]
+    if (len(candidates) == 1
+            and set(candidates[0]['features']).issubset(analysis['ai_evidence']['features'])):
+        return candidates[0]
+    raise AIEvidenceError('PRESET_AI_EVIDENCE_REJECTED')
+
+
 def resolve_preset(source, gameplay):
     """Called before writing any private native config. Manual needs no JSON."""
     game = gameplay_config(gameplay)
@@ -336,11 +355,7 @@ def resolve_preset(source, gameplay):
     human_limit = min(analysis['human_capacity'], maximum if enabled else maximum - computers)
     if enabled:
         target = ai.get('target', 6)
-        record = capabilities.get(ai.get('capability'))
-        if (not record or record['map_sha256'] != analysis['map_sha256']
-                or record['script_sha256'] != analysis['script_sha256']
-                or not set(record['features']).issubset(analysis['ai_evidence']['features'])):
-            raise ValueError('PRESET_AI_EVIDENCE_REJECTED')
+        matching_ai_approval(ai, capabilities, analysis)
         if target > maximum:
             raise ValueError('PRESET_AI_TARGET_REJECTED')
         native.update(bot_lobby_ai_target=str(target), bot_lobby_ai_supported='1',

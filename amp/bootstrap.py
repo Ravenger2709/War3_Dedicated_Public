@@ -402,7 +402,7 @@ def analyze_selected_map(image_id, path):
 
 
 def initial_preset(analysis, expected_sha, curated_path=None):
-    """Static candidates never grant AI; only the release-pinned Footman proof can."""
+    """Keep reviewed Footman defaults; other maps start with AI disabled."""
     from src.runtime.presets import load_presets, lobby_name
 
     if (not isinstance(analysis, dict) or analysis.get("map_sha256") != expected_sha
@@ -440,14 +440,16 @@ def initial_preset(analysis, expected_sha, curated_path=None):
                  "start": {"autostart_enabled": False, "autostart_players": min(10, humans),
                            "countdown_seconds": 5},
                  "vote": {"enabled": True, "required_percent": 60, "min_players": 2,
-                          "timeout": 60, "cooldown": 30}, "ai": {"enabled": False}}
+                          "timeout": 60, "cooldown": 30}, "ai": {"enabled": False, "target": min(6, len(slots)), "skill": 1}}
+        record = production.map_discovery.automatic_approval(analysis, [])
     maximum = entry.get("max_players", len(slots))
-    human_budget = min(humans, maximum if record else maximum - sum(s[3] == 1 for s in slots))
+    ai_enabled = entry.get("ai", {}).get("enabled", False)
+    human_budget = min(humans, maximum if ai_enabled else maximum - sum(s[3] == 1 for s in slots))
     start, vote = entry.get("start", {}), entry.get("vote", {})
-    if (not 2 <= maximum <= len(slots) or human_budget < (1 if record else 2)
+    if (not 2 <= maximum <= len(slots) or human_budget < (1 if ai_enabled else 2)
             or vote.get("min_players", 2) > human_budget
             or start.get("autostart_enabled", True) and start.get("autostart_players", 6) > human_budget
-            or record and entry["ai"].get("target", 6) > maximum):
+            or ai_enabled and entry["ai"].get("target", 6) > maximum):
         raise ValueError("initial preset exceeds analyzed map capacity")
     return {"version": 1, "presets": [entry], "capabilities": [record] if record else []}
 

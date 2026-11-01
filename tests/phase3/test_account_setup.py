@@ -670,9 +670,17 @@ class TransactionTests(unittest.TestCase):
         self.assertNotIn("username", config["gameplay"])
 
     def test_run_rejects_missing_manual_disabled_or_unknown_selection_before_merge_or_spawn(self):
+        records = []
+        for name in ('Custom.w3x', 'Disabled.w3x'):
+            path = self.root / 'data/maps' / name
+            path.write_bytes((name * 8).encode())
+            records.append({'id': name.lower().split('.')[0], 'level': 'approved_preset',
+                            'map_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                            'script_sha256': 'a' * 64, 'features': ['ai_start'],
+                            'review': 'synthetic fixture', 'runtime_tested': False})
         document = {"version": 1, "presets": [
             {"id": "custom", "enabled": True, "map_filename": "Custom.w3x"},
-            {"id": "disabled-map", "enabled": False, "map_filename": "Disabled.w3x"}]}
+            {"id": "disabled-map", "enabled": False, "map_filename": "Disabled.w3x"}], 'capabilities': records}
         production.private_json(self.root / production.PRESETS, document)
         before = (self.root / "data/config/supervisor.json").read_bytes()
         for selected in ("manual", "disabled-map", "unknown-map"):
@@ -693,8 +701,13 @@ class TransactionTests(unittest.TestCase):
                 self.unchanged()
 
     def test_run_merges_validated_selection_snapshot_when_input_changes_during_preflight(self):
+        path = self.root / 'data/maps/Custom.w3x'
+        path.write_bytes(b'synthetic map' * 8)
+        proof = {'id': 'fixture', 'level': 'approved_preset', 'map_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                 'script_sha256': 'a' * 64, 'features': ['ai_start'], 'review': 'synthetic fixture', 'runtime_tested': False}
         production.private_json(self.root / production.PRESETS,
-            {"version": 1, "presets": [{"id": "custom", "enabled": True, "map_filename": "Custom.w3x"}]})
+            {"version": 1, "presets": [{"id": "custom", "enabled": True, "map_filename": "Custom.w3x"}],
+             'capabilities': [proof]})
         production.private_json(self.root / "data/config/amp-settings.json",
                                 {**production.DEFAULTS, "map_preset": "custom"})
         def late_input_change(instance, spec):
@@ -916,13 +929,13 @@ class PresetEditorTests(unittest.TestCase):
     def test_manifest_generation_checks_accepted_preset_revision_and_reverts_on_external_save(self):
         self.edit(self.desired)
         original_manifest = self.manifest.read_bytes()
-        save = production.private_json
+        exchange = account.exchange
         external = self.external()
-        def external_save_before_manifest(path, value):
-            if path == self.manifest:
-                save(self.root / production.PRESETS, external)
-            save(path, value)
-        with patch.object(production, "private_json", side_effect=external_save_before_manifest):
+        def external_save_before_manifest(left, right):
+            if right == self.manifest:
+                production.private_json(self.root / production.PRESETS, external)
+            return exchange(left, right)
+        with patch.object(account, "exchange", side_effect=external_save_before_manifest):
             with self.assertRaises(production.SettingsError):
                 self.update()
         self.assertEqual(production.read_json(self.root / production.PRESETS), external)
