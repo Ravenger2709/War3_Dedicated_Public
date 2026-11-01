@@ -6,7 +6,7 @@ was built from the source context recorded by the build receipt at commit
 `ae6a86ba968283092eca67ba8fa6ed44fd09e16b`. Its source digest is
 `31553cd96ca2fb4c70a6483f6f6096f77be593966505734e055cbbd12d169`.
 
-- Native GHost++ and StormLib 9.24 were compiled from pinned upstream source; the historical GHost++ StormLib port was not compiled or linked. Native source provenance matched the checkout. Docker build caching was enabled, so an independent no-cache rebuild has not been demonstrated.
+- Native GHost++ and StormLib 9.24 were compiled from pinned upstream source; the historical GHost++ StormLib port was not compiled or linked. Native source provenance matched the checkout. A later independent no-cache native rebuild produced byte-identical GHost++, StormLib and BNCSutil binaries. A separate no-cache helper rebuild matched the candidate after ignoring only PE timestamp and checksum fields. A full no-cache Wine rebuild did not complete because the WineHQ download stalled; that part remains unverified.
 - The candidate's Python phase-3 suite ran 241 tests successfully, with two optional tests skipped; the relay suite ran 152 tests successfully. Tests used a network-disabled container and synthetic account data.
 - The MPQ suite passed 31 tests with the explicitly supplied Footman map and its matching hash, including a regression proving a failed MPQ open does not close stdin.
 - A separate native build with AddressSanitizer and UndefinedBehaviorSanitizer passed 73 gameplay and 7 publication tests. It used the same native source and StormLib revision, not the production binary. It included a real-time 66-second solo AI match and rehost.
@@ -16,4 +16,4 @@ was built from the source context recorded by the build receipt at commit
 - The final image's 21 filesystem layers passed the path-based proprietary/profile-file audit. A separate scan of 21 layers and 15,453 files against values from the operator-provided account file found no matches; values were not logged. Automated scans cannot rule out every possible secret.
 - The Docker release archive loaded locally and retained the candidate image ID. GitHub Actions passed on the corresponding main commit.
 
-**Not established:** an independent no-cache build of every base, actual iCCup authentication or a real-client match on this candidate. Actual online authentication and gameplay are separate from the offline gate. No release identity or acceptance gate has been issued for this candidate.
+**Not established:** a completed no-cache build of the Wine base, actual iCCup authentication or a real-client match on this candidate. Actual online authentication and gameplay are separate from the offline gate. No release identity or acceptance gate has been issued for this candidate.
