@@ -1,0 +1,262 @@
+[
+  {
+    "DisplayName": "Host name",
+    "Description": "Global lobby display name, separate from account login. Applied on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "host_name",
+    "ParamFieldName": "host_name",
+    "DefaultValue": "War3HostBot",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "text",
+    "Subcategory": "Lobby:groups:30"
+  },
+  {
+    "DisplayName": "Manual lobby name",
+    "Description": "Manual/default value; the selected preset may override this. Applied on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "game_name",
+    "ParamFieldName": "game_name",
+    "DefaultValue": "Warcraft III Host",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "text",
+    "Subcategory": "Lobby:groups:30"
+  },
+  {
+    "DisplayName": "Countdown seconds",
+    "Description": "Manual/default value; the selected preset may override this. Applied on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "countdown_seconds",
+    "ParamFieldName": "countdown_seconds",
+    "DefaultValue": "5",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "number",
+    "minValue": "1",
+    "maxValue": "60",
+    "Subcategory": "Lobby:groups:30"
+  },
+  {
+    "DisplayName": "Vote enabled",
+    "Description": "Manual/default value; the selected preset may override this. Applied on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "vote_enabled",
+    "ParamFieldName": "vote_enabled",
+    "DefaultValue": "true",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {
+      "False": "false",
+      "True": "true"
+    },
+    "InputType": "checkbox",
+    "Subcategory": "Voting:how_to_vote:40"
+  },
+  {
+    "DisplayName": "Vote required percent",
+    "Description": "Manual/default value; the selected preset may override this. Applied on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "vote_required_percent",
+    "ParamFieldName": "vote_required_percent",
+    "DefaultValue": "60",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "number",
+    "minValue": "1",
+    "maxValue": "100",
+    "Subcategory": "Voting:how_to_vote:40"
+  },
+  {
+    "DisplayName": "Vote min players",
+    "Description": "Manual/default value; the selected preset may override this. Applied on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "vote_min_players",
+    "ParamFieldName": "vote_min_players",
+    "DefaultValue": "2",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "number",
+    "minValue": "2",
+    "maxValue": "12",
+    "Subcategory": "Voting:how_to_vote:40"
+  },
+  {
+    "DisplayName": "Vote timeout",
+    "Description": "Manual/default value; the selected preset may override this. Applied on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "vote_timeout",
+    "ParamFieldName": "vote_timeout",
+    "DefaultValue": "60",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "number",
+    "minValue": "5",
+    "maxValue": "300",
+    "Subcategory": "Voting:how_to_vote:40"
+  },
+  {
+    "DisplayName": "Vote cooldown",
+    "Description": "Manual/default value; the selected preset may override this. Applied on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "vote_cooldown",
+    "ParamFieldName": "vote_cooldown",
+    "DefaultValue": "30",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "number",
+    "minValue": "1",
+    "maxValue": "600",
+    "Subcategory": "Voting:how_to_vote:40"
+  },
+  {
+    "DisplayName": "Lobby refresh enabled",
+    "Description": "Global refresh setting, applied with every preset on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "lobby_refresh_enabled",
+    "ParamFieldName": "lobby_refresh_enabled",
+    "DefaultValue": "true",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {
+      "False": "false",
+      "True": "true"
+    },
+    "InputType": "checkbox",
+    "Subcategory": "Refresh:refresh:50"
+  },
+  {
+    "DisplayName": "Lobby refresh interval (seconds)",
+    "Description": "Global lobby refresh interval in seconds; default and minimum 10. Applies to every preset on next Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "lobby_refresh_interval",
+    "ParamFieldName": "lobby_refresh_interval",
+    "DefaultValue": "10",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "number",
+    "minValue": "10",
+    "maxValue": "3600",
+    "Subcategory": "Refresh:refresh:50"
+  },
+  {
+    "DisplayName": "Lobby refresh mode",
+    "Description": "Global refresh setting, applied with every preset on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "lobby_refresh_mode",
+    "ParamFieldName": "lobby_refresh_mode",
+    "DefaultValue": "slot_toggle",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {
+      "slot_toggle": "Safe free-slot toggle"
+    },
+    "InputType": "enum",
+    "Subcategory": "Refresh:refresh:50"
+  },
+  {
+    "DisplayName": "Autohost enabled",
+    "Description": "Automatically create/rehost lobbies. Countdown auto-start is configured separately inside each preset.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "autohost_enabled",
+    "ParamFieldName": "autohost_enabled",
+    "DefaultValue": "true",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {
+      "False": "false",
+      "True": "true"
+    },
+    "InputType": "checkbox",
+    "Subcategory": "Lobby:groups:30"
+  },
+  {
+    "DisplayName": "Reconnect enabled",
+    "Description": "Global setting, applied on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "reconnect_enabled",
+    "ParamFieldName": "reconnect_enabled",
+    "DefaultValue": "true",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {
+      "False": "false",
+      "True": "true"
+    },
+    "InputType": "checkbox",
+    "Subcategory": "Lobby:groups:30"
+  },
+  {
+    "DisplayName": "Map preset",
+    "Description": "Apply while stopped, restart AMP (brief panel reconnect), then choose an enabled ID from your JSON before Start. Apply keeps the current selection.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "map_preset",
+    "ParamFieldName": "map_preset",
+    "DefaultValue": "manual",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {
+      "manual": "Manual (operator map configuration)",
+      "footman-ultimate-ai": "Footman Ultimate AI"
+    },
+    "InputType": "enum",
+    "Subcategory": "Map presets:map:20"
+  },
+  {
+    "DisplayName": "Account username",
+    "Description": "Account login, separate from lobby display name. Enter with password; clear both to retain saved login. File Manager: control/account-input.json.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "username",
+    "ParamFieldName": "username",
+    "DefaultValue": "",
+    "IncludeInCommandLine": false,
+    "Required": false,
+    "EnumValues": {},
+    "InputType": "text",
+    "Subcategory": "Account:account_circle:10"
+  },
+  {
+    "DisplayName": "Account password",
+    "Description": "Masked. Enter with account username; clear both to retain saved login. Applied on Start/Restart. Private AMP settings may retain this value.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "password",
+    "ParamFieldName": "password",
+    "DefaultValue": "",
+    "IncludeInCommandLine": false,
+    "Required": false,
+    "EnumValues": {},
+    "InputType": "password",
+    "Subcategory": "Account:account_circle:10"
+  },
+  {
+    "DisplayName": "Preset definitions JSON",
+    "Description": "Edit presets JSON. AI approval records can be omitted here and remain in data/config/presets.json. Preset IDs use lowercase letters, digits, hyphens and underscores. AI skill: 0 Easy, 1 Normal, 2 Insane. Stop before Apply; restart AMP to refresh choices, select a preset, then Start. Blank uses data/config/presets.json. Conflicting edits reject changes.",
+    "Category": "War3_Dedicated:sports_esports",
+    "Subcategory": "Map presets:map:20",
+    "FieldName": "preset_definitions",
+    "ParamFieldName": "preset_definitions",
+    "InputType": "Textarea",
+    "DefaultValue": "",
+    "IncludeInCommandLine": false,
+    "Required": false,
+    "EnumValues": {},
+    "Actions": [
+      {
+        "Caption": "Apply presets",
+        "Module": "Core",
+        "Method": "UpdateApplication",
+        "Argument": "",
+        "IsClientSide": false
+      }
+    ],
+    "Placeholder": "{\"version\":1,\"presets\":[{\"id\":\"custom\",\"enabled\":true,\"map_filename\":\"Custom.w3x\",\"start\":{\"autostart_enabled\":true,\"autostart_players\":6,\"countdown_seconds\":5}}]}"
+  }
+]

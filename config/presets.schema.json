@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://war3.invalid/presets.schema.json",
+  "title": "Warcraft III operator map presets",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "presets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "const": "manual"
+              },
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "id",
+              "enabled"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+                "not": {
+                  "const": "manual"
+                }
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "map_filename": {
+                "type": "string",
+                "maxLength": 124,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_. ()+-]{0,119}\\.[wW]3[xXmM]$",
+                "not": {
+                  "pattern": "\\.\\."
+                }
+              },
+              "lobby_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24,
+                "pattern": "^[^#=\\[\\]|\\\\\\u0000-\\u001f\\u007f]+$",
+                "description": "Exact lobby title, at most 24 UTF-8 bytes; no suffix or counter. Leading/trailing whitespace rejected by runtime."
+              },
+              "max_players": {
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 12
+              },
+              "start": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "autostart_enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable automatic countdown at the human threshold. Voting remains independent."
+                  },
+                  "autostart_players": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 12
+                  },
+                  "countdown_seconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60
+                  }
+                },
+                "required": []
+              },
+              "vote": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "required_percent": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "min_players": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12
+                  },
+                  "timeout": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 600
+                  },
+                  "cooldown": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 600
+                  }
+                },
+                "required": []
+              },
+              "ai": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "target": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 12,
+                    "default": 6
+                  },
+                  "skill": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "capability": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+                  }
+                },
+                "required": []
+              }
+            },
+            "required": [
+              "id",
+              "enabled",
+              "map_filename"
+            ]
+          }
+        ]
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+          },
+          "level": {
+            "const": "approved_preset"
+          },
+          "map_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "script_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "features": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "ai_start",
+                "computer_control"
+              ]
+            }
+          },
+          "review": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "runtime_tested": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "level",
+          "map_sha256",
+          "script_sha256",
+          "features",
+          "review",
+          "runtime_tested"
+        ]
+      }
+    }
+  },
+  "required": [
+    "version",
+    "presets"
+  ]
+}

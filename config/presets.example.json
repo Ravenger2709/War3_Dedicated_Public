@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "presets": [
+    {"id": "manual", "enabled": true},
+    {
+      "id": "ai-template",
+      "enabled": false,
+      "map_filename": "Example-AI-Map.w3x",
+      "lobby_name": "Example AI Map",
+      "max_players": 12,
+      "start": {"autostart_enabled": false, "autostart_players": 6, "countdown_seconds": 5},
+      "vote": {"enabled": true, "required_percent": 60, "min_players": 2, "timeout": 60, "cooldown": 30},
+      "ai": {"enabled": false, "target": 6, "skill": 1}
+    },
+    {
+      "id": "footman-ultimate-ai",
+      "enabled": true,
+      "map_filename": "Footman-Frenzy-Ultimate-AI-v1.1.w3x",
+      "lobby_name": "Footman Ultimate AI",
+      "max_players": 12,
+      "start": {"autostart_enabled": true, "autostart_players": 4, "countdown_seconds": 5},
+      "vote": {"enabled": true, "required_percent": 60, "min_players": 2, "timeout": 60, "cooldown": 30},
+      "ai": {"enabled": true, "target": 4, "skill": 1, "capability": "footman-v11-static"}
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "footman-v11-static",
+      "level": "approved_preset",
+      "map_sha256": "71f4600ddb293b55bfe02ac301d7efec5f868a4eef4031bfa8dfbd0ce99ab58e",
+      "script_sha256": "6781df1bb34e0f177f53c4b50580ae98fcfaa8445381d8a3b30b70fa80bb3800",
+      "features": ["ai_start", "computer_control"],
+      "review": "Static review: per-player computer-controller checks, twelve StartMeleeAI calls and computer-order triggers; eight referenced AI resources readable with main functions. Real-client 1.26 execution pending.",
+      "runtime_tested": false
+    }
+  ]
+}

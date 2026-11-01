@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Local production-image acceptance gate, emitted by main after integrated tests",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "image_id", "source_sha256", "checks", "approved_by_main"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "image_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source_sha256": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+    "approved_by_main": {"const": true},
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clean_build", "unit", "integration", "native_sanitizers", "star_relay_mock", "offline_start_stop", "component_recovery", "persistence", "no_zombies", "no_engine_execution", "secret_layer_audit", "offline_soak"],
+      "properties": {
+        "clean_build": {"const": "PASS"}, "unit": {"const": "PASS"},
+        "integration": {"const": "PASS"}, "native_sanitizers": {"const": "PASS"},
+        "star_relay_mock": {"const": "PASS"}, "offline_start_stop": {"const": "PASS"},
+        "component_recovery": {"const": "PASS"}, "persistence": {"const": "PASS"},
+        "no_zombies": {"const": "PASS"}, "no_engine_execution": {"const": "PASS"},
+        "secret_layer_audit": {"const": "PASS"}, "offline_soak": {"const": "PASS"}
+      }
+    }
+  }
+}

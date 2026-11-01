@@ -1,0 +1,18 @@
+{
+  "mode": "offline",
+  "hostbot": {
+    "command": ["/opt/war3/bin/ghost++", "/data/config/ghost.cfg"],
+    "cwd": "/data",
+    "startup_timeout": 90,
+    "stop_timeout": 15,
+    "lobby_timeout": 3600
+  },
+  "http": {"host": "0.0.0.0", "port": 8080},
+  "runtime_dir": "/data/logs/supervisor",
+  "recovery": {
+    "max_restarts": 5,
+    "backoff_initial": 1,
+    "backoff_max": 60,
+    "stable_seconds": 300
+  }
+}

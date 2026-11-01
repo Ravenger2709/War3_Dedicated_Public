@@ -1,0 +1,160 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "Launcher.exe",
+      "bytes": 21284456,
+      "sha256": "9ce99d541aaef4cb1b2a60a0837580678f81ed0494795efc720fe84c99a6253e"
+    },
+    {
+      "path": "Qt5Core.dll",
+      "bytes": 4641792,
+      "sha256": "8797e8d264b759195fc6a35c2f0d299bb3d78432f1e5761ec251d1d45496ec45"
+    },
+    {
+      "path": "Qt5Gui.dll",
+      "bytes": 5016576,
+      "sha256": "5b7d31c48b0f1396b8c6d080c40893d47c4e94928a385f636a556617e4aa0556"
+    },
+    {
+      "path": "Qt5Multimedia.dll",
+      "bytes": 583168,
+      "sha256": "26f00edd6de4f5f47d86aa00bfb85a5a4c7bb65329cf77d896ae990ee94b0dad"
+    },
+    {
+      "path": "Qt5Network.dll",
+      "bytes": 851968,
+      "sha256": "8eaa30f17cc513a99d3541ee8d6cc4d8f6abf1b69466dd2e32cea8de3f695bce"
+    },
+    {
+      "path": "Qt5Positioning.dll",
+      "bytes": 176128,
+      "sha256": "61e3b0f7467ae190ea3fb00c8865606e5c1265cf17101da9e2bc448e7391a81d"
+    },
+    {
+      "path": "Qt5Qml.dll",
+      "bytes": 2510848,
+      "sha256": "5b13a310348e24a54a2ac32c1cc85dfbdd999840805a60381547dd89742d9ad4"
+    },
+    {
+      "path": "Qt5Quick.dll",
+      "bytes": 2577408,
+      "sha256": "5d38afe3b18e037dfa5c3c6b40e48caf6c6d8b9164c95ddec67f14ba17405d7e"
+    },
+    {
+      "path": "Qt5Svg.dll",
+      "bytes": 255488,
+      "sha256": "a75a66169bda9a0cd46f8d9e70cd302368d09f68c5736e85126c6fb79bf497a0"
+    },
+    {
+      "path": "Qt5WebChannel.dll",
+      "bytes": 87040,
+      "sha256": "6094a35a62f794fa60f467aec100fce825e766818ce9149e5a23c38efa2946e9"
+    },
+    {
+      "path": "Qt5WebEngineCore.dll",
+      "bytes": 46170112,
+      "sha256": "d995e74e36b7595de7fe62e3250cc657b6914ce2d277e76c2e44153bbb4c21f7"
+    },
+    {
+      "path": "Qt5WebEngineWidgets.dll",
+      "bytes": 152064,
+      "sha256": "fa2a687934095b1dec2830d208b600a8dae495502d8f1978a02c4ac1b5a9d2e0"
+    },
+    {
+      "path": "Qt5Widgets.dll",
+      "bytes": 4433920,
+      "sha256": "6dc8755bcb7c71a2abb6bb40a3c9eeaefc4ec63eb1c385f0697b1c66a642b0cf"
+    },
+    {
+      "path": "Qt5Xml.dll",
+      "bytes": 152576,
+      "sha256": "e9c572e4a9aac35b6b151dbb2bee4b00c59ea2fa369c3ccb8dadd681105a720f"
+    },
+    {
+      "path": "QtWebEngineProcess.exe",
+      "bytes": 13312,
+      "sha256": "f15aac9a81964e71a6c3c27496161de00e3af2e05673f648cc69029e5d9520e4"
+    },
+    {
+      "path": "RepAnalyser.dll",
+      "bytes": 114688,
+      "sha256": "1ba80ae759d58ef071984ef44e3f075aaa611097572cfae1f95783ef02a4b851"
+    },
+    {
+      "path": "Storm.dll",
+      "bytes": 339968,
+      "sha256": "eecc42b05a91413dee10588a654c6cca05836e7513af6c7c568a56124bf97d0a"
+    },
+    {
+      "path": "chaticons.zip",
+      "bytes": 8168880,
+      "sha256": "bb9de2edfe2134197a8ef58ec1d7fe12c6e56d91ec896381f3be926d5c962885"
+    },
+    {
+      "path": "flags.zip",
+      "bytes": 930753,
+      "sha256": "1f32b6a931ce11b417e095272c69a94f8442a7d879689c18cff2332f79816b25"
+    },
+    {
+      "path": "iccwc3.icc",
+      "bytes": 7331040,
+      "sha256": "d1cceb749c852edb186d6827b60b6a094a89b2861051593c141fd7af6497ddf3"
+    },
+    {
+      "path": "imageformats/qgif.dll",
+      "bytes": 26112,
+      "sha256": "556b4dba435c669bad68122e0a5a81f8de978fa8de3ef6f2995dd63d0b1be79c"
+    },
+    {
+      "path": "imageformats/qsvg.dll",
+      "bytes": 21504,
+      "sha256": "86220635c2c1eedd8a8f68ece3ff6cc68884405146ebe663e3f76ba2e290d0dc"
+    },
+    {
+      "path": "libeay32.dll",
+      "bytes": 1284096,
+      "sha256": "23f33c5a8cd8e4ad39e86369fe23be2ab5692453282286f5ae875e4f2cd51ee9"
+    },
+    {
+      "path": "mapicons.zip",
+      "bytes": 42896730,
+      "sha256": "d6ab52144a91936e2abb9178e13ed21659ecb4dd926f71270b19e80e1c350ef7"
+    },
+    {
+      "path": "platforms/qwindows.dll",
+      "bytes": 1010688,
+      "sha256": "1c9b4ae8eadb98c4d90f7598694a9cc323b2f013626df6a80ccbad56f1a0162d"
+    },
+    {
+      "path": "resources/icudtl.dat",
+      "bytes": 10207936,
+      "sha256": "2857fbe46d007307b1e204c6eb1b7e4988973b958ec8edb07445988f332c1ab5"
+    },
+    {
+      "path": "resources/qtwebengine_resources.pak",
+      "bytes": 2943669,
+      "sha256": "54f585fb4fc7aaa688643ef4a016113949073bc84d8de2731b494e8ade960293"
+    },
+    {
+      "path": "resources/qtwebengine_resources_100p.pak",
+      "bytes": 326238,
+      "sha256": "5415c91f080bcc522ed67e72f97a1d416757e00a3ff1ef2a44ee760adb81005a"
+    },
+    {
+      "path": "resources/qtwebengine_resources_200p.pak",
+      "bytes": 389474,
+      "sha256": "7d2f28dc1209c6ad0721ca535c38408835242d2ec5f3ec636dc4fcff8cbcefa0"
+    },
+    {
+      "path": "ssleay32.dll",
+      "bytes": 320512,
+      "sha256": "ef3b2b86d5b38f85a359ec68ec691270550f880c8157fe128e1243017d33172f"
+    },
+    {
+      "path": "w3lh.dll",
+      "bytes": 35328,
+      "sha256": "8d00abac7500e496f30992d6b96d0ce4839a1a625fcde58366d25ef98620f49e"
+    }
+  ]
+}

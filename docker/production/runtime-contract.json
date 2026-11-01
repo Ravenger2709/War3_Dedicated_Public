@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "platform": "linux/amd64",
+  "command": ["python3", "-m", "src.supervisor", "--config", "/data/config/supervisor.json"],
+  "native_command": ["/opt/war3/bin/ghost++", "/data/state/native/ghost.cfg"],
+  "cwd": "/data",
+  "wineprefix": "/data/prefix",
+  "home": "/data/session/home",
+  "star_cwd": "/data/session/launcher",
+  "native_effective_config": "/data/state/native/ghost.cfg",
+  "native_feedback_directory": "/data/state/bridge",
+  "native_mapcfg_directory": "/data/state/mapcfg",
+  "native_preset_mapcfg_directory": "/data/state/native/mapcfg",
+  "star_command": ["python3", "-m", "src.runtime.star", "--config", "/data/state/star-worker.json"],
+  "quit_helper": "/opt/war3/bin/quit-launcher.exe",
+  "vendor_manifest": "/opt/war3/config/star-vendor-files.json",
+  "iccup_adapter": "original-star-v1",
+  "default_uid": 10001,
+  "default_gid": 10001,
+  "wine_base_id": "sha256:11af7c6327c55676747362e0da362c32f8bb04c058e875936294020669ccfec1",
+  "required_source_trees": ["src/supervisor", "src/connector", "src/bridge", "src/runtime"],
+  "ports": {
+    "public": ["0.0.0.0:6113:6113/tcp"],
+    "relay": "127.0.0.1:16112",
+    "status": "127.0.0.1:8080",
+    "outbound_bncs": "6112/tcp"
+  },
+  "read_only_directories": ["/data/config", "/data/maps", "/data/warcraft", "/vendor/star", "/vendor/profile", "/vendor/game", "/vendor/redist"],
+  "read_write_directories": ["/data/state", "/data/sqlite", "/data/logs", "/data/replays", "/data/prefix", "/data/session"],
+  "vendor_inputs": {
+    "star": "/vendor/star/Launcher.exe",
+    "profile": "/vendor/profile/launcher.ini",
+    "vc2015": "/vendor/redist/vc_redist.x86.exe",
+    "metadata_only": ["/vendor/game/war3.exe", "/vendor/game/game.dll"],
+    "map_checksum_data": "/data/warcraft/War3Patch.mpq"
+  },
+  "forbidden_execution": ["war3.exe", "game.dll"],
+  "restart_owner": "AMP in staging; Docker restart=no; supervisor owns component recovery",
+  "secret_backup_policy": "prefix/session/profile excluded; provision profile locally, never transfer canonical password"
+}

@@ -1,0 +1,15 @@
+#!/bin/sh
+# gosu 1.17 drops supplemental groups when an explicit :group is supplied.
+# Upstream creates amp with primary group amp. Resolve that same primary group
+# from passwd so its supplemental socket group survives the official handoff.
+if [ "${1-}" = 'amp:amp' ]; then
+    amp_group=$(getent group amp) || exit 1
+    amp_group_gid=$(printf '%s\n' "$amp_group" | cut -d: -f3)
+    [ "$(id -g amp)" = "$amp_group_gid" ] || {
+        echo '[Error] Unexpected primary AMP group' >&2
+        exit 1
+    }
+    shift
+    exec /usr/sbin/gosu amp "$@"
+fi
+exec /usr/sbin/gosu "$@"

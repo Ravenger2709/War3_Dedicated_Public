@@ -1,0 +1,20 @@
+[
+  {
+    "ConfigFile": "data/config/amp-settings.json",
+    "ConfigType": "json",
+    "AutoMap": true,
+    "Importable": true
+  },
+  {
+    "ConfigFile": "control/account-input.json",
+    "ConfigType": "json",
+    "AutoMap": true,
+    "Importable": true
+  },
+  {
+    "ConfigFile": "control/preset-editor.json",
+    "ConfigType": "json",
+    "AutoMap": true,
+    "Importable": true
+  }
+]

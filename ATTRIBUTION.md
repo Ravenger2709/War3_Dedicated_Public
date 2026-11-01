@@ -1,0 +1,19 @@
+# Third-party authors and provenance
+
+This repository distributes the project's integration code and patches. **It does not vendor the proprietary Warcraft III game, iCCup Star binaries, Warcraft maps, saved profiles or accounts.** The references below distinguish reused open-source code, dependencies fetched during builds, and research sources.
+
+| Project | Credit and origin | How it relates to this project |
+| --- | --- | --- |
+| [GHost++](https://github.com/ghostBot/ghostplusplus/tree/6ba90f426e96f80fe013a468d1e07151a510adbe) | **Trevor Hogan**, GHost++ 17.2, Apache License 2.0; pinned commit `6ba90f426e96f80fe013a468d1e07151a510adbe` | Native host base fetched by `scripts/build-ghost.sh`, modified by `patches/ghostplusplus-modern-linux.patch`. Upstream source is not committed. |
+| [BNCSutil](https://github.com/ghostBot/ghostplusplus/tree/6ba90f426e96f80fe013a468d1e07151a510adbe/bncsutil) | **Eric Naeseth**, LGPL 2.1 or later, as declared in upstream source headers | GHost++ dependency; retained copyright and LGPL obligations. |
+| [StormLib](https://github.com/ladislav-zezula/StormLib) | **Ladislav Zezula**; historical contributions by **Marko Friedemann** and **Sam Wilkins** | GHost++'s older snapshot is used during native build. Its historical licensing must be verified separately; do not presume that a recent MIT license applies retroactively to every file. |
+| PKLIB/implode-explode | PKWARE Inc. (1989–1995) and StormLib notices | Historical GHost++ bundled sources; original notices retained. |
+| SQLite | [SQLite public-domain project](https://sqlite.org/copyright.html) | Old amalgamation bundled in GHost++ upstream. |
+| Boost, GMP, bzip2, zlib | [Boost](https://www.boost.org/), [GNU GMP](https://gmplib.org/), [bzip2](https://sourceware.org/bzip2/), [zlib](https://zlib.net/) | Runtime/build dependencies under their individual licenses; build scripts collect notices where available. |
+| [WineHQ](https://www.winehq.org/) | The Wine project and its contributors | Windows compatibility layer provided by the user's separately built container image. |
+| [CubeCoders AMPTemplates](https://github.com/CubeCoders/AMPTemplates) | CubeCoders and community contributors | Documentation/reference for AMP Generic format and container lifecycle. The template here is independently maintained. |
+| [Docker](https://www.docker.com/), [CubeCoders AMP Docker images](https://github.com/CubeCoders/dockerfiles) | Docker and CubeCoders contributors | Runtime and optional AMP image inputs; no proprietary AMP application is included in this Git tree. |
+| [PvPGN](https://github.com/pvpgn/pvpgn-server), [unmclient](https://github.com/mothefuunnick/unmclient), [IrInA-related code](https://github.com/kirill-782/irinabot-ru-site) | Their respective contributors | Public protocol and architecture research references only; no source from these repositories is bundled. |
+| iCCup Star / Warcraft III | Their respective rights holders (iCCup, Blizzard Entertainment and third-party map authors as applicable) | Operator-supplied, non-redistributable assets. Do not commit or publish them. |
+
+Read [src/hostbot/NOTICE.md](src/hostbot/NOTICE.md) for the exact original GHost++ snapshot notices and source links. The top-level Apache-2.0 `LICENSE` governs **original code authored for this integration**, except where a file/third-party component states different terms. No relicensing of third-party components is intended. The public source release does not imply that distributing a complete binary image is authorized; verify all applicable third-party rights before redistribution.

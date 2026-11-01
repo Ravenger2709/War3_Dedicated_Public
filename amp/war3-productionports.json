@@ -1,0 +1,9 @@
+[
+  {
+    "Protocol": "TCP",
+    "Port": 6113,
+    "Ref": "GamePort",
+    "Name": "Warcraft III game",
+    "Description": "Public native player TCP 6113 only. Fixed; relay/status are container loopback."
+  }
+]

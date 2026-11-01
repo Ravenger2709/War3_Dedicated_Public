@@ -1,0 +1,23 @@
+name: Public source checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  safe-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source privacy gate
+        run: python3 scripts/check-public-tree.py
+      - name: Python syntax
+        run: python3 -m compileall -q amp src scripts tests
+      - name: Focused offline unit tests
+        run: |
+          python3 -m unittest discover -s tests/phase3 -p 'test_map_presets.py' -q
+          python3 -m unittest discover -s tests/phase3 -p 'test_operator_logs.py' -q
+          python3 -m unittest discover -s tests/phase3 -p 'test_standalone_cli.py' -q

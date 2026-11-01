@@ -1,0 +1,76 @@
+{
+  "repository": "https://github.com/ghostBot/ghostplusplus.git",
+  "revision": "6ba90f426e96f80fe013a468d1e07151a510adbe",
+  "upstream_date": "2013-12-15T04:33:55Z",
+  "patches": [
+    "patches/ghostplusplus-modern-linux.patch"
+  ],
+  "ubuntu_noble_amd64_packages": [
+    {
+      "package": "libboost-filesystem1.83-dev",
+      "version": "1.83.0-2.1ubuntu3.2",
+      "architecture": "amd64",
+      "filename": "libboost-filesystem1.83-dev_1.83.0-2.1ubuntu3.2_amd64.deb",
+      "sha256": "b97df146e417e32e45c6060d38e8e6128b9051fc99c54d4b74aada257069b5eb"
+    },
+    {
+      "package": "libboost-filesystem1.83.0",
+      "version": "1.83.0-2.1ubuntu3.2",
+      "architecture": "amd64",
+      "filename": "libboost-filesystem1.83.0_1.83.0-2.1ubuntu3.2_amd64.deb",
+      "sha256": "154b74fe60f7fc6223b0ff86063b8eb9429bfd1f532085fce66b555ebf2bf96c"
+    },
+    {
+      "package": "libboost-system1.83-dev",
+      "version": "1.83.0-2.1ubuntu3.2",
+      "architecture": "amd64",
+      "filename": "libboost-system1.83-dev_1.83.0-2.1ubuntu3.2_amd64.deb",
+      "sha256": "e09169225a02690f398336a0bae5c63d70e8eb38d1ed1ad89492ddd01ee491af"
+    },
+    {
+      "package": "libboost-system1.83.0",
+      "version": "1.83.0-2.1ubuntu3.2",
+      "architecture": "amd64",
+      "filename": "libboost-system1.83.0_1.83.0-2.1ubuntu3.2_amd64.deb",
+      "sha256": "69f25ec5a0f321c91e2f1699ef29c550bf7b31f61d7648a8c4986ccf581f8e02"
+    },
+    {
+      "package": "libboost1.83-dev",
+      "version": "1.83.0-2.1ubuntu3.2",
+      "architecture": "amd64",
+      "filename": "libboost1.83-dev_1.83.0-2.1ubuntu3.2_amd64.deb",
+      "sha256": "519ecf2c64308527e15b6582955681d192a832250baa4bc424967aaf7d02d68f"
+    },
+    {
+      "package": "libbz2-1.0",
+      "version": "1.0.8-5.1ubuntu0.1",
+      "architecture": "amd64",
+      "filename": "libbz2-1.0_1.0.8-5.1ubuntu0.1_amd64.deb",
+      "sha256": "36ee08b00b1ee5018b2fce02881b7d2d73c9b4e32990bde3388400d86c48126a"
+    },
+    {
+      "package": "libbz2-dev",
+      "version": "1.0.8-5.1ubuntu0.1",
+      "architecture": "amd64",
+      "filename": "libbz2-dev_1.0.8-5.1ubuntu0.1_amd64.deb",
+      "sha256": "f055bb5cb47117020a76dc40fcdb8164f4fa529df2b7f485faacc0b0f5083614"
+    },
+    {
+      "package": "libgmp-dev",
+      "version": "2:6.3.0+dfsg-2ubuntu6.1",
+      "architecture": "amd64",
+      "filename": "libgmp-dev_2%3a6.3.0+dfsg-2ubuntu6.1_amd64.deb",
+      "sha256": "a9847b5ecfff791a46cb198f29a06d9d23a20afdfdd434812f2b44ccfb61d46a"
+    },
+    {
+      "package": "libgmp10",
+      "version": "2:6.3.0+dfsg-2ubuntu6.1",
+      "architecture": "amd64",
+      "filename": "libgmp10_2%3a6.3.0+dfsg-2ubuntu6.1_amd64.deb",
+      "sha256": "285f8a505dfa8e1b33f357a9d8d3477ad35bf18c0b34771a6df4c25923f3ae0d"
+    }
+  ],
+  "patch_sha256": {
+    "patches/ghostplusplus-modern-linux.patch": "d10bfedd130463bc143ce55154c154730244784371b5f0f5c21e1b0a30b1a5cd"
+  }
+}
