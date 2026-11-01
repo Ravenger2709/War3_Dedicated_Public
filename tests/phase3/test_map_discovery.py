@@ -59,6 +59,12 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(result, self.doc)
         self.assertEqual(skipped, 2)
 
+    def test_bootstrap_selected_map_is_not_generated_as_a_new_preset(self):
+        (self.root / 'data/maps/selected.w3x').write_bytes(b'other map' * 10)
+        result, skipped = map_discovery.discover(self.root, self.doc, SPEC, [], {}, OWNER, self.analyze)
+        self.assertEqual(skipped, 0)
+        self.assertEqual([p.get('map_filename') for p in result['presets']], [None, 'Sample.w3x'])
+
     def test_analyzer_runs_isolated_with_only_the_map_bind_and_cleans_up(self):
         stub = self.root / 'docker_stub.py'
         trace = self.root / 'calls.jsonl'

@@ -17,3 +17,29 @@ was built from the source context recorded by the build receipt at commit
 - The Docker release archive loaded locally and retained the candidate image ID. GitHub Actions passed on the corresponding main commit.
 
 **Not established:** a completed no-cache build of the Wine base, actual iCCup authentication or a real-client match on this candidate. Actual online authentication and gameplay are separate from the offline gate. No release identity or acceptance gate has been issued for this candidate.
+
+## Angel Arena candidate under validation
+
+The subsequent candidate is
+`sha256:75dbe33fe9d097ff7a5d64734a62126cf54b17a8df14bd4c7764880e4d045527`.
+Its only runtime change permits an empty optional `war3map.wts`; required MPQ
+members and size limits remain enforced. The original Angel Arena Allstars
+v1.70b was analyzed inside this image: the static analyzer found 12 human
+slots, and the generated preset kept AI and auto-start disabled. No map script
+or Warcraft engine was executed, and this is not a gameplay or AI claim.
+
+An independent no-cache Wine build completed; the package list and every file
+under `/opt/wine-stable` matched the previously verified base. A separate
+no-cache final packaging build used the same base IDs and source digest;
+runtime source, libraries and GHost++ matched, and the helper matched after
+excluding PE timestamp and checksum fields. The phase-3 suite passed 251 tests
+(four optional skips), and 152 bridge tests passed. A separate offline cohort
+test recovered Star, relay and native GHost after SIGKILL, preserved SQLite,
+reported no false authentication, and found no remaining vendor processes or
+zombies. A 21-layer path audit passed; a content audit of 15,453 image files and
+159 source files found no match for either line of the operator-supplied
+credential file. Neither credential value was printed.
+
+The new image archive was loaded successfully and preserved the candidate ID.
+The 900-second offline soak and AMP dynamic-selector validation remain in
+progress. No gate or release identity has been issued for this candidate.

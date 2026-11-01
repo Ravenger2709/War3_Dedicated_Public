@@ -63,6 +63,9 @@ def _extract(path, library):
             try:
                 high = C.c_uint32()
                 size = api['size'](handle, C.byref(high))
+                # WTS is optional; some valid maps contain an empty placeholder.
+                if name == 'war3map.wts' and not high.value and size == 0:
+                    continue
                 if high.value or not 0 < size <= limit:
                     raise ValueError('MAP_MEMBER_SIZE_REJECTED')
                 data = C.create_string_buffer(size)

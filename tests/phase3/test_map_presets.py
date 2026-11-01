@@ -366,6 +366,11 @@ class MPQTests(unittest.TestCase):
         p.chmod(0o444)
         self.assertEqual(analyze_map(p), data)
 
+    def test_empty_optional_wts_is_accepted(self):
+        p = self.mpq(members={'war3map.w3i': info_fixture(), 'war3map.j': PLAIN_SCRIPT,
+                              'war3map.wts': b''})
+        self.assertEqual(analyze_map(p)['script_sha256'], hashlib.sha256(PLAIN_SCRIPT).hexdigest())
+
     def test_approved_preset_private_config_and_manual_reset(self):
         p = self.mpq()
         self.approve(p)

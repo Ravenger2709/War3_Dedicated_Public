@@ -276,10 +276,14 @@ changes. A second filename with identical contents is also skipped when its
 existing map file is available. Invalid or changing maps are skipped, and a
 short count is logged. A maximum of 32 presets and 32 new candidates per scan
 is enforced; remove invalid files if they prevent later files from being scanned.
-No subdirectories are scanned. A repeated start does not create another preset.
+No subdirectories are scanned. The bootstrap-owned `selected.w3x` is excluded
+from discovery; its original preset is managed by setup. A repeated start does
+not create another preset.
 The current selection does not change automatically. The selector manifest is
-refreshed at start; AMP may need its configuration view reloaded before new
-choices appear. The runtime mounts config read-only, while the stopped host-side
+refreshed at start. AMP can cache the selector and editor independently of the
+game process: if the choices remain stale, restart this instance's AMP control
+service and reconnect to its settings. An ordinary game-process restart or
+`ReloadGenericConfig` alone may not refresh the choices. The runtime mounts config read-only, while the stopped host-side
 controller performs this update before starting the container.
 
 The preset update checks the File Manager revision and uses the existing

@@ -135,7 +135,8 @@ def discover(instance, document, spec, docker, env, owner, analyzer=analyze):
     for path in paths:
         if len(result['presets']) >= 32:
             break
-        if not MAP_NAME.fullmatch(path.name) or '..' in path.name or path.name.casefold() in existing:
+        # Bootstrap owns selected.w3x as an internal copy of the initial map.
+        if path.name.casefold() == 'selected.w3x' or not MAP_NAME.fullmatch(path.name) or '..' in path.name or path.name.casefold() in existing:
             continue
         examined += 1
         if examined > 32:
