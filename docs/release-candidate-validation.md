@@ -1,0 +1,10 @@
+# Candidate validation: 2026-11-01
+
+This documents local test evidence, **not a production acceptance gate or a public binary release**. Source tested: `d0294064016673aa4128ad382064e61981b4fe8b`; candidate Docker image ID `sha256:de03c04084a98671add6108ed7866382930a2b919a3f10dc8406c2b69d8174d7`. Native patch SHA-256: `d10bfedd130463bc143ce55154c154730244784371b5f0f5c21e1b0a30b1a5cd`.
+
+- Candidate assembled from pinned upstream and checked against the production source context. Historical image-layer path audit: 21 layers, PASS. That scan does not prove the absence of every possible secret.
+- Python offline suite in candidate, non-root and `--network none`: 240 tests passed, 4 skipped; separate relay suite: 152 tests passed. Star worker fixtures are synthetic.
+- Map preset suite with an operator-supplied Footman map whose full SHA-256 matches the curated capability: 30 tests passed with candidate StormLib and no network. Different map hashes require a separate review and capability.
+- Native GHost++ patched source, rebuilt with AddressSanitizer and UndefinedBehaviorSanitizer in a network-isolated builder: 73 gameplay tests and 7 publication tests passed. The gameplay suite includes a 66-second solo AI match and rehosting. Sanitizer text log SHA-256 before temporary cleanup: `61ad5b57bb2a1863488d45d822620f5294a12a62be3f7c6f0c406901d3778d88`.
+
+Still needed for an accepted, distributable runtime: full actual Star and GHost startup, component recovery, persistence, clean shutdown and bounded offline soak with original operator-supplied Star/Warcraft assets; evidence for every production gate check for this exact candidate; review of third-party redistribution terms, including the historical StormLib snapshot; then a new source-matched acceptance gate and release identity. Actual online iCCup and external client tests are separate claims. The 2013 official StormLib MIT license is relevant background, but does not by itself establish the rights of every file in this older snapshot. Do not infer those unperformed checks from this report or copy an old gate to this image.
