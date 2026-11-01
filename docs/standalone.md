@@ -21,7 +21,7 @@ Download the matching source archive, Docker image, release identity and
 ```bash
 sha256sum --check SHA256SUMS
 docker load --input war3-runtime-linux-amd64.tar.gz
-export RUNTIME_PULL_REF=war3-dedicated:v0.4.0
+export RUNTIME_PULL_REF=war3-dedicated:v0.4.1
 ```
 
 Use the tagged source checkout accompanying the release, and the accompanying
