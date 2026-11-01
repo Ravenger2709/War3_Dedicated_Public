@@ -18,7 +18,7 @@ was built from the source context recorded by the build receipt at commit
 
 **Not established:** a completed no-cache build of the Wine base, actual iCCup authentication or a real-client match on this candidate. Actual online authentication and gameplay are separate from the offline gate. No release identity or acceptance gate has been issued for this candidate.
 
-## Angel Arena candidate under validation
+## Angel Arena candidate accepted for v0.4.0
 
 The subsequent candidate is
 `sha256:75dbe33fe9d097ff7a5d64734a62126cf54b17a8df14bd4c7764880e4d045527`.
