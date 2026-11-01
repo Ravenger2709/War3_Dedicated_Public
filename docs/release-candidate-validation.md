@@ -25,7 +25,7 @@ The subsequent candidate is
 Its only runtime change permits an empty optional `war3map.wts`; required MPQ
 members and size limits remain enforced. The original Angel Arena Allstars
 v1.70b was analyzed inside this image: the static analyzer found 12 human
-slots, and the generated preset kept AI and auto-start disabled. No map script
+slots, and its generated preset compiled with AI and auto-start disabled. No map script
 or Warcraft engine was executed, and this is not a gameplay or AI claim.
 
 An independent no-cache Wine build completed; the package list and every file
@@ -41,5 +41,9 @@ zombies. A 21-layer path audit passed; a content audit of 15,453 image files and
 credential file. Neither credential value was printed.
 
 The new image archive was loaded successfully and preserved the candidate ID.
-The 900-second offline soak and AMP dynamic-selector validation remain in
-progress. No gate or release identity has been issued for this candidate.
+A 900-second offline soak completed in 1012.134 seconds with the original Star,
+synthetic profile, no network and no game-engine execution. It verified cold
+and persistent-prefix starts, native crash recovery, SQLite persistence and
+orderly stop; no zombie processes or OOM kills were observed. AMP dynamic
+selector validation remains in progress. No gate or release identity has been
+issued for this candidate at the time of this record.
