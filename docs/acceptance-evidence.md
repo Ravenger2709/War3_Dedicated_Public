@@ -10,7 +10,7 @@ separate tests. See [detailed test record](release-candidate-validation.md).
 
 | Gate item | Evidence and remaining qualification |
 | --- | --- |
-| `clean_build` | **Incomplete:** independently rebuilt native binaries match byte for byte; helper matches after excluding PE timestamp and checksum. A no-cache Wine rebuild stalled on WineHQ, so a clean rebuild of every base is not established. The candidate uses a pinned, previously tested Wine base. |
+| `clean_build` | **Incomplete:** independently rebuilt native binaries match byte for byte; helper matches after excluding PE timestamp and checksum. A no-cache Wine rebuild completed its build steps but hit the 300-second limit during image export, so a clean rebuild of every base is not established. The candidate uses a pinned, previously tested Wine base. |
 | `unit` | Candidate ran 241 phase-3 tests, with two optional skips. The map-discovery controller subsequently passed eight focused tests, 74 account tests (two skips) and 25 standalone tests. |
 | `integration` | 31 map/preset tests included the original Footman map. Offline cohort exercised the actual Star, relay and native supervisor together. No real-client match on this candidate. |
 | `native_sanitizers` | Same native source and StormLib revision, separate ASan/UBSan build: 73 gameplay and 7 native publication tests passed. |
