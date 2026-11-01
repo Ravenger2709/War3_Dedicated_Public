@@ -5,6 +5,8 @@ Python 3. No AMP installation, licence, API, control image, host Wine, Compose
 or AI assistant is needed. The existing runtime, release gate and offline
 account helper provide the same validation as the managed deployment.
 
+> The release image and identity mentioned below are being prepared and are not yet published.
+
 ## Requirements
 
 Use a Linux amd64 Docker host, Python 3.10 or newer, and a normal non-root user

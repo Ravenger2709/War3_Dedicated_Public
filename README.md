@@ -19,6 +19,8 @@ An open-source, headless Warcraft III 1.26a lobby hostbot for iCCup. It combines
 
 No external database server is required; runtime state uses local SQLite. Wine and its dependencies run inside Docker, not on the host. AMP is **optional** and has its own Docker control image.
 
+> **Release preparation:** the image and release identity are not published yet; the [candidate evidence](docs/release-candidate-validation.md) describes the current state.
+
 ## Installation and development
 
 1. Download the release image and its identity as described in [standalone setup](docs/standalone.md), or read [building a runtime from source](docs/build-from-source.md).
