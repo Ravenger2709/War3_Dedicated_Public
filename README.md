@@ -6,6 +6,25 @@ An open-source, headless Warcraft III 1.26a lobby hostbot for iCCup. It combines
 
 **No Warcraft III, Star, maps, account profiles, passwords or private runtime images are included.** You must supply files you are legally permitted to use. Download the tested runtime image and matching release identity from [GitHub Releases](https://github.com/Ravenger2709/War3_Dedicated_Public/releases). The legacy Compose prototype is not the production iCCup runtime.
 
+
+## Official Star download and minimal game files
+
+**Official iCCup BETA Star Launcher:** [download page](https://iccup.com/files/view/iCCup_BETA_Star_Launcher.html) ([iCCup file directory](https://iccup.com/files.html)). Use **BETA Star**, not the older classic iCCup Launcher. The verified runtime requires **Star 4.3.75.75** and checks the exact 31 vendor files listed in [config/star-vendor-files.json](config/star-vendor-files.json). The public download may offer a newer version: do not bypass version/SHA checks; a newer Star must be tested and approved before use.
+
+**You do not have to install a full Warcraft III game on the AMP server.** The runtime Docker image already contains native GHost++, Wine, Xvfb and the bot. It intentionally does **not** ship the third-party Star files or Warcraft assets. Provide these sources **once during setup**:
+
+| Setup option | Source files to supply | Used after setup |
+| --- | --- | --- |
+| `--star-dir` | Folder with the extracted/updated official Star installation and `Launcher.exe` (not the downloaded installer executable) | Only 31 verified Star files are copied into private `vendor/star`; Star runs headlessly via Wine/Xvfb |
+| `--game-dir` | A folder containing `war3.exe`, `game.dll`, and `War3Patch.mpq` from your licensed Warcraft III **1.26a** | EXE/DLL are read-only metadata and never executed; MPQ supplies map-checksum data |
+| `--map` | Your permitted `.w3x` or `.w3m` map | The native bot hosts and transfers it to players |
+| `--redist` | Compatible VC2015 x86 redistributable installer (can be found under supported Star paths) | Used for the Wine runtime; setup validates its pinned SHA-256 |
+
+Setup copies just the allowlisted files into the **private instance data directories** and mounts them into the container. The original source folders are not needed for normal Start/Stop/Restart, but keep authorized backups for disaster recovery. **No Warcraft game engine or graphical game client runs on AMP**; the headless Star service is separate from the actual Warcraft III game.
+
+See [AMP one-time setup](docs/operator-quickstart.md#required-third-party-files-one-time-setup) and [standalone setup](docs/standalone.md#set-up-and-enter-the-account).
+
+
 ## Components
 
 | Component | Purpose |
@@ -45,5 +64,10 @@ The native host is based on [GHost++](https://github.com/ghostBot/ghostplusplus)
 The project's original integration code is provided under the [Apache License 2.0](LICENSE); upstream components retain their respective terms. **This is an independent project**, not endorsed by Blizzard Entertainment, iCCup or CubeCoders.
 
 ## По-русски
+
+**Где скачать Star:** [официальная страница iCCup БЕТА Star Launcher](https://iccup.com/files/view/iCCup_BETA_Star_Launcher.html). Нужен именно Star, а не классический iCCup Launcher. Проверенная версия — **4.3.75.75**; более новую версию необходимо отдельно проверить на совместимость.
+
+**Полный Warcraft III на AMP устанавливать не нужно.** Для первоначального setup требуются файлы `war3.exe`, `game.dll`, `War3Patch.mpq` из вашей Warcraft III 1.26a, выбранная карта `.w3x`/`.w3m`, каталог распакованного Star и VC2015 x86. Настройка копирует только нужные файлы в закрытые данные инстанса. Docker уже содержит GHost++, Wine и Xvfb, а игровой движок не запускается. [Подробная инструкция для AMP](docs/operator-quickstart.md#required-third-party-files-one-time-setup).
+
 
 Этот репозиторий содержит исходники хост-бота Warcraft III для iCCup. Можно использовать Docker без AMP или подключить Generic-шаблон AMP. Для запуска нужны собственные файлы Star/Warcraft III, карта, отдельный iCCup-аккаунт и собранный/проверенный runtime-образ. Приватные конфигурации не публикуются; готовый образ и данные проверки доступны в GitHub Releases. Параметры автостарта, голосования и ИИ редактируются в [пресетах](docs/map-presets.md); инструкции по [Docker](docs/standalone.md) и [AMP](docs/operator-quickstart.md) доступны в репозитории.

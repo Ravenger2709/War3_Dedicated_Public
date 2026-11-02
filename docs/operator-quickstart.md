@@ -6,6 +6,20 @@ files. Routine setup needs no AI, manual 31-file copying, or host dependency
 installation. The setup command prepares files locally; AMP Start later starts
 the runtime and original Star authentication.
 
+
+## Required third-party files (one-time setup)
+
+**Official Star download:** [iCCup BETA Star Launcher](https://iccup.com/files/view/iCCup_BETA_Star_Launcher.html) ([official files page](https://iccup.com/files.html)). It is **not** the classic iCCup Launcher. Download/install or extract it in a private source location and, if necessary, use the official updater to reach the **verified Star 4.3.75.75** build. The runtime pins the exact set and SHA-256 hashes of 31 files in `config/star-vendor-files.json`; a newer official release is **not automatically compatible**. Do not disable these checks or use third-party repacks.
+
+**There is no requirement to install Warcraft III on Ubuntu/AMP or start the game engine.** The Docker runtime already supplies GHost++, Wine, Xvfb and all open-source bot components. For the **single setup operation**, the operator needs only local, legally obtained source files:
+
+- `--star-dir`: unpacked/updated Star directory containing `Launcher.exe` and its dependencies; this is **not** the installer download path.
+- `--game-dir`: folder with `war3.exe`, `game.dll` and `War3Patch.mpq` from Warcraft III 1.26a. No other Warcraft files are read by setup. The two PE files are validated/copied as **metadata only**, never executed; the MPQ supports map checksums.
+- `--map`: selected `.w3x` or `.w3m` map; `--redist`: pinned VC2015 x86 installer (or let setup find it under the supported Star paths).
+
+These paths must be accessible **on the host executing setup**, for example in a private temporary staging directory on `second-host-vm`, but do not need to become a full local Warcraft or Star installation. The setup command below copies only the allowlisted files to private per-instance `vendor/` and `data/` paths. Subsequent AMP Start/Stop/Restart uses those private files via Docker mounts and does not ask for the original source paths again. Keep a separate authorized backup for recovery. Do not place proprietary assets in the public Git repository, Docker image, or release assets.
+
+
 ## 1. Make the two images available
 
 The release maintainer builds and accepts the runtime through the production
