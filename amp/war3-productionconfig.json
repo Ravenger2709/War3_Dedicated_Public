@@ -41,6 +41,21 @@
     "Subcategory": "Lobby:groups:30"
   },
   {
+    "DisplayName": "Lobby message interval (seconds)",
+    "Description": "Global shared cadence for periodic auto-start, !vote and !help reminders, in seconds. Applies to every preset on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "lobby_message_interval",
+    "ParamFieldName": "lobby_message_interval",
+    "DefaultValue": "20",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "number",
+    "minValue": "10",
+    "maxValue": "3600",
+    "Subcategory": "Lobby / Messages:chat:35"
+  },
+  {
     "DisplayName": "Vote enabled",
     "Description": "Manual/default value; the selected preset may override this. Applied on next AMP Start/Restart.",
     "Category": "War3_Dedicated:sports_esports",

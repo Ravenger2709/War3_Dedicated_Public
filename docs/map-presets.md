@@ -354,6 +354,8 @@ Welcome to War3HostBot!
 !help - Show a summary of the available commands.
 !status - Show the map, players, presets, running matches and iCCup status.
 !vote - Start or join a vote to start early. The preset's minimum human-player requirement still applies.
+!kick <player> - Start or support a vote to remove a player from this match (70% of eligible human voters; at least two votes).
+Type !help to see available server commands.
 ```
 
 The welcome uses the configured display name. To customize it, create
@@ -364,6 +366,10 @@ welcome. Missing or invalid text falls back to the English guide. Restart the
 instance to apply edits: native reads a private snapshot, and never changes the
 operator file. An explicitly configured legacy `bot_motdfile` retains its
 existing behavior.
+
+Custom MOTD text is used without appending the default command definitions or
+the help hint. Kick voting applies during a loaded match. The welcome is sent
+on join; the global lobby reminder interval does not repeat the MOTD.
 
 While the lobby waits, auto-start and voting reminders are separate messages.
 For example, one human with auto-start set to four and voting set to two sees:

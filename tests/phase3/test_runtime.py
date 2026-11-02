@@ -266,6 +266,11 @@ class RuntimeTests(unittest.TestCase):
    with self.assertRaises(ValueError):native_state('[HOSTBOT_STATE] '+json.dumps(body))
  def test_config_limits_and_private_metadata(self):
   self.assertEqual(gameplay_config({})['lobby_refresh_interval'],10)
+  self.assertEqual(gameplay_config({})['lobby_message_interval'],20)
+  for interval in (10,13,20,3600):
+   self.assertEqual(gameplay_config({'lobby_message_interval':interval})['lobby_message_interval'],interval)
+  for interval in (0,9,3601,True,20.0,'20'):
+   with self.assertRaises(ValueError):gameplay_config({'lobby_message_interval':interval})
   for interval in (10,11,120,3600):
    self.assertEqual(gameplay_config({'lobby_refresh_interval':interval})['lobby_refresh_interval'],interval)
   for interval in (0,5,9,3601,True,10.0,'10'):
@@ -281,9 +286,9 @@ class RuntimeTests(unittest.TestCase):
   config=self.root/'config';config.mkdir(mode=0o700);(config/'maps').mkdir(mode=0o700)
   (config/'ghost.cfg').write_text('bnet_server =\nbot_defaultmap = selected.cfg\n')
   self.cfg['iccup']['native_config']=str(config/'ghost.cfg')
-  self.cfg['gameplay']=gameplay_config({'max_players':8,'autostart_players':6,'vote_min_players':3,'vote_required_percent':70,'countdown_seconds':0,'lobby_refresh_interval':180})
+  self.cfg['gameplay']=gameplay_config({'max_players':8,'autostart_players':6,'vote_min_players':3,'vote_required_percent':70,'countdown_seconds':0,'lobby_refresh_interval':180,'lobby_message_interval':45})
   result=prepare_native(self.cfg,'SyntheticUser').read_text()
-  for line in ('bot_vote_min_players = 3','bot_vote_required_percent = 70','bot_countdownseconds = 0','bot_lobby_refresh_interval = 180','bot_maxplayers = 8','autohost_startplayers = 6'):
+  for line in ('bot_vote_min_players = 3','bot_vote_required_percent = 70','bot_countdownseconds = 0','bot_lobby_refresh_interval = 180','bot_lobby_message_interval = 45','bot_maxplayers = 8','autohost_startplayers = 6'):
    self.assertIn(line+'\n',result)
   self.assertIn('bnet_server = \n',result)
  def test_real_backend_owns_profile_and_emits_integer_worker_timeout(self):

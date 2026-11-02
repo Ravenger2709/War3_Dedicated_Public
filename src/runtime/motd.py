@@ -12,6 +12,8 @@ def default_lines(host_name):
         '!help - Show a summary of the available commands.',
         '!status - Show the map, players, presets, running matches and iCCup status.',
         '!vote - Start or join a vote to start early. The preset\'s minimum human-player requirement still applies.',
+        '!kick <player> - Start or support a vote to remove a player from this match (70% of eligible human voters; at least two votes).',
+        'Type !help to see available server commands.',
     ]
 
 

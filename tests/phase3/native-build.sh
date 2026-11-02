@@ -32,6 +32,7 @@ python3 tests/phase3/native-lifecycle-test.py
 python3 tests/phase3/native-reservation-gate-test.py
 python3 tests/phase3/native-fenced-close-test.py
 python3 tests/phase4/native-sha256-test.py
+python3 tests/phase4/native-kick-vote-test.py
 python3 tests/phase4/native-manifest-envelope-test.py
 python3 tests/phase4/native-startup-catalog-test.py
 python3 tests/phase4/native-preload-ipc-test.py

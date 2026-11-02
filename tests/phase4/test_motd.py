@@ -25,7 +25,12 @@ class MOTDTests(unittest.TestCase):
         self.assertEqual(self.prepare(),str(self.output))
         lines=self.output.read_text().splitlines()
         self.assertEqual(lines,default_lines('GreenZone_Bot'))
-        self.assertEqual([line.split(' - ')[0] for line in lines[1:]],['!help','!status','!vote'])
+        self.assertEqual([line.split(' - ')[0] for line in lines if line.startswith('!')],
+                         ['!help','!status','!vote','!kick <player>'])
+        self.assertIn('!kick <player> - Start or support a vote to remove a player from this match (70% of eligible human voters; at least two votes).',lines)
+        self.assertEqual(lines[-1],'Type !help to see available server commands.')
+        self.assertLessEqual(len(lines),8)
+        self.assertTrue(all(len(line.encode('utf-8'))<=200 for line in lines))
         self.assertTrue(all(line.isascii() for line in lines))
         self.assertEqual(self.output.stat().st_mode&0o777,0o600)
 
@@ -40,6 +45,15 @@ class MOTDTests(unittest.TestCase):
     def test_empty_file_disables_welcome(self):
         self.custom.write_bytes(b'');self.prepare()
         self.assertEqual(self.output.read_bytes(),b'')
+
+    def test_custom_welcome_is_preserved_without_appending_default_commands(self):
+        original=b'Operator welcome\r\nRead our match rules.\r\n'
+        self.custom.write_bytes(original)
+        self.prepare()
+        self.assertEqual(self.output.read_bytes(),b'Operator welcome\nRead our match rules.\n')
+        self.assertEqual(self.custom.read_bytes(),original)
+        self.assertNotIn('!kick',self.output.read_text())
+        self.assertNotIn('!help',self.output.read_text())
 
     def test_invalid_file_or_symlink_falls_back_without_disclosing_target(self):
         for raw in (b'\xff',b'x'*4097,b'bad\x00text',b'x'*201):

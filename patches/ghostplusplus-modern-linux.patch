@@ -259,7 +259,7 @@ index 3be3e4c..45ad0a6 100644
  class CIncomingChatEvent;
  class CIncomingFriendList;
 diff --git a/ghost/game.cpp b/ghost/game.cpp
-index 8b54fcd..2b2c550 100644
+index 8b54fcd..864ac7a 100644
 --- a/ghost/game.cpp
 +++ b/ghost/game.cpp
 @@ -68,6 +68,7 @@ public:
@@ -270,21 +270,23 @@ index 8b54fcd..2b2c550 100644
  	m_DBGame = new CDBGame( 0, string( ), m_Map->GetMapPath( ), string( ), string( ), string( ), 0 );
  
  	if( m_Map->GetMapType( ) == "w3mmd" )
-@@ -348,6 +349,13 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+@@ -348,6 +349,15 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
  	string Command = command;
  	string Payload = payload;
  
++    if( Command == "kick" || Command == "votekick" ) { NativeKick(player,Payload); return true; }
++    if( Command == "yes" ) { NativeKick(player,string(),true); return true; }
 +	if( Command == "vote" ) { NativeVote( player ); return true; }
 +	if( Command == "status" ) { NativeStatus( player ); return true; }
 +	if( Command == "help" )
 +	{
-+		NativeStatus( player, false );
++		NativeStatus( player, false, true );
 +		return true;
 +	}
  	bool AdminCheck = false;
  
  	for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); ++i )
-@@ -376,6 +384,7 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+@@ -376,6 +386,7 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
  
  		if( !m_Locked || RootAdminCheck || IsOwner( User ) )
  		{
@@ -292,7 +294,7 @@ index 8b54fcd..2b2c550 100644
  			/*****************
  			* ADMIN COMMANDS *
  			******************/
-@@ -387,7 +396,24 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+@@ -387,7 +398,24 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
  
  			// we use "!a" as an alias for abort because you don't have much time to abort the countdown so it's useful for the abort command to be easy to type
  
@@ -318,7 +320,7 @@ index 8b54fcd..2b2c550 100644
  			{
  				SendAllChat( m_GHost->m_Language->CountDownAborted( ) );
  				m_CountDownStarted = false;
-@@ -543,13 +569,15 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+@@ -543,13 +571,15 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
  				}
  				else
  				{
@@ -336,7 +338,7 @@ index 8b54fcd..2b2c550 100644
  				}
  			}
  
-@@ -1305,16 +1333,18 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+@@ -1305,16 +1335,18 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
  			// !PRIV (rehost as private game)
  			//
  
@@ -357,7 +359,7 @@ index 8b54fcd..2b2c550 100644
  					m_RefreshError = false;
  					m_RefreshRehosted = true;
  
-@@ -1347,16 +1377,18 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+@@ -1347,16 +1379,18 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
  			// !PUB (rehost as public game)
  			//
  
@@ -378,7 +380,7 @@ index 8b54fcd..2b2c550 100644
  					m_RefreshError = false;
  					m_RefreshRehosted = true;
  
-@@ -1383,9 +1415,11 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+@@ -1383,9 +1417,11 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
  			// !REFRESH (turn on or off refresh messages)
  			//
  
@@ -392,7 +394,7 @@ index 8b54fcd..2b2c550 100644
  				{
  					SendAllChat( m_GHost->m_Language->RefreshMessagesEnabled( ) );
  					m_RefreshMessages = true;
-@@ -1820,7 +1854,9 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+@@ -1820,7 +1856,9 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
  
  void CGame :: EventGameStarted( )
  {
@@ -403,7 +405,7 @@ index 8b54fcd..2b2c550 100644
  	// record everything we need to ban each player in case we decide to do so later
  	// this is because when a player leaves the game an admin might want to ban that player
 diff --git a/ghost/game_base.cpp b/ghost/game_base.cpp
-index 121bc52..77ffba3 100644
+index 121bc52..1f0931a 100644
 --- a/ghost/game_base.cpp
 +++ b/ghost/game_base.cpp
 @@ -25,6 +25,7 @@
@@ -414,7 +416,7 @@ index 121bc52..77ffba3 100644
  #include "map.h"
  #include "packed.h"
  #include "savegame.h"
-@@ -39,12 +40,66 @@
+@@ -39,12 +40,71 @@
  
  #include "next_combination.h"
  
@@ -422,7 +424,7 @@ index 121bc52..77ffba3 100644
 +{
 +	string command = message.substr( 1, message.find( ' ' ) == string::npos ? string::npos : message.find( ' ' ) - 1 );
 +	transform( command.begin( ), command.end( ), command.begin( ), (int(*)(int))tolower );
-+	return command == "vote" || command == "status" || command == "help";
++	return command == "vote" || command == "status" || command == "help" || command == "kick" || command == "votekick" || command == "yes";
 +}
 +
 +static string NativeHumanRequirement( const string &prefix, uint32_t minimum, uint32_t humans )
@@ -469,12 +471,17 @@ index 121bc52..77ffba3 100644
 +	m_NativeGameplay.AutoStartEnabled = m_GHost->m_AutoStartEnabled;
 +	m_NativeGameplay.CountDownSeconds = m_GHost->m_CountDownSeconds;
 +	m_NativeVoteReminderDueMS = m_NativeVoteReminderLastSentMS = 0;
++	m_NativeAutoReminderLastMS = m_NativeHelpReminderDueMS = m_NativeHelpReminderLastMS = 0;
++	m_NativeLobbyMessageStartedMS = NativeMonotonicMS();
 +	m_NativeFenced = m_NativeCloseRecorded = false;
 +	m_NativePresetAutoHost = false;
 +	m_NativeCatalogIndex = m_NativeCatalogCounter = 0;
 +	m_VoteStartedTicks = m_VoteCooldownTicks = 0;
 +	m_LastLobbyRefreshTicks = GetTicks( );
 +	m_VoteActive = m_VoteCooling = false;
++    m_NativeKickStartedMS=m_NativeKickCooldownMS=0;
++    m_NativeKickRequired=0; m_NativeKickTarget=255;
++    m_NativeKickActive=m_NativeKickCooling=false;
 +	m_CountdownKind = 0;
 +	m_NativeRefreshSID = 255;
 +	m_NativeRefreshTicks = 0;
@@ -482,7 +489,7 @@ index 121bc52..77ffba3 100644
  	m_Socket = new CTCPServer( );
  	m_Protocol = new CGameProtocol( m_GHost );
  	m_Map = new CMap( *nMap );
-@@ -88,6 +143,27 @@ CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16
+@@ -88,6 +148,27 @@ CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16
  	else
  		m_Slots = m_Map->GetSlots( );
  
@@ -510,7 +517,7 @@ index 121bc52..77ffba3 100644
  	if( !m_GHost->m_IPBlackListFile.empty( ) )
  	{
  		ifstream in;
-@@ -143,10 +219,14 @@ CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16
+@@ -143,10 +224,14 @@ CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16
  		CONSOLE_Print( "[GAME: " + m_GameName + "] error listening on port " + UTIL_ToString( m_HostPort ) );
  		m_Exiting = true;
  	}
@@ -525,7 +532,7 @@ index 121bc52..77ffba3 100644
  	// save replay
  	// todotodo: put this in a thread
  
-@@ -309,6 +389,8 @@ unsigned int CBaseGame :: SetFD( void *fd, void *send_fd, int *nfds )
+@@ -309,6 +394,8 @@ unsigned int CBaseGame :: SetFD( void *fd, void *send_fd, int *nfds )
  
  bool CBaseGame :: Update( void *fd, void *send_fd )
  {
@@ -534,7 +541,7 @@ index 121bc52..77ffba3 100644
  	// update callables
  
  	for( vector<CCallableScoreCheck *> :: iterator i = m_ScoreChecks.begin( ); i != m_ScoreChecks.end( ); )
-@@ -391,7 +473,8 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
+@@ -391,7 +478,8 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
  		// see the !sendlan code later in this file for some more information about how this works
  		// todotodo: should we send a game cancel message somewhere? we'll need to implement a host counter for it to work
  
@@ -544,7 +551,7 @@ index 121bc52..77ffba3 100644
  		{
  			// construct a fixed host counter which will be used to identify players from this "realm" (i.e. LAN)
  			// the fixed host counter's 4 most significant bits will contain a 4 bit ID (0-15)
-@@ -439,17 +522,22 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
+@@ -439,17 +527,22 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
  
  	// auto rehost if there was a refresh error in autohosted games
  
@@ -571,10 +578,11 @@ index 121bc52..77ffba3 100644
  		m_RefreshError = false;
  
                  for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); ++i )
-@@ -584,14 +672,20 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
+@@ -584,14 +677,21 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
  		}
  	}
  
++	UpdateNativeKick( );
 +	UpdateNativeGameplay( );
 +
  	// try to auto start every 10 seconds
@@ -582,8 +590,9 @@ index 121bc52..77ffba3 100644
 -	if( !m_CountDownStarted && m_AutoStartPlayers != 0 && GetTime( ) - m_LastAutoStartTime >= 10 )
 +	if( !m_CountDownStarted && NativeAutoStartPlayers( ) != 0 && GetTime( ) - m_LastAutoStartTime >= 10 )
  	{
+-		StartCountDownAuto( m_GHost->m_RequireSpoofChecks );
 +		m_CountdownKind = 2;
- 		StartCountDownAuto( m_GHost->m_RequireSpoofChecks );
++		StartCountDownAuto( m_GHost->m_RequireSpoofChecks, true );
 +		if( !m_CountDownStarted ) m_CountdownKind = 0;
  		m_LastAutoStartTime = GetTime( );
  	}
@@ -593,7 +602,7 @@ index 121bc52..77ffba3 100644
  	// countdown every 500 ms
  
  	if( m_CountDownStarted && GetTicks( ) - m_LastCountDownTicks >= 500 )
-@@ -602,8 +696,10 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
+@@ -602,8 +702,10 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
  			// this sometimes resulted in a countdown of e.g. "6 5 3 2 1" during my testing which looks pretty dumb
  			// doing it this way ensures it's always "5 4 3 2 1" but each interval might not be *exactly* the same length
  
@@ -605,7 +614,7 @@ index 121bc52..77ffba3 100644
  		}
  		else if( !m_GameLoading && !m_GameLoaded )
  			EventGameStarted( );
-@@ -921,7 +1017,7 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
+@@ -921,7 +1023,7 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
  
  	// start the gameover timer if there's only one player left
  
@@ -614,16 +623,19 @@ index 121bc52..77ffba3 100644
  	{
  		CONSOLE_Print( "[GAME: " + m_GameName + "] gameover timer started (one player left)" );
  		m_GameOverTime = GetTime( );
-@@ -1383,6 +1479,8 @@ void CBaseGame :: SendEndMessage( )
+@@ -1383,6 +1485,11 @@ void CBaseGame :: SendEndMessage( )
  
  void CBaseGame :: EventPlayerDeleted( CGamePlayer *player )
  {
++    if(m_NativeKickActive && m_NativeKickMembers.count(player->GetPID()))
++        CancelNativeKick(player->GetPID()==m_NativeKickTarget ? "Kick vote cancelled because the target left." : "Kick vote cancelled because players joined or left.");
++    m_NativeKickCommandMS.erase(player->GetPID());
 +	m_StartVotes.erase( player->GetPID( ) );
 +	m_PublicCommandTicks.erase( player->GetPID( ) );
  	CONSOLE_Print( "[GAME: " + m_GameName + "] deleting player [" + player->GetName( ) + "]: " + player->GetLeftReason( ) );
  
  	// remove any queued spoofcheck messages for this player
-@@ -1609,8 +1707,48 @@ void CBaseGame :: EventPlayerDisconnectConnectionClosed( CGamePlayer *player )
+@@ -1609,8 +1716,48 @@ void CBaseGame :: EventPlayerDisconnectConnectionClosed( CGamePlayer *player )
  		OpenSlot( GetSIDFromPID( player->GetPID( ) ), false );
  }
  
@@ -672,7 +684,7 @@ index 121bc52..77ffba3 100644
  	// check if the new player's name is empty or too long
  
  	if( joinPlayer->GetName( ).empty( ) || joinPlayer->GetName( ).size( ) > 15 )
-@@ -1642,37 +1780,14 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -1642,37 +1789,14 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  		return;
  	}
  
@@ -716,7 +728,7 @@ index 121bc52..77ffba3 100644
  
  	// check if the new player's name is banned but only if bot_banmethod is not 0
  	// this is because if bot_banmethod is 0 and we announce the ban here it's possible for the player to be rejected later because the game is full
-@@ -1811,13 +1926,13 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -1811,13 +1935,13 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  	{
  		// try to find an empty slot
  
@@ -732,7 +744,7 @@ index 121bc52..77ffba3 100644
  
  			if( SID != 255 )
  			{
-@@ -1843,11 +1958,11 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -1843,11 +1967,11 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  			// the owner player is trying to join the game but it's full and we couldn't even find a reserved slot, kick the player in the lowest numbered slot
  			// updated this to try to find a player slot so that we don't end up kicking a computer
  
@@ -746,7 +758,15 @@ index 121bc52..77ffba3 100644
  				{
  					SID = i;
  					break;
-@@ -1939,7 +2054,14 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -1931,6 +2055,7 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+ 		Player->SetSpoofed( true );
+ 
+ 	Player->SetWhoisShouldBeSent( m_GHost->m_SpoofChecks == 1 || ( m_GHost->m_SpoofChecks == 2 && AnyAdminCheck ) );
++    CancelNativeKick("Kick vote cancelled because players joined or left.");
+ 	m_Players.push_back( Player );
+ 	potential->SetSocket( NULL );
+ 	potential->SetDeleteMe( true );
+@@ -1939,7 +2064,14 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  		m_Slots[SID] = EnforceSlot;
  	else
  	{
@@ -762,7 +782,7 @@ index 121bc52..77ffba3 100644
  			m_Slots[SID] = CGameSlot( Player->GetPID( ), 255, SLOTSTATUS_OCCUPIED, 0, m_Slots[SID].GetTeam( ), m_Slots[SID].GetColour( ), m_Slots[SID].GetRace( ) );
  		else
  		{
-@@ -1971,6 +2093,8 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -1971,6 +2103,8 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  		}
  	}
  
@@ -771,7 +791,7 @@ index 121bc52..77ffba3 100644
  	// send slot info to the new player
  	// the SLOTINFOJOIN packet also tells the client their assigned PID and that the join was successful
  
-@@ -2083,6 +2207,8 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -2083,6 +2217,8 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  
  void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CIncomingJoinPlayer *joinPlayer, double score )
  {
@@ -780,7 +800,7 @@ index 121bc52..77ffba3 100644
  	// this function is only called when matchmaking is enabled
  	// EventPlayerJoined will be called first in all cases
  	// if matchmaking is enabled EventPlayerJoined will start a database query to retrieve the player's score and keep the connection open while we wait
-@@ -2109,6 +2235,15 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2109,6 +2245,15 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  		return;
  	}
  
@@ -796,7 +816,7 @@ index 121bc52..77ffba3 100644
  	// check if the new player's score is within the limits
  
  	if( score > -99999.0 && ( score < m_MinimumScore || score > m_MaximumScore ) )
-@@ -2121,7 +2256,7 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2121,7 +2266,7 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  
  	// try to find an empty slot
  
@@ -805,7 +825,7 @@ index 121bc52..77ffba3 100644
  
  	// check if the player is an admin or root admin on any connected realm for determining reserved status
  	// we can't just use the spoof checked realm like in EventPlayerBotCommand because the player hasn't spoof checked yet
-@@ -2212,6 +2347,12 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2212,6 +2357,12 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  			// kick the furthest player
  
  			SID = GetSIDFromPID( FurthestPlayer->GetPID( ) );
@@ -818,7 +838,7 @@ index 121bc52..77ffba3 100644
  			FurthestPlayer->SetDeleteMe( true );
  
  			if( FurthestPlayer->GetScore( ) < -99999.0 )
-@@ -2272,6 +2413,12 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2272,6 +2423,12 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  			// kick the lowest player
  
  			SID = GetSIDFromPID( LowestPlayer->GetPID( ) );
@@ -831,7 +851,7 @@ index 121bc52..77ffba3 100644
  			LowestPlayer->SetDeleteMe( true );
  
  			if( LowestPlayer->GetScore( ) < -99999.0 )
-@@ -2307,44 +2454,6 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2307,44 +2464,6 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  	if( GetNumPlayers( ) >= 11 )
  		DeleteVirtualHost( );
  
@@ -876,7 +896,11 @@ index 121bc52..77ffba3 100644
  	CONSOLE_Print( "[GAME: " + m_GameName + "] player [" + joinPlayer->GetName( ) + "|" + potential->GetExternalIPString( ) + "] joined the game" );
  	CGamePlayer *Player = new CGamePlayer( potential, GetNewPID( ), JoinedRealm, joinPlayer->GetName( ), joinPlayer->GetInternalIP( ), false );
  
-@@ -2359,7 +2468,16 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2356,10 +2475,20 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+ 
+ 	Player->SetWhoisShouldBeSent( m_GHost->m_SpoofChecks == 1 || ( m_GHost->m_SpoofChecks == 2 && AnyAdminCheck ) );
+ 	Player->SetScore( score );
++    CancelNativeKick("Kick vote cancelled because players joined or left.");
  	m_Players.push_back( Player );
  	potential->SetSocket( NULL );
  	potential->SetDeleteMe( true );
@@ -894,7 +918,7 @@ index 121bc52..77ffba3 100644
  
  	// send slot info to the new player
  	// the SLOTINFOJOIN packet also tells the client their assigned PID and that the join was successful
-@@ -2830,7 +2948,8 @@ void CBaseGame :: EventPlayerChatToHost( CGamePlayer *player, CIncomingChatPlaye
+@@ -2830,7 +2959,8 @@ void CBaseGame :: EventPlayerChatToHost( CGamePlayer *player, CIncomingChatPlaye
  
  			if( Message == "?trigger" )
  				SendChat( player, m_GHost->m_Language->CommandTrigger( string( 1, m_GHost->m_CommandTrigger ) ) );
@@ -904,7 +928,7 @@ index 121bc52..77ffba3 100644
  			{
  				// extract the command trigger, the command, and the payload
  				// e.g. "!say hello world" -> command: "say", payload: "hello world"
-@@ -2879,12 +2998,34 @@ bool CBaseGame :: EventPlayerBotCommand( CGamePlayer *player, string command, st
+@@ -2879,12 +3009,34 @@ bool CBaseGame :: EventPlayerBotCommand( CGamePlayer *player, string command, st
  
  void CBaseGame :: EventPlayerChangeTeam( CGamePlayer *player, unsigned char team )
  {
@@ -940,7 +964,7 @@ index 121bc52..77ffba3 100644
  	{
  		unsigned char oldSID = GetSIDFromPID( player->GetPID( ) );
  		unsigned char newSID = GetEmptySlot( team, player->GetPID( ) );
-@@ -2941,10 +3082,16 @@ void CBaseGame :: EventPlayerChangeTeam( CGamePlayer *player, unsigned char team
+@@ -2941,10 +3093,16 @@ void CBaseGame :: EventPlayerChangeTeam( CGamePlayer *player, unsigned char team
  			SendAllSlotInfo( );
  		}
  	}
@@ -957,7 +981,7 @@ index 121bc52..77ffba3 100644
  	// player is requesting a colour change
  
  	if( m_SaveGame )
-@@ -2971,6 +3118,7 @@ void CBaseGame :: EventPlayerChangeColour( CGamePlayer *player, unsigned char co
+@@ -2971,6 +3129,7 @@ void CBaseGame :: EventPlayerChangeColour( CGamePlayer *player, unsigned char co
  
  void CBaseGame :: EventPlayerChangeRace( CGamePlayer *player, unsigned char race )
  {
@@ -965,7 +989,7 @@ index 121bc52..77ffba3 100644
  	// player is requesting a race change
  
  	if( m_SaveGame )
-@@ -2996,6 +3144,7 @@ void CBaseGame :: EventPlayerChangeRace( CGamePlayer *player, unsigned char race
+@@ -2996,6 +3155,7 @@ void CBaseGame :: EventPlayerChangeRace( CGamePlayer *player, unsigned char race
  
  void CBaseGame :: EventPlayerChangeHandicap( CGamePlayer *player, unsigned char handicap )
  {
@@ -973,7 +997,7 @@ index 121bc52..77ffba3 100644
  	// player is requesting a handicap change
  
  	if( m_SaveGame )
-@@ -3164,9 +3313,64 @@ void CBaseGame :: EventGameRefreshed( string server )
+@@ -3164,9 +3324,64 @@ void CBaseGame :: EventGameRefreshed( string server )
  	}
  }
  
@@ -1039,7 +1063,7 @@ index 121bc52..77ffba3 100644
  
  	// encode the HCL command string in the slot handicaps
  	// here's how it works:
-@@ -3212,7 +3416,11 @@ void CBaseGame :: EventGameStarted( )
+@@ -3212,7 +3427,11 @@ void CBaseGame :: EventGameStarted( )
  
  					unsigned char HandicapIndex = ( m_Slots[CurrentSlot].GetHandicap( ) - 50 ) / 10;
  					unsigned char CharIndex = HCLChars.find( *si );
@@ -1052,7 +1076,7 @@ index 121bc52..77ffba3 100644
  				}
  
  				SendAllSlotInfo( );
-@@ -3234,9 +3442,25 @@ void CBaseGame :: EventGameStarted( )
+@@ -3234,9 +3453,25 @@ void CBaseGame :: EventGameStarted( )
  	if( m_SlotInfoChanged )
  		SendAllSlotInfo( );
  
@@ -1079,7 +1103,7 @@ index 121bc52..77ffba3 100644
  
  	// since we use a fake countdown to deal with leavers during countdown the COUNTDOWN_START and COUNTDOWN_END packets are sent in quick succession
  	// send a start countdown packet
-@@ -3635,7 +3859,7 @@ unsigned char CBaseGame :: GetHostPID( )
+@@ -3635,7 +3870,7 @@ unsigned char CBaseGame :: GetHostPID( )
  	return 255;
  }
  
@@ -1088,7 +1112,7 @@ index 121bc52..77ffba3 100644
  {
  	if( m_Slots.size( ) > 255 )
  		return 255;
-@@ -3662,7 +3886,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3662,7 +3897,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  
                  for( unsigned char i = 0; i < m_Slots.size( ); ++i )
  		{
@@ -1097,7 +1121,7 @@ index 121bc52..77ffba3 100644
  				return i;
  		}
  
-@@ -3672,7 +3896,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3672,7 +3907,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  
                          for( unsigned char i = 0; i < m_Slots.size( ); ++i )
  			{
@@ -1106,7 +1130,7 @@ index 121bc52..77ffba3 100644
  					return i;
  			}
  
-@@ -3686,7 +3910,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3686,7 +3921,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  			{
  				CGamePlayer *Player = GetPlayerFromSID( i );
  
@@ -1115,7 +1139,7 @@ index 121bc52..77ffba3 100644
  				{
  					LeastDownloaded = m_Slots[i].GetDownloadStatus( );
  					LeastSID = i;
-@@ -3702,7 +3926,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3702,7 +3937,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  			{
  				CGamePlayer *Player = GetPlayerFromSID( i );
  
@@ -1124,7 +1148,7 @@ index 121bc52..77ffba3 100644
  					return i;
  			}
  		}
-@@ -3772,10 +3996,12 @@ unsigned char CBaseGame :: GetEmptySlot( unsigned char team, unsigned char PID )
+@@ -3772,10 +4007,12 @@ unsigned char CBaseGame :: GetEmptySlot( unsigned char team, unsigned char PID )
  
  void CBaseGame :: SwapSlots( unsigned char SID1, unsigned char SID2 )
  {
@@ -1137,7 +1161,7 @@ index 121bc52..77ffba3 100644
  
  		if( m_Map->GetMapOptions( ) & MAPOPT_FIXEDPLAYERSETTINGS )
  		{
-@@ -3798,12 +4024,16 @@ void CBaseGame :: SwapSlots( unsigned char SID1, unsigned char SID2 )
+@@ -3798,12 +4035,16 @@ void CBaseGame :: SwapSlots( unsigned char SID1, unsigned char SID2 )
  			m_Slots[SID2] = Slot1;
  		}
  
@@ -1154,7 +1178,7 @@ index 121bc52..77ffba3 100644
  	if( SID < m_Slots.size( ) )
  	{
  		if( kick )
-@@ -3819,13 +4049,20 @@ void CBaseGame :: OpenSlot( unsigned char SID, bool kick )
+@@ -3819,13 +4060,20 @@ void CBaseGame :: OpenSlot( unsigned char SID, bool kick )
  		}
  
  		CGameSlot Slot = m_Slots[SID];
@@ -1176,7 +1200,7 @@ index 121bc52..77ffba3 100644
  	if( SID < m_Slots.size( ) )
  	{
  		if( kick )
-@@ -3848,6 +4085,7 @@ void CBaseGame :: CloseSlot( unsigned char SID, bool kick )
+@@ -3848,6 +4096,7 @@ void CBaseGame :: CloseSlot( unsigned char SID, bool kick )
  
  void CBaseGame :: ComputerSlot( unsigned char SID, unsigned char skill, bool kick )
  {
@@ -1184,7 +1208,7 @@ index 121bc52..77ffba3 100644
  	if( SID < m_Slots.size( ) && skill < 3 )
  	{
  		if( kick )
-@@ -3863,15 +4101,18 @@ void CBaseGame :: ComputerSlot( unsigned char SID, unsigned char skill, bool kic
+@@ -3863,15 +4112,18 @@ void CBaseGame :: ComputerSlot( unsigned char SID, unsigned char skill, bool kic
  		}
  
  		CGameSlot Slot = m_Slots[SID];
@@ -1204,7 +1228,7 @@ index 121bc52..77ffba3 100644
  		// make sure the requested colour isn't already taken
  
  		bool Taken = false;
-@@ -3895,6 +4136,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
+@@ -3895,6 +4147,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
  
  			m_Slots[TakenSID].SetColour( m_Slots[SID].GetColour( ) );
  			m_Slots[SID].SetColour( colour );
@@ -1212,7 +1236,7 @@ index 121bc52..77ffba3 100644
  			SendAllSlotInfo( );
  		}
  		else if( !Taken )
-@@ -3902,6 +4144,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
+@@ -3902,6 +4155,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
  			// the requested colour isn't used by ANY slot
  
  			m_Slots[SID].SetColour( colour );
@@ -1220,7 +1244,7 @@ index 121bc52..77ffba3 100644
  			SendAllSlotInfo( );
  		}
  	}
-@@ -3909,6 +4152,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
+@@ -3909,6 +4163,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
  
  void CBaseGame :: OpenAllSlots( )
  {
@@ -1228,7 +1252,7 @@ index 121bc52..77ffba3 100644
  	bool Changed = false;
  
          for( vector<CGameSlot> :: iterator i = m_Slots.begin( ); i != m_Slots.end( ); ++i )
-@@ -3926,6 +4170,7 @@ void CBaseGame :: OpenAllSlots( )
+@@ -3926,6 +4181,7 @@ void CBaseGame :: OpenAllSlots( )
  
  void CBaseGame :: CloseAllSlots( )
  {
@@ -1236,7 +1260,7 @@ index 121bc52..77ffba3 100644
  	bool Changed = false;
  
          for( vector<CGameSlot> :: iterator i = m_Slots.begin( ); i != m_Slots.end( ); ++i )
-@@ -3943,6 +4188,7 @@ void CBaseGame :: CloseAllSlots( )
+@@ -3943,6 +4199,7 @@ void CBaseGame :: CloseAllSlots( )
  
  void CBaseGame :: ShuffleSlots( )
  {
@@ -1244,7 +1268,7 @@ index 121bc52..77ffba3 100644
  	// we only want to shuffle the player slots
  	// that means we need to prevent this function from shuffling the open/closed/computer slots too
  	// so we start by copying the player slots to a temporary vector
-@@ -4102,6 +4348,8 @@ vector<unsigned char> CBaseGame :: BalanceSlotsRecursive( vector<unsigned char>
+@@ -4102,6 +4359,8 @@ vector<unsigned char> CBaseGame :: BalanceSlotsRecursive( vector<unsigned char>
  
  void CBaseGame :: BalanceSlots( )
  {
@@ -1253,7 +1277,7 @@ index 121bc52..77ffba3 100644
  	if( !( m_Map->GetMapOptions( ) & MAPOPT_FIXEDPLAYERSETTINGS ) )
  	{
  		CONSOLE_Print( "[GAME: " + m_GameName + "] error balancing slots - can't balance slots without fixed player settings" );
-@@ -4276,6 +4524,7 @@ void CBaseGame :: AddToSpoofed( string server, string name, bool sendMessage )
+@@ -4276,6 +4535,7 @@ void CBaseGame :: AddToSpoofed( string server, string name, bool sendMessage )
  
  void CBaseGame :: AddToReserved( string name )
  {
@@ -1261,7 +1285,7 @@ index 121bc52..77ffba3 100644
  	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
  
  	// check that the user is not already reserved
-@@ -4346,12 +4595,19 @@ void CBaseGame :: SaveGameData( )
+@@ -4346,12 +4606,19 @@ void CBaseGame :: SaveGameData( )
  
  void CBaseGame :: StartCountDown( bool force )
  {
@@ -1282,7 +1306,7 @@ index 121bc52..77ffba3 100644
  		}
  		else
  		{
-@@ -4431,24 +4687,59 @@ void CBaseGame :: StartCountDown( bool force )
+@@ -4431,24 +4698,102 @@ void CBaseGame :: StartCountDown( bool force )
  			if( StillDownloading.empty( ) && NotSpoofChecked.empty( ) && NotPinged.empty( ) )
  			{
  				m_CountDownStarted = true;
@@ -1296,62 +1320,106 @@ index 121bc52..77ffba3 100644
  	}
  }
  
-+// Per-game monotonic display timer; no message body or player list is cached.
-+void CBaseGame :: ScheduleNativeVoteReminder( )
-+{
-+    if(!m_NativeGameplay.VoteEnabled || m_CountDownStarted || m_GameLoading || m_GameLoaded || m_Exiting || m_SaveGame || m_NativeVoteReminderDueMS) return;
-+    uint64_t now=NativeMonotonicMS();
-+    if(!now) return;
-+    m_NativeVoteReminderDueMS=now+3500;
-+    if(m_NativeVoteReminderLastSentMS && m_NativeVoteReminderDueMS<m_NativeVoteReminderLastSentMS+10000)
-+        m_NativeVoteReminderDueMS=m_NativeVoteReminderLastSentMS+10000;
-+}
-+
-+void CBaseGame :: UpdateNativeVoteReminder( )
-+{
-+    if(!m_NativeGameplay.VoteEnabled || m_CountDownStarted || m_GameLoading || m_GameLoaded || m_Exiting || m_SaveGame)
-+    { m_NativeVoteReminderDueMS=0; return; }
-+    uint64_t now=NativeMonotonicMS();
-+    if(!now) { m_NativeVoteReminderDueMS=0; return; }
-+    // With auto-start off, continue the same approximate ten-second reminder
-+    // cadence independently; repeated event-loop calls never postpone a due.
-+    if(!m_NativeVoteReminderDueMS && !NativeAutoStartPlayers())
-+        m_NativeVoteReminderDueMS=m_NativeVoteReminderLastSentMS ? m_NativeVoteReminderLastSentMS+10000 : now+10000;
-+    if(!m_NativeVoteReminderDueMS || now<m_NativeVoteReminderDueMS) return;
-+    m_NativeVoteReminderDueMS=0;
-+    m_NativeVoteReminderLastSentMS=now;
-+    uint32_t humans=(uint32_t)NativeEligiblePlayers().size();
-+    if(humans)
-+        SendAllChat(NativeHumanRequirement("Voting requires at least ",max(m_NativeGameplay.VoteMinPlayers,NativeMinimumHumans()),humans)+" Type !vote when ready.");
-+}
-+
- void CBaseGame :: StartCountDownAuto( bool requireSpoofChecks )
+-void CBaseGame :: StartCountDownAuto( bool requireSpoofChecks )
++// Every periodic player hint shares one host-level interval; clocks stay per game.
++void CBaseGame :: NativeAutoMessage( const string &message, bool force )
  {
-+	if( !NativeAutoStartPlayers( ) ) return;
-+	if( m_GameLoading || m_GameLoaded || m_Exiting || m_CountDownStarted ) return;
-+	uint32_t humans = NativeEligiblePlayers( ).size( );
-+	if( humans < NativeAutoStartPlayers( ) )
-+	{
-+		SendAllChat( NativeHumanRequirement( "Auto-start requires ", NativeAutoStartPlayers( ), humans ) );
-+		ScheduleNativeVoteReminder( );
-+		return;
-+	}
-+	string reason;
-+	if( !NativeStartReady( reason ) ) { SendAllChat( "Cannot start: " + reason ); return; }
- 	if( !m_CountDownStarted )
- 	{
+-	if( !m_CountDownStarted )
+-	{
 -		// check if enough players are present
--
++    uint64_t now=NativeMonotonicMS(), interval=(uint64_t)m_GHost->m_LobbyMessageInterval*1000;
++    uint64_t last=m_NativeAutoReminderLastMS ? m_NativeAutoReminderLastMS : m_NativeLobbyMessageStartedMS;
++    if(!now || (!force && now-last<interval)) return;
++    m_NativeAutoReminderLastMS=now;
++    SendAllChat(message);
++    ScheduleNativeVoteReminder();
++}
+ 
 -		if( GetNumHumanPlayers( ) < m_AutoStartPlayers )
 -		{
 -			SendAllChat( m_GHost->m_Language->WaitingForPlayersBeforeAutoStart( UTIL_ToString( m_AutoStartPlayers ), UTIL_ToString( m_AutoStartPlayers - GetNumHumanPlayers( ) ) ) );
 -			return;
 -		}
--
++void CBaseGame :: ScheduleNativeVoteReminder( )
++{
++    if(m_CountDownStarted || m_GameLoading || m_GameLoaded || m_Exiting || m_SaveGame) return;
++    uint64_t now=NativeMonotonicMS(), interval=(uint64_t)m_GHost->m_LobbyMessageInterval*1000;
++    if(!now) return;
++    if(m_NativeGameplay.VoteEnabled && !m_NativeVoteReminderDueMS)
++    {
++        m_NativeVoteReminderDueMS=now+3500;
++        if(m_NativeVoteReminderLastSentMS && m_NativeVoteReminderDueMS<m_NativeVoteReminderLastSentMS+interval)
++            m_NativeVoteReminderDueMS=m_NativeVoteReminderLastSentMS+interval;
++    }
++    if(!m_NativeHelpReminderDueMS)
++    {
++        m_NativeHelpReminderDueMS=now+(m_NativeGameplay.VoteEnabled ? 7000 : 3500);
++        if(m_NativeHelpReminderLastMS && m_NativeHelpReminderDueMS<m_NativeHelpReminderLastMS+interval)
++            m_NativeHelpReminderDueMS=m_NativeHelpReminderLastMS+interval;
++    }
++}
+ 
++void CBaseGame :: UpdateNativeVoteReminder( )
++{
++    if(m_Exiting || m_SaveGame)
++    { m_NativeVoteReminderDueMS=m_NativeHelpReminderDueMS=0; return; }
++    uint64_t now=NativeMonotonicMS(), interval=(uint64_t)m_GHost->m_LobbyMessageInterval*1000;
++    if(!now) { m_NativeVoteReminderDueMS=m_NativeHelpReminderDueMS=0; return; }
++    bool lobby=!m_CountDownStarted && !m_GameLoading && !m_GameLoaded;
++    uint32_t humans=(uint32_t)NativeEligiblePlayers().size();
++    if(lobby)
++    {
++        // Autostart decisions still run on their original ten-second clock.
++        // Only periodic chat follows the configurable message interval.
++        if(NativeAutoStartPlayers() && now-(m_NativeAutoReminderLastMS ? m_NativeAutoReminderLastMS : m_NativeLobbyMessageStartedMS)>=interval)
++        {
++            if(humans<NativeAutoStartPlayers())
++                NativeAutoMessage(NativeHumanRequirement("Auto-start requires ",NativeAutoStartPlayers(),humans),false);
++            else
++            {
++                string reason;
++                if(!NativeStartReady(reason)) NativeAutoMessage("Cannot start: "+reason,false);
++            }
++        }
++        if(!m_NativeGameplay.VoteEnabled) m_NativeVoteReminderDueMS=0;
++        else if(!m_NativeVoteReminderDueMS && !NativeAutoStartPlayers())
++            m_NativeVoteReminderDueMS=m_NativeVoteReminderLastSentMS ? m_NativeVoteReminderLastSentMS+interval : now+interval;
++        if(m_NativeVoteReminderDueMS && now>=m_NativeVoteReminderDueMS)
++        {
++            m_NativeVoteReminderDueMS=0; m_NativeVoteReminderLastSentMS=now;
++            if(humans) SendAllChat(NativeHumanRequirement("Voting requires at least ",max(m_NativeGameplay.VoteMinPlayers,NativeMinimumHumans()),humans)+" Type !vote when ready.");
++        }
++    }
++    else m_NativeVoteReminderDueMS=0;
++    bool help=m_GameLoaded || lobby;
++    if(!help) { m_NativeHelpReminderDueMS=0; return; }
++    if(!m_NativeHelpReminderDueMS && (m_GameLoaded || !NativeAutoStartPlayers()))
++        m_NativeHelpReminderDueMS=m_NativeHelpReminderLastMS ? m_NativeHelpReminderLastMS+interval : now+interval+(lobby && m_NativeGameplay.VoteEnabled ? 3500 : 0);
++    if(m_NativeHelpReminderDueMS && now>=m_NativeHelpReminderDueMS)
++    {
++        m_NativeHelpReminderDueMS=0; m_NativeHelpReminderLastMS=now;
++        if(humans) SendAllChat("Type !help to see available server commands.");
++    }
++}
++
++void CBaseGame :: StartCountDownAuto( bool requireSpoofChecks, bool periodic )
++{
++	if( !NativeAutoStartPlayers( ) ) return;
++	if( m_GameLoading || m_GameLoaded || m_Exiting || m_CountDownStarted ) return;
++	uint32_t humans = NativeEligiblePlayers( ).size( );
++	if( humans < NativeAutoStartPlayers( ) )
++	{
++		NativeAutoMessage( NativeHumanRequirement( "Auto-start requires ", NativeAutoStartPlayers( ), humans ), !periodic );
++		return;
++	}
++	string reason;
++	if( !NativeStartReady( reason ) ) { NativeAutoMessage( "Cannot start: " + reason, !periodic ); return; }
++	if( !m_CountDownStarted )
++	{
  		// check if everyone has the map
  
  		string StillDownloading;
-@@ -4522,14 +4813,19 @@ void CBaseGame :: StartCountDownAuto( bool requireSpoofChecks )
+@@ -4522,14 +4867,19 @@ void CBaseGame :: StartCountDownAuto( bool requireSpoofChecks )
  
  		if( StillDownloading.empty( ) && NotSpoofChecked.empty( ) && NotPinged.empty( ) )
  		{
@@ -1372,7 +1440,7 @@ index 121bc52..77ffba3 100644
  	// disconnect every player and set their left reason to the passed string
  	// we use this function when we want the code in the Update function to run before the destructor (e.g. saving players to the database)
  	// therefore calling this function when m_GameLoading || m_GameLoaded is roughly equivalent to setting m_Exiting = true
-@@ -4581,6 +4877,7 @@ void CBaseGame :: DeleteVirtualHost( )
+@@ -4581,6 +4931,7 @@ void CBaseGame :: DeleteVirtualHost( )
  
  void CBaseGame :: CreateFakePlayer( )
  {
@@ -1380,7 +1448,7 @@ index 121bc52..77ffba3 100644
  	if( m_FakePlayerPID != 255 )
  		return;
  
-@@ -4605,6 +4902,7 @@ void CBaseGame :: CreateFakePlayer( )
+@@ -4605,6 +4956,7 @@ void CBaseGame :: CreateFakePlayer( )
  
  void CBaseGame :: DeleteFakePlayer( )
  {
@@ -1388,7 +1456,7 @@ index 121bc52..77ffba3 100644
  	if( m_FakePlayerPID == 255 )
  		return;
  
-@@ -4618,3 +4916,486 @@ void CBaseGame :: DeleteFakePlayer( )
+@@ -4618,3 +4970,618 @@ void CBaseGame :: DeleteFakePlayer( )
  	SendAllSlotInfo( );
  	m_FakePlayerPID = 255;
  }
@@ -1763,7 +1831,131 @@ index 121bc52..77ffba3 100644
 +	}
 +}
 +
-+void CBaseGame :: NativeStatus( CGamePlayer *player, bool diagnostic )
++// One democratic poll belongs to this CBaseGame, never to a host or PID alone.
++map<unsigned char,CGamePlayer *> CBaseGame :: NativeKickHumans( )
++{
++    map<unsigned char,CGamePlayer *> members;
++    for(size_t i=0;i<m_Slots.size();++i)
++    {
++        CGameSlot &slot=m_Slots[i];
++        if(slot.GetSlotStatus()!=SLOTSTATUS_OCCUPIED || slot.GetComputer()) continue;
++        CGamePlayer *p=GetPlayerFromPID(slot.GetPID());
++        if(p && !p->GetDeleteMe() && !p->GetLeftMessageSent() &&
++           p->GetPID()!=m_VirtualHostPID && p->GetPID()!=m_FakePlayerPID) members[p->GetPID()]=p;
++    }
++    return members;
++}
++
++void CBaseGame :: CancelNativeKick( const string &message )
++{
++    if(!m_NativeKickActive) return;
++    m_NativeKickActive=false; m_NativeKickCooling=true;
++    m_NativeKickCooldownMS=NativeMonotonicMS();
++    m_NativeKickTarget=255; m_NativeKickRequired=0;
++    m_NativeKickMembers.clear(); m_NativeKickYes.clear();
++    if(!message.empty()) SendAllChat(message);
++}
++
++void CBaseGame :: UpdateNativeKick( )
++{
++    uint64_t now=NativeMonotonicMS();
++    if(m_NativeKickCooling && now-m_NativeKickCooldownMS>=30000) m_NativeKickCooling=false;
++    if(!m_NativeKickActive) return;
++    map<unsigned char,CGamePlayer *> members=NativeKickHumans();
++    if(!members.count(m_NativeKickTarget) || members[m_NativeKickTarget]!=m_NativeKickMembers[m_NativeKickTarget])
++        CancelNativeKick("Kick vote cancelled because the target left.");
++    else if(members!=m_NativeKickMembers)
++        CancelNativeKick("Kick vote cancelled because players joined or left.");
++    else if(!m_GameLoaded || m_Exiting || m_SaveGame)
++        CancelNativeKick("Kick vote cancelled because the match is unavailable.");
++    else if(now-m_NativeKickStartedMS>=60000)
++        CancelNativeKick("Kick vote expired.");
++}
++
++static string NativeKickFold( string value )
++{
++    for(size_t i=0;i<value.size();++i)
++        if(value[i]>='A' && value[i]<='Z') value[i]=(char)(value[i]-'A'+'a');
++    return value;
++}
++
++void CBaseGame :: NativeKick( CGamePlayer *player, string payload, bool yes )
++{
++    UpdateNativeKick();
++    if(!player || player->GetDeleteMe() || player->GetLeftMessageSent()) return;
++    uint64_t now=NativeMonotonicMS(); unsigned char pid=player->GetPID();
++    if(m_NativeKickCommandMS.count(pid) && now-m_NativeKickCommandMS[pid]<1000) return;
++    m_NativeKickCommandMS[pid]=now;
++    if(!m_GameLoaded || m_Exiting || m_SaveGame)
++    { SendChat(player,"Kick voting is available only in a running match."); return; }
++    map<unsigned char,CGamePlayer *> members=NativeKickHumans();
++    if(!members.count(pid) || members[pid]!=player)
++    { SendChat(player,"Only eligible human players may vote."); return; }
++    size_t begin=payload.find_first_not_of(" \t"), end=payload.find_last_not_of(" \t");
++    payload=begin==string::npos ? string() : payload.substr(begin,end-begin+1);
++    if(payload.empty() && !yes)
++    {
++        if(m_NativeKickActive)
++        {
++            CGamePlayer *target=members[m_NativeKickTarget];
++            SendChat(player,"Kick vote: "+target->GetName()+" | Yes: "+UTIL_ToString((uint32_t)m_NativeKickYes.size())+"/"+
++                UTIL_ToString(m_NativeKickRequired)+" | Eligible voters: "+UTIL_ToString((uint32_t)m_NativeKickMembers.size()-1)+".");
++        }
++        else SendChat(player,"Usage: !kick <player> or !yes. Kick votes require 70% of eligible humans (target excluded) and at least 2 yes votes.");
++        return;
++    }
++    if(m_NativeKickCooling)
++    {
++        uint32_t seconds=(uint32_t)((30000-(now-m_NativeKickCooldownMS)+999)/1000);
++        SendChat(player,"Kick voting is cooling down. Try again in "+UTIL_ToString(seconds)+" seconds."); return;
++    }
++    CGamePlayer *target=NULL;
++    if(yes)
++    {
++        if(!m_NativeKickActive) { SendChat(player,"No kick vote is active."); return; }
++        target=members[m_NativeKickTarget];
++    }
++    else
++    {
++        string folded=NativeKickFold(payload); uint32_t matches=0;
++        for(map<unsigned char,CGamePlayer *>::iterator i=members.begin();i!=members.end();++i)
++            if(NativeKickFold(i->second->GetName())==folded) { target=i->second; matches=1; break; }
++        if(!target) for(map<unsigned char,CGamePlayer *>::iterator i=members.begin();i!=members.end();++i)
++            if(NativeKickFold(i->second->GetName()).find(folded)!=string::npos) { target=i->second; ++matches; }
++        if(!matches) { SendChat(player,"No matching human player found."); return; }
++        if(matches!=1) { SendChat(player,"Player name is ambiguous. Use the full name."); return; }
++    }
++    if(target==player)
++    { SendChat(player,m_NativeKickActive ? "The target cannot vote." : "You cannot vote to kick yourself."); return; }
++    if(m_NativeKickActive && target->GetPID()!=m_NativeKickTarget)
++    { SendChat(player,"A kick vote for another player is already active."); return; }
++    if(!m_NativeKickActive)
++    {
++        if(members.size()<3) { SendChat(player,"Kick voting requires at least 3 human players."); return; }
++        m_NativeKickMembers=members; m_NativeKickTarget=target->GetPID();
++        m_NativeKickRequired=max((uint32_t)2,((uint32_t)(members.size()-1)*70+99)/100);
++        m_NativeKickYes.clear(); m_NativeKickYes.insert(pid);
++        m_NativeKickStartedMS=now; m_NativeKickActive=true;
++        SendAllChat("Kick vote started for "+target->GetName()+": 1/"+UTIL_ToString(m_NativeKickRequired)+
++            " yes votes. Type !yes or !kick "+target->GetName()+".");
++        return;
++    }
++    if(!m_NativeKickYes.insert(pid).second)
++    { SendChat(player,"You have already voted yes."); return; }
++    if(m_NativeKickYes.size()<m_NativeKickRequired)
++    {
++        SendAllChat("Kick vote accepted for "+target->GetName()+": "+UTIL_ToString((uint32_t)m_NativeKickYes.size())+
++            "/"+UTIL_ToString(m_NativeKickRequired)+" yes votes."); return;
++    }
++    // Revalidate the full fixed membership immediately before the only removal.
++    UpdateNativeKick();
++    if(!m_NativeKickActive) return;
++    CancelNativeKick("Kick vote passed for "+target->GetName()+".");
++    target->SetDeleteMe(true); target->SetLeftReason("was removed by a democratic kick vote");
++    target->SetLeftCode(PLAYERLEAVE_LOST);
++}
++
++void CBaseGame :: NativeStatus( CGamePlayer *player, bool diagnostic, bool help )
 +{
 +	if( !player || player->GetDeleteMe( ) ) return;
 +	uint32_t now = GetTicks( );
@@ -1783,7 +1975,15 @@ index 121bc52..77ffba3 100644
 +	SendChat( player, "Next preset: " + m_GHost->NativeStatusNextPreset( ) + " | Running matches: " + UTIL_ToString( (uint32_t)m_GHost->m_Games.size( ) ) + "/" + UTIL_ToString( m_GHost->m_MaxGames ) );
 +	SendChat( player, "Players: " + UTIL_ToString( (uint32_t)NativeEligiblePlayers( ).size( ) ) + ( NativeAIEnabled( ) ? " humans, " + UTIL_ToString( NativeComputerPlayers( ) ) + " computers" : "/" + UTIL_ToString( NativeMaxPlayers( ) ) ) + " | Autostart: " + ( NativeAutoStartPlayers( ) ? UTIL_ToString( NativeAutoStartPlayers( ) ) + ( NativeAIEnabled( ) ? " humans" : " players" ) : "off" ) + " | Votes: " + UTIL_ToString( (uint32_t)m_StartVotes.size( ) ) + "/" + UTIL_ToString( NativeVotesRequired( ) ) );
 +	SendChat( player, "State: " + string( m_GameLoading || m_GameLoaded ? "In Game" : m_CountDownStarted ? "Starting" : "Waiting" ) + " | Countdown: " + UTIL_ToString( countdown ) + ( countdown == 1 ? " second" : " seconds" ) + " | Uptime: " + hours + ":" + minutes + ":" + seconds );
-+	SendChat( player, "Commands: !vote to start early, !status for game details, !help for help." );
++	SendChat( player, "Commands: !vote, !kick <player>, !yes, !status, !help." );
++    if(help)
++    {
++        SendChat(player,"!vote - Vote to start the current lobby early when its human-player requirements are met.");
++        SendChat(player,"!kick <player> - Start or support a vote to remove a player from this match.");
++        SendChat(player,"Kick votes need 70% of eligible human voters (target excluded), and at least two distinct yes votes.");
++        SendChat(player,"!yes - Support the active kick vote. The target cannot vote; membership changes cancel the vote.");
++        SendChat(player,"!status - Show current game and server details. !help - Show available server commands.");
++    }
 +	if( diagnostic )
 +		SendChat( player, "[HOSTBOT] Refreshes: " + UTIL_ToString( m_GHost->m_NativeRefreshCount ) + " | skipped: " + UTIL_ToString( m_GHost->m_NativeRefreshSkipped ) + " | publication ACK successes/failures: " + UTIL_ToString( m_GHost->m_PublicationRefreshSuccesses ) + "/" + UTIL_ToString( m_GHost->m_PublicationRefreshFailures ) + " | feedback: " + ( m_GHost->m_NativeFeedbackValid ? "fresh" : "unavailable" ) );
 +}
@@ -1876,10 +2076,10 @@ index 121bc52..77ffba3 100644
 +		",\"host_counter\":" + UTIL_ToString( m_HostCounter & 0x0FFFFFFF ) + ",\"loading\":" + ( m_GameLoading ? "true" : "false" ) + catalog;
 +}
 diff --git a/ghost/game_base.h b/ghost/game_base.h
-index ed6c35a..5880980 100644
+index ed6c35a..1e794a4 100644
 --- a/ghost/game_base.h
 +++ b/ghost/game_base.h
-@@ -117,13 +117,44 @@ protected:
+@@ -117,13 +117,53 @@ protected:
  	bool m_RefreshRehosted;							// if we just rehosted and are waiting for confirmation that it was successful
  	bool m_MuteAll;									// if we should stop forwarding ingame chat messages targeted for all players or not
  	bool m_MuteLobby;								// if we should stop forwarding lobby chat messages
@@ -1908,9 +2108,18 @@ index ed6c35a..5880980 100644
 +	uint32_t m_NativeCapacity;
 +	set<unsigned char> m_StartVotes;
 +	map<unsigned char,uint32_t> m_PublicCommandTicks;
++    friend class NativeKickTestAccess; // Only the offline driver defines this friend.
++    map<unsigned char,CGamePlayer *> m_NativeKickMembers;
++    set<unsigned char> m_NativeKickYes;
++    map<unsigned char,uint64_t> m_NativeKickCommandMS;
++    uint64_t m_NativeKickStartedMS, m_NativeKickCooldownMS;
++    uint32_t m_NativeKickRequired;
++    unsigned char m_NativeKickTarget;
++    bool m_NativeKickActive, m_NativeKickCooling;
 +	uint32_t m_VoteStartedTicks, m_VoteCooldownTicks, m_LastLobbyRefreshTicks;
 +	bool m_VoteActive, m_VoteCooling;
 +	uint64_t m_NativeVoteReminderDueMS, m_NativeVoteReminderLastSentMS;
++	uint64_t m_NativeAutoReminderLastMS, m_NativeHelpReminderDueMS, m_NativeHelpReminderLastMS, m_NativeLobbyMessageStartedMS;
 +	unsigned char m_NativeRefreshSID; // 255 when no temporary slot closure is pending
 +	uint32_t m_NativeRefreshTicks;
 +	CGameSlot m_NativeRefreshSlot;
@@ -1924,7 +2133,7 @@ index ed6c35a..5880980 100644
  	bool m_LocalAdminMessages;						// if local admin messages should be relayed or not
  
  public:
-@@ -151,10 +182,19 @@ public:
+@@ -151,10 +191,19 @@ public:
  	virtual bool GetGameLoaded( )					{ return m_GameLoaded; }
  	virtual bool GetLagging( )						{ return m_Lagging; }
  
@@ -1948,7 +2157,7 @@ index ed6c35a..5880980 100644
  	virtual void SetMinimumScore( double nMinimumScore )				{ m_MinimumScore = nMinimumScore; }
  	virtual void SetMaximumScore( double nMaximumScore )				{ m_MaximumScore = nMaximumScore; }
  	virtual void SetRefreshError( bool nRefreshError )					{ m_RefreshError = nRefreshError; }
-@@ -171,6 +211,37 @@ public:
+@@ -171,6 +220,42 @@ public:
  
  	// processing functions
  
@@ -1975,7 +2184,12 @@ index ed6c35a..5880980 100644
 +	void ResetNativeLobbyFence( );
 +	void CancelNativeVote( const string &reason, bool cooldown = true );
 +	void NativeVote( CGamePlayer *player );
-+	void NativeStatus( CGamePlayer *player, bool diagnostic = false );
++    map<unsigned char,CGamePlayer *> NativeKickHumans( );
++    void CancelNativeKick( const string &message );
++    void UpdateNativeKick( );
++    void NativeKick( CGamePlayer *player, string payload, bool yes = false );
++	void NativeStatus( CGamePlayer *player, bool diagnostic = false, bool help = false );
++	void NativeAutoMessage( const string &message, bool force );
 +	void ScheduleNativeVoteReminder( );
 +	void UpdateNativeVoteReminder( );
 +	bool NativeRefresh( );
@@ -1986,7 +2200,7 @@ index ed6c35a..5880980 100644
  	virtual unsigned int SetFD( void *fd, void *send_fd, int *nfds );
  	virtual bool Update( void *fd, void *send_fd );
  	virtual void UpdatePost( void *send_fd );
-@@ -242,7 +313,7 @@ public:
+@@ -242,7 +327,7 @@ public:
  	virtual BYTEARRAY GetPIDs( );
  	virtual BYTEARRAY GetPIDs( unsigned char excludePID );
  	virtual unsigned char GetHostPID( );
@@ -1995,8 +2209,17 @@ index ed6c35a..5880980 100644
  	virtual unsigned char GetEmptySlot( unsigned char team, unsigned char PID );
  	virtual void SwapSlots( unsigned char SID1, unsigned char SID2 );
  	virtual void OpenSlot( unsigned char SID, bool kick );
+@@ -262,7 +347,7 @@ public:
+ 	virtual bool IsGameDataSaved( );
+ 	virtual void SaveGameData( );
+ 	virtual void StartCountDown( bool force );
+-	virtual void StartCountDownAuto( bool requireSpoofChecks );
++	virtual void StartCountDownAuto( bool requireSpoofChecks, bool periodic = false );
+ 	virtual void StopPlayers( string reason );
+ 	virtual void StopLaggers( string reason );
+ 	virtual void CreateVirtualHost( );
 diff --git a/ghost/ghost.cpp b/ghost/ghost.cpp
-index c723c77..0d95622 100644
+index c723c77..d2ecbd3 100644
 --- a/ghost/ghost.cpp
 +++ b/ghost/ghost.cpp
 @@ -18,6 +18,8 @@
@@ -2946,11 +3169,12 @@ index c723c77..0d95622 100644
  	string BotCommandTrigger = CFG->GetString( "bot_commandtrigger", "!" );
  
  	if( BotCommandTrigger.empty( ) )
-@@ -1367,6 +2089,32 @@ void CGHost :: SetConfigs( CConfig *CFG )
+@@ -1367,6 +2089,33 @@ void CGHost :: SetConfigs( CConfig *CFG )
  	m_BanMethod = CFG->GetInt( "bot_banmethod", 1 );
  	m_IPBlackListFile = CFG->GetString( "bot_ipblacklistfile", "ipblacklist.txt" );
  	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 10 );
 +	m_Phase3ConfigValid = true;
++	m_LobbyMessageInterval = NativeConfigUInt( CFG, "bot_lobby_message_interval", 20, 10, 3600, m_Phase3ConfigValid );
 +	m_MaxPlayers = NativeConfigUInt( CFG, "bot_maxplayers", 12, 2, 12, m_Phase3ConfigValid );
 +	m_AutoStartEnabled = NativeConfigBool( CFG, "bot_autostart_enabled", true, m_Phase3ConfigValid );
 +	m_DefaultAutoStartPlayers = NativeConfigUInt( CFG, "bot_autostartplayers", 10, 0, 12, m_Phase3ConfigValid );
@@ -2979,7 +3203,7 @@ index c723c77..0d95622 100644
  	m_Latency = CFG->GetInt( "bot_latency", 100 );
  	m_SyncLimit = CFG->GetInt( "bot_synclimit", 50 );
  	m_VoteKickAllowed = CFG->GetInt( "bot_votekickallowed", 1 ) == 0 ? false : true;
-@@ -1392,7 +2140,7 @@ void CGHost :: ExtractScripts( )
+@@ -1392,7 +2141,7 @@ void CGHost :: ExtractScripts( )
  	string PatchMPQFileName = m_Warcraft3Path + "War3Patch.mpq";
  	HANDLE PatchMPQ;
  
@@ -2988,7 +3212,7 @@ index c723c77..0d95622 100644
  	{
  		CONSOLE_Print( "[GHOST] loading MPQ file [" + PatchMPQFileName + "]" );
  		HANDLE SubFile;
-@@ -1408,7 +2156,7 @@ void CGHost :: ExtractScripts( )
+@@ -1408,7 +2157,7 @@ void CGHost :: ExtractScripts( )
  				char *SubFileData = new char[FileLength];
  				DWORD BytesRead = 0;
  
@@ -2997,7 +3221,7 @@ index c723c77..0d95622 100644
  				{
  					CONSOLE_Print( "[GHOST] extracting Scripts\\common.j from MPQ file to [" + m_MapCFGPath + "common.j]" );
  					UTIL_FileWrite( m_MapCFGPath + "common.j", (unsigned char *)SubFileData, BytesRead );
-@@ -1435,7 +2183,7 @@ void CGHost :: ExtractScripts( )
+@@ -1435,7 +2184,7 @@ void CGHost :: ExtractScripts( )
  				char *SubFileData = new char[FileLength];
  				DWORD BytesRead = 0;
  
@@ -3006,7 +3230,7 @@ index c723c77..0d95622 100644
  				{
  					CONSOLE_Print( "[GHOST] extracting Scripts\\blizzard.j from MPQ file to [" + m_MapCFGPath + "blizzard.j]" );
  					UTIL_FileWrite( m_MapCFGPath + "blizzard.j", (unsigned char *)SubFileData, BytesRead );
-@@ -1524,9 +2272,523 @@ void CGHost :: LoadIPToCountryData( )
+@@ -1524,9 +2273,523 @@ void CGHost :: LoadIPToCountryData( )
  	}
  }
  
@@ -3531,7 +3755,7 @@ index c723c77..0d95622 100644
  	{
                  for( vector<CBNET *> :: iterator i = m_BNETs.begin( ); i != m_BNETs.end( ); ++i )
  		{
-@@ -1648,6 +2910,13 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
+@@ -1648,6 +2911,13 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
  		return;
  	}
  
@@ -3545,7 +3769,7 @@ index c723c77..0d95622 100644
  	CONSOLE_Print( "[GHOST] creating game [" + gameName + "]" );
  
  	if( saveGame )
-@@ -1655,7 +2924,15 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
+@@ -1655,7 +2925,15 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
  	else
  		m_CurrentGame = new CGame( this, map, NULL, m_HostPort, gameState, gameName, ownerName, creatorName, creatorServer );
  
@@ -3563,7 +3787,7 @@ index c723c77..0d95622 100644
  	if( m_SaveGame )
  	{
 diff --git a/ghost/ghost.h b/ghost/ghost.h
-index c9678d3..eb60835 100644
+index c9678d3..801cf30 100644
 --- a/ghost/ghost.h
 +++ b/ghost/ghost.h
 @@ -34,6 +34,7 @@ class CGPSProtocol;
@@ -3669,7 +3893,7 @@ index c9678d3..eb60835 100644
 +	bool m_Phase3ConfigValid, m_VoteEnabled, m_LobbyRefreshEnabled;
 +	bool m_LobbyAISupported, m_AutoStartEnabled;
 +	uint32_t m_LobbyAITarget, m_LobbyAISkill, m_LobbyMinHumans;
-+	uint32_t m_MaxPlayers, m_DefaultAutoStartPlayers, m_VoteRequiredPercent, m_VoteMinPlayers, m_VoteTimeout, m_VoteCooldown, m_LobbyRefreshInterval;
++	uint32_t m_MaxPlayers, m_DefaultAutoStartPlayers, m_VoteRequiredPercent, m_VoteMinPlayers, m_VoteTimeout, m_VoteCooldown, m_LobbyRefreshInterval, m_LobbyMessageInterval;
 +	string m_ExternalStatusPath, m_StatusName, m_LastNativeState;
 +	uint64_t m_NativeStartedMS, m_NativeRefreshSequence, m_NativeRefreshCount, m_NativeRefreshSkipped, m_NativeLastRefreshMS, m_NativeRefreshStartedMS;
 +	uint64_t m_NativeRetiredMatches, m_NativeRotationErrors;

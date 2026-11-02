@@ -484,9 +484,9 @@ class ManifestAndReleaseTests(unittest.TestCase):
         auth = [s for s in settings if s.get("Subcategory") == "Account:account_circle:10"]
         self.assertEqual({s["Subcategory"] for s in settings if s["Category"] == "War3_Dedicated:sports_esports"}, {
             "Account:account_circle:10", "Map presets:map:20", "Lobby:groups:30",
-            "Voting:how_to_vote:40", "Refresh:refresh:50"})
+            "Lobby / Messages:chat:35", "Voting:how_to_vote:40", "Refresh:refresh:50"})
         internal_settings = {"autostart_players", "autostart_enabled", "game_port", "max_players"}
-        self.assertEqual(len(gameplay), 13)
+        self.assertEqual(len(gameplay), 14)
         self.assertEqual({s["ParamFieldName"] for s in gameplay}, set(production.DEFAULTS) - internal_settings - {"map_preset"})
         self.assertTrue(internal_settings.isdisjoint(s["FieldName"] for s in settings))
         self.assertTrue(internal_settings.isdisjoint(s["ParamFieldName"] for s in settings))

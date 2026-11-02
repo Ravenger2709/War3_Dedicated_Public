@@ -554,7 +554,7 @@ class GameplayTests(unittest.TestCase):
         n.feedback_write(publication_accepted=0, last_ack_monotonic_ms=0)
         a.chat('!status'); chats = a.chats()
         self.assertTrue(any('iCCup: Online' in c for c in chats))
-        self.assertTrue(any('Commands: !vote to start early, !status for game details, !help for help.' in c for c in chats))
+        self.assertTrue(any('Commands: !vote, !kick <player>, !yes, !status, !help.' in c for c in chats))
         self.assertTrue(any('Players: 1/12' in c for c in chats))
         self.assertFalse(any(str(n.root) in c or '127.0.0.1' in c or 'SyntheticAccount' in c for c in chats))
         self.assert_plain_english(chats)

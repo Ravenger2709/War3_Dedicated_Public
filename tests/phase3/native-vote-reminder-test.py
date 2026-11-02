@@ -26,7 +26,7 @@ def messages(peer,prefix):
         if packet[1]!=0x0f:continue
         count=packet[4];start=7+count+(4 if packet[6+count]==32 else 0)
         value=packet[start:-1].decode('utf8','replace')
-        if value.startswith(prefix):result.append((stamp,value))
+        if value.startswith(prefix) and (prefix!=VOTE or value.endswith("Type !vote when ready.")):result.append((stamp,value))
     return result
 
 def settle(seconds):
@@ -41,7 +41,7 @@ class VoteReminderTests(unittest.TestCase):
     def start(self,autostart=4,minimum=2,auto=True,voting=True,**extra):
         n=self.native({'bot_autostartplayers':str(autostart),'bot_vote_min_players':str(minimum),
             'bot_autostart_enabled':'1' if auto else '0','bot_vote_enabled':'1' if voting else '0',
-            'bot_countdownseconds':'8','bot_motdfile':'',**extra})
+            'bot_countdownseconds':'8','bot_motdfile':'','bot_lobby_message_interval':'10',**extra})
         n.start().create();return n
 
     def automatic(self,n,peer,required,humans):
@@ -105,6 +105,34 @@ class VoteReminderTests(unittest.TestCase):
         self.assertFalse(messages(a,AUTO));self.assertEqual(n.state()['phase'],'LOBBY')
         self.assertFalse(b.disconnected)
 
+    def test_configured_interval_controls_auto_vote_and_help_with_immediate_replies(self):
+        n=self.start(bot_lobby_message_interval='13');a=n.peer('First')
+        # A command reply is immediate even before the first periodic notice.
+        a.chat('!vote');wait(lambda:'Voting requires at least 2 human players (1 more needed).' in a.chats())
+        settle(10.5);self.assertFalse(messages(a,AUTO));self.assertFalse(messages(a,VOTE))
+        wait(lambda:len(messages(a,AUTO))==1,5)
+        first=messages(a,AUTO)[0][0]
+        vote=self.reminder(a,2,1)
+        self.assertGreaterEqual(vote-first,3.2);self.assertLessEqual(vote-first,4.2)
+        help_prefix='Type !help to see available server commands.'
+        wait(lambda:len(messages(a,help_prefix))==1,5)
+        self.assertGreaterEqual(messages(a,help_prefix)[0][0]-first,6.7)
+        wait(lambda:len(messages(a,AUTO))==2,9)
+        self.assertAlmostEqual(messages(a,AUTO)[1][0]-first,13,delta=.7)
+        second=self.reminder(a,2,1,after=vote)
+        self.assertAlmostEqual(second-vote,13,delta=.7)
+        wait(lambda:len(messages(a,help_prefix))==2,5)
+        self.assertAlmostEqual(messages(a,help_prefix)[1][0]-messages(a,help_prefix)[0][0],13,delta=.7)
+
+    def test_native_default_is_twenty_seconds_without_override(self):
+        n=self.native({'bot_autostartplayers':'4','bot_vote_min_players':'2','bot_motdfile':''})
+        n.start().create();a=n.peer('DefaultReader')
+        settle(12);self.assertFalse(messages(a,AUTO));self.assertFalse(messages(a,VOTE))
+        wait(lambda:len(messages(a,AUTO))==1,11)
+        first=messages(a,AUTO)[0][0]
+        sent=self.reminder(a,2,1)
+        self.assertGreaterEqual(sent-first,3.2);self.assertLessEqual(sent-first,4.2)
+
     def test_countdown_loading_and_loaded_cancel_pending(self):
         for state in ('countdown','loading','loaded'):
             with self.subTest(state=state):
@@ -119,6 +147,9 @@ class VoteReminderTests(unittest.TestCase):
                         wait(lambda:any(packet[1]==0x0c for packet in a.frames))
                 settle(4.2)
                 self.assertFalse(messages(a,VOTE))
+                if state=='loaded':
+                    wait(lambda:messages(a,'Type !help to see available server commands.'),9)
+                    self.assertFalse(messages(a,VOTE));self.assertFalse(a.disconnected)
                 n.stop()
 
     def test_closed_lobby_does_not_transfer_pending_timer_to_next_lobby(self):

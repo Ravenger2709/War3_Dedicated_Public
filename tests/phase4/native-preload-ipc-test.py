@@ -33,7 +33,7 @@ class NativeIPCTests(unittest.TestCase):
         prepared=self.catalog.prepare();self.addCleanup(prepared.close)
         self.bundle=seal_startup_manifest(prepared);self.addCleanup(self.bundle.close)
         self.n=self.fixture.native({'bot_maxgames':'2','autohost_maxgames':'2',
-            'autohost_startplayers':'4','autohost_gamename':'Legacy','autohost_owner':'Owner'})
+            'bot_lobby_message_interval':'10','autohost_startplayers':'4','autohost_gamename':'Legacy','autohost_owner':'Owner'})
         shutil.copyfile(self.catalog.a,self.n.root/'a.w3x')
         (self.n.root/'synthetic.cfg').write_text('map_path = Maps\\Download\\a.w3x\nmap_localpath = a.w3x\n')
         for script in ('common.j','blizzard.j'):(self.n.root/script).write_bytes(b'globals\nendglobals\n')

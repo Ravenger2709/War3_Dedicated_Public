@@ -11,7 +11,7 @@ GAMEPLAY_DEFAULTS={
     'max_players':12,'autostart_enabled':True,'autostart_players':10,'countdown_seconds':5,
     'vote_enabled':True,'vote_required_percent':60,'vote_min_players':2,
     'vote_timeout':60,'vote_cooldown':30,'lobby_refresh_enabled':True,
-    'lobby_refresh_interval':10,'lobby_refresh_mode':'slot_toggle',
+    'lobby_refresh_interval':10,'lobby_refresh_mode':'slot_toggle','lobby_message_interval':20,
     'autohost_enabled':True,'reconnect_enabled':True,
 }
 ICCUP_DEFAULTS={
@@ -51,7 +51,7 @@ def gameplay_config(raw):
         value=cfg[k]
         if not isinstance(value,str) or not 1<=len(value.encode())<=24 or any(ord(c)<32 or c in '=[]' for c in value):raise ValueError('GAMEPLAY_NAME_REJECTED')
     if cfg['game_port']!=6113 or type(cfg['game_port']) is not int:raise ValueError('GAME_PORT_MUST_BE_6113')
-    for key,lo,hi in (('max_players',2,12),('autostart_players',2,12),('countdown_seconds',0,60),('vote_required_percent',1,100),('vote_min_players',2,12),('vote_timeout',5,600),('vote_cooldown',0,600),('lobby_refresh_interval',10,3600)):
+    for key,lo,hi in (('max_players',2,12),('autostart_players',2,12),('countdown_seconds',0,60),('vote_required_percent',1,100),('vote_min_players',2,12),('vote_timeout',5,600),('vote_cooldown',0,600),('lobby_refresh_interval',10,3600),('lobby_message_interval',10,3600)):
         if not bounded_int(cfg[key],lo,hi):raise ValueError('GAMEPLAY_NUMBER_REJECTED')
     for key in ('autostart_enabled','vote_enabled','lobby_refresh_enabled','autohost_enabled','reconnect_enabled'):
         if type(cfg[key]) is not bool:raise ValueError('GAMEPLAY_BOOLEAN_REJECTED')

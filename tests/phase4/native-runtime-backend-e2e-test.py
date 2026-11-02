@@ -42,7 +42,7 @@ class ProductionBackendE2E(unittest.TestCase):
                       'profile':str(profile),'prefix':str(root/'prefix'),'session':str(root/'session'),
                       'metadata_ttl':3,'native_state_ttl':15},
              'gameplay':{'map_cycle':['one','two','one'],'max_concurrent_matches':2,
-                         'max_players':4,'autostart_players':4}}
+                         'max_players':4,'autostart_players':4,'lobby_message_interval':10}}
         path=root/'supervisor.json';path.write_text(json.dumps(raw))
         config=load_config(path)
         import src.runtime.catalog_startup as catalog

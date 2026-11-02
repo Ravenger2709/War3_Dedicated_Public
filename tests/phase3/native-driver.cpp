@@ -95,7 +95,7 @@ public:
         // Never manufacture a gameover timer: age only a timer armed by CGame.
         else if(command == "agegameover" && m_GameOverTime) m_GameOverTime -= 61;
         else if(command == "agerefresh") { m_LastLobbyRefreshTicks -= m_GHost->m_LobbyRefreshInterval * 1000; m_GHost->m_NativeLastRefreshMS = 0; m_GHost->m_NativeRefreshStartedMS = 0; }
-        else if(command == "auto") { m_LastAutoStartTime -= 10; }
+        else if(command == "auto") { StartCountDownAuto(m_GHost->m_RequireSpoofChecks); }
         else if(command == "unlimit") { m_PublicCommandTicks.clear(); }
         else if(command == "teamsame") { for(size_t i=0;i<m_Slots.size();++i) if(m_Slots[i].GetSlotStatus()==SLOTSTATUS_OCCUPIED) m_Slots[i].SetTeam(0); SendAllSlotInfo(); }
         else if(command == "duplicatecolour") { if(m_Slots.size()>1) m_Slots[1].SetColour(m_Slots[0].GetColour()); SendAllSlotInfo(); }
@@ -209,6 +209,39 @@ public:
                   << ",\"players_total\":" << m_Players.size() << "}" << std::endl;
     }
 };
+// Only this offline executable defines the friend; no test command enters GHost.
+class NativeKickTestAccess
+{
+public:
+    static void Apply(CBaseGame *game,const string &operation,uint32_t seconds)
+    {
+        if(!game) { std::cout << "TEST KICKSTATE null" << std::endl; return; }
+        uint64_t now=NativeMonotonicMS(), age=(uint64_t)seconds*1000;
+        if(seconds<=3600)
+        {
+            if(operation=="agekick" && game->m_NativeKickActive) game->m_NativeKickStartedMS=now>=age?now-age:0;
+            if(operation=="agekickcooldown" && game->m_NativeKickCooling) game->m_NativeKickCooldownMS=now>=age?now-age:0;
+        }
+        if(operation=="kickunlimit") game->m_NativeKickCommandMS.clear();
+        game->UpdateNativeKick();
+        map<unsigned char,CGamePlayer *> humans=game->NativeKickHumans();
+        std::cout << "TEST KICKSTATE {\"active\":" << (game->m_NativeKickActive?"true":"false")
+                  << ",\"cooling\":" << (game->m_NativeKickCooling?"true":"false")
+                  << ",\"target_pid\":" << (uint32_t)game->m_NativeKickTarget
+                  << ",\"yes\":" << game->m_NativeKickYes.size()
+                  << ",\"required\":" << game->m_NativeKickRequired
+                  << ",\"eligible\":" << (game->m_NativeKickActive?game->m_NativeKickMembers.size()-1:0)
+                  << ",\"host_counter\":" << game->GetHostCounter() << ",\"human_pids\":[";
+        bool first=true;
+        for(map<unsigned char,CGamePlayer *>::iterator i=humans.begin();i!=humans.end();++i)
+        { std::cout << (first?"":",") << (uint32_t)i->first;first=false; }
+        std::cout << "],\"voter_pids\":[";first=true;
+        for(set<unsigned char>::iterator i=game->m_NativeKickYes.begin();i!=game->m_NativeKickYes.end();++i)
+        { std::cout << (first?"":",") << (uint32_t)*i;first=false; }
+        std::cout << "]}" << std::endl;
+    }
+};
+
 int main(int argc,char **argv)
 {
     if(argc!=2) return 2;
@@ -230,6 +263,22 @@ int main(int argc,char **argv)
         {
             string command=pending.substr(0,end); pending.erase(0,end+1);
             if(command=="quit") quit=true;
+            else if(command.compare(0,10,"kickstate ")==0 || command.compare(0,8,"agekick ")==0 ||
+                    command.compare(0,16,"agekickcooldown ")==0 || command.compare(0,12,"kickunlimit ")==0)
+            {
+                std::istringstream input(command); string operation; int index=-99; uint32_t seconds=0;
+                input >> operation >> index >> seconds;
+                CBaseGame *selected=NULL;
+                if(index==-2) selected=gGHost->m_CurrentGame;
+                else if(index>=0 && (size_t)index<gGHost->m_Games.size()) selected=gGHost->m_Games[index];
+                else if(index==-1)
+                {
+                    selected=dynamic_cast<NativeGame*>(gGHost->m_CurrentGame);
+                    if(!selected) for(size_t i=0;i<gGHost->m_Games.size();++i)
+                        if(dynamic_cast<NativeGame*>(gGHost->m_Games[i])) { selected=gGHost->m_Games[i]; break; }
+                }
+                NativeKickTestAccess::Apply(selected,operation,seconds);
+            }
             else if(command.compare(0, 7, "budget ")==0)
             {
                 std::istringstream input(command.substr(7));
