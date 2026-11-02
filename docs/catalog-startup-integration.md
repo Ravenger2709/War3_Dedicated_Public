@@ -24,6 +24,13 @@ independently validate the manifest, descriptors, seals, digests, default map,
 cgroup ancestry and conservative memory admission. Accounted bytes are not a
 hard RSS guarantee.
 
+The AMP and standalone Docker launcher therefore sets `--cgroupns host` on
+Linux cgroup v2. Native admission requires the full cgroup hierarchy, including
+finite ancestor limits; a private namespace exposes only a subtree and is
+rejected. The cgroup filesystem stays read-only, the PID namespace stays
+private, all capabilities remain dropped, and the configured memory/PID limits
+still apply. This flag provides resource metadata, not host process execution.
+
 `_cycle_permits_native_spawn` now permits the ordinary automatic catalog backend
 only with prepared, matching cycle configuration and an exclusively owned
 session without unresolved state; it is no longer an unconditional feature fuse.

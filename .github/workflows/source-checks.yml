@@ -21,6 +21,7 @@ jobs:
           python3 -m unittest discover -s tests/phase3 -p 'test_map_presets.py' -q
           python3 -m unittest discover -s tests/phase3 -p 'test_operator_logs.py' -q
           python3 -m unittest discover -s tests/phase3 -p 'test_standalone_cli.py' -q
+          python3 -m unittest discover -s tests/phase3 -p 'infra_test.py' -q
       - name: Map Cycle and process ownership unit tests
         env:
           PYTHONDONTWRITEBYTECODE: '1'

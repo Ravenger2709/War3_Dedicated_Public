@@ -263,6 +263,12 @@ class GateAndLaunchTests(unittest.TestCase):
             self.assertIn(token, argv)
         self.assertNotIn("docker.sock", " ".join(mounts))
         self.assertNotIn("--privileged", argv)
+        # Native admission checks finite memory limits through the full ancestor
+        # hierarchy. A private cgroup subtree hides that proof and fails closed.
+        self.assertEqual(argv[argv.index("--cgroupns") + 1], "host")
+        self.assertNotIn("--pid", argv)
+        self.assertNotIn("--cgroup-parent", argv)
+        self.assertEqual(argv[argv.index("--cap-drop") + 1], "ALL")
 
     def test_external_stop_budgets_cover_sequential_component_shutdown(self):
         argv = production.command(Path("/tmp/private-instance"), {"container_name": "war3-phase3-staging",
@@ -496,8 +502,9 @@ class ManifestAndReleaseTests(unittest.TestCase):
         self.assertFalse(selector.get("Actions"))
         limit = next(s for s in settings if s["ParamFieldName"] == "max_concurrent_matches")
         self.assertEqual((limit["minValue"], limit["maxValue"], limit["DefaultValue"]), ("1", "5", "3"))
-        self.assertIn("inactive", limit["DisplayName"])
-        self.assertIn("no effect", limit["Description"])
+        self.assertEqual(limit["DisplayName"], "Max concurrent matches")
+        self.assertNotIn("inactive", limit["DisplayName"])
+        self.assertNotIn("no effect", limit["Description"])
         self.assertFalse(any(action.get("Method") == "ReloadGenericConfig"
                              for setting in settings for action in setting.get("Actions", [])))
         refresh = next(s for s in gameplay if s["ParamFieldName"] == "lobby_refresh_interval")
@@ -514,8 +521,16 @@ class ManifestAndReleaseTests(unittest.TestCase):
         self.assertTrue(all(not s["IncludeInCommandLine"] for s in settings))
         for setting in settings:
             if setting["ParamFieldName"] in production.RANGES:
-                self.assertEqual((int(setting["minValue"]), int(setting["maxValue"])),
-                                 production.RANGES[setting["ParamFieldName"]])
+                # The manual editor can expose a narrower range than legacy
+                # configs/CLI; every UI endpoint and default must still compile.
+                field = setting["ParamFieldName"]
+                minimum, maximum = int(setting["minValue"]), int(setting["maxValue"])
+                lower, upper = production.RANGES[field]
+                self.assertGreaterEqual(minimum, lower)
+                self.assertLessEqual(maximum, upper)
+                self.assertLessEqual(minimum, maximum)
+                for value in (minimum, maximum, setting["DefaultValue"]):
+                    production.settings({**production.DEFAULTS, field: value})
         meta = json.loads((ROOT / "amp/war3-productionmetaconfig.json").read_text())
         self.assertEqual(meta, [
             {"ConfigFile": "data/config/amp-settings.json", "ConfigType": "json", "AutoMap": True, "Importable": True},
@@ -642,6 +657,8 @@ class AnalyticsConsoleTests(unittest.TestCase):
             self.assertIsNone(self.ready.fullmatch(line), line)
 
 
+@unittest.skipUnless((ROOT / ".github/workflows/production-ghcr.yml").is_file(),
+                     "legacy private publisher workflow is not distributed in this checkout")
 class ReleaseWorkflowTests(unittest.TestCase):
     def step(self, title):
         workflow = (ROOT / ".github/workflows/production-ghcr.yml").read_text()

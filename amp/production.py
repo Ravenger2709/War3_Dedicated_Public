@@ -821,7 +821,7 @@ def command(instance, spec):
     host_instance = Path(spec.get("host_instance_dir", str(instance)))
     args = [*DOCKER, "run", "--rm", "--pull=never", "--name", spec["container_name"],
             "--label", "war3.managed=phase3-staging", "--init", "--interactive", "--sig-proxy=true",
-            "--restart=no", "--read-only", "--user", f'{spec["uid"]}:{spec["gid"]}',
+            "--restart=no", "--cgroupns", "host", "--read-only", "--user", f'{spec["uid"]}:{spec["gid"]}',
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--pids-limit", "256",
             "--memory", "2g", "--memory-swap", "2g", "--cpus", "2", "--ulimit", "core=0",
             "--shm-size", "128m", "--stop-timeout", "120", "--network", "bridge",
