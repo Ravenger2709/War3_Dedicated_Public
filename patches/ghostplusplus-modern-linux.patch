@@ -3700,20 +3700,19 @@ index c9678d3..eb60835 100644
  };
  
 diff --git a/ghost/map.cpp b/ghost/map.cpp
-index 2bc089b..b73cd14 100644
+index 2bc089b..5efbad4 100644
 --- a/ghost/map.cpp
 +++ b/ghost/map.cpp
-@@ -24,13 +24,691 @@
+@@ -24,13 +24,637 @@
  #include "sha1.h"
  #include "config.h"
  #include "map.h"
++#include "native_sha256.h"
 +#ifndef WIN32
 +#include <sys/stat.h>
 +#include <fcntl.h>
 +#include <unistd.h>
 +#include <errno.h>
-+#include <sys/socket.h>
-+#include <linux/if_alg.h>
 +#include <sys/vfs.h>
 +#include <linux/magic.h>
 +#include <limits>
@@ -3801,51 +3800,16 @@ index 2bc089b..b73cd14 100644
 +#endif
 +
 +#ifndef WIN32
-+// Hash bytes in the local Linux kernel, without adding a dynamic crypto library.
-+// Failure or missing AF_ALG support is a rejection, never an unchecked load.
++// Portable SHA-256; failure is a rejection, never an unchecked load.
 +bool NativeMapSHA256Matches( const string &data, const string &expected )
 +{
 +    if( expected.size( ) != 64 || expected.find_first_not_of( "0123456789abcdef" ) != string::npos ) return false;
-+    int algorithm = socket( AF_ALG, SOCK_SEQPACKET | SOCK_CLOEXEC, 0 );
-+    if( algorithm < 0 ) return false;
-+    struct sockaddr_alg address;
-+    memset( &address, 0, sizeof address );
-+    address.salg_family = AF_ALG;
-+    memcpy( address.salg_type, "hash", 5 );
-+    memcpy( address.salg_name, "sha256", 7 );
-+    if( bind( algorithm, (struct sockaddr *)&address, sizeof address ) ) { close( algorithm ); return false; }
-+    int operation = accept4( algorithm, NULL, NULL, SOCK_CLOEXEC );
-+    close( algorithm );
-+    if( operation < 0 ) return false;
-+    size_t offset = 0;
-+    bool ok = true;
-+    while( offset < data.size( ) )
-+    {
-+        size_t length = min( (size_t)65536, data.size( ) - offset );
-+        ssize_t n = send( operation, data.data( ) + offset, length, MSG_MORE | MSG_NOSIGNAL );
-+        if( n < 0 && errno == EINTR ) continue;
-+        if( n <= 0 ) { ok = false; break; }
-+        offset += n;
-+    }
-+    if( ok )
-+    {
-+        ssize_t n;
-+        do { n = send( operation, "", 0, MSG_NOSIGNAL ); } while( n < 0 && errno == EINTR );
-+        ok = n == 0;
-+    }
-+    unsigned char digest[32];
-+    if( ok )
-+    {
-+        ssize_t n;
-+        do { n = recv( operation, digest, sizeof digest, MSG_WAITALL ); } while( n < 0 && errno == EINTR );
-+        ok = n == (ssize_t)sizeof digest;
-+    }
-+    close( operation );
-+    if( !ok ) return false;
++    NativeSHA256 hash; unsigned char digest[32];
++    if( !hash.Update(data.data(),data.size()) || !hash.Final(digest) ) return false;
 +    static const char hex[] = "0123456789abcdef";
 +    string actual;
-+    for( size_t i = 0; i < sizeof digest; ++i ) { actual += hex[digest[i] >> 4]; actual += hex[digest[i] & 15]; }
-+    return actual == expected;
++    for( size_t i=0; i<sizeof digest; ++i ) { actual+=hex[digest[i]>>4]; actual+=hex[digest[i]&15]; }
++    return actual==expected;
 +}
 +#endif
 +
@@ -3863,35 +3827,17 @@ index 2bc089b..b73cd14 100644
 +
 +static bool NativeManifestHashFD( int fd, uint64_t length, const unsigned char *expected )
 +{
-+    int algorithm = socket( AF_ALG, SOCK_SEQPACKET | SOCK_CLOEXEC, 0 );
-+    if( algorithm < 0 ) return false;
-+    struct sockaddr_alg address; memset( &address, 0, sizeof address );
-+    address.salg_family = AF_ALG; memcpy( address.salg_type, "hash", 5 ); memcpy( address.salg_name, "sha256", 7 );
-+    if( bind( algorithm, (struct sockaddr *)&address, sizeof address ) ) { close( algorithm ); return false; }
-+    int operation = accept4( algorithm, NULL, NULL, SOCK_CLOEXEC ); close( algorithm );
-+    if( operation < 0 ) return false;
-+    char buffer[65536]; uint64_t offset = 0; bool ok = true;
-+    while( offset < length )
++    NativeSHA256 hash;
++    char buffer[65536]; uint64_t offset=0;
++    while( offset<length )
 +    {
-+        size_t wanted = (size_t)min( (uint64_t)sizeof buffer, length - offset ); ssize_t n;
-+        do { n = pread( fd, buffer, wanted, (off_t)offset ); } while( n < 0 && errno == EINTR );
-+        if( n <= 0 ) { ok = false; break; }
-+        size_t sent = 0;
-+        while( sent < (size_t)n )
-+        {
-+            ssize_t written = send( operation, buffer + sent, (size_t)n - sent, MSG_MORE | MSG_NOSIGNAL );
-+            if( written < 0 && errno == EINTR ) continue;
-+            if( written <= 0 ) { ok = false; break; }
-+            sent += written;
-+        }
-+        if( !ok ) break;
-+        offset += n;
++        size_t wanted=(size_t)min((uint64_t)sizeof buffer,length-offset); ssize_t n;
++        do { n=pread(fd,buffer,wanted,(off_t)offset); } while(n<0 && errno==EINTR);
++        if(n<=0 || !hash.Update(buffer,(size_t)n)) return false;
++        offset+=(uint64_t)n;
 +    }
-+    if( ok ) { ssize_t n; do { n = send( operation, "", 0, MSG_NOSIGNAL ); } while( n < 0 && errno == EINTR ); ok = n == 0; }
 +    unsigned char actual[32];
-+    if( ok ) { ssize_t n; do { n = recv( operation, actual, sizeof actual, MSG_WAITALL ); } while( n < 0 && errno == EINTR ); ok = n == 32; }
-+    close( operation );
-+    return ok && !memcmp( actual, expected, 32 );
++    return hash.Final(actual) && !memcmp(actual,expected,sizeof actual);
 +}
 +
 +static uint64_t NativeManifestLE( const string &s, size_t offset, size_t bytes )
@@ -4396,7 +4342,7 @@ index 2bc089b..b73cd14 100644
  //
  // CMap
  //
-@@ -57,6 +735,18 @@ CMap :: CMap( CGHost *nGHost, CConfig *CFG, string nCFGFile ) : m_GHost( nGHost
+@@ -57,6 +681,18 @@ CMap :: CMap( CGHost *nGHost, CConfig *CFG, string nCFGFile ) : m_GHost( nGHost
  	Load( CFG, nCFGFile );
  }
  
@@ -4415,7 +4361,7 @@ index 2bc089b..b73cd14 100644
  CMap :: ~CMap( )
  {
  
-@@ -228,6 +918,12 @@ unsigned char CMap :: GetMapLayoutStyle( )
+@@ -228,6 +864,12 @@ unsigned char CMap :: GetMapLayoutStyle( )
  }
  
  void CMap :: Load( CConfig *CFG, string nCFGFile )
@@ -4428,7 +4374,7 @@ index 2bc089b..b73cd14 100644
  {
  	m_Valid = true;
  	m_CFGFile = nCFGFile;
-@@ -237,16 +933,40 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -237,16 +879,40 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  	m_MapLocalPath = CFG->GetString( "map_localpath", string( ) );
  	m_MapData.clear( );
  
@@ -4473,7 +4419,7 @@ index 2bc089b..b73cd14 100644
  	{
  		CONSOLE_Print( "[MAP] loading MPQ file [" + MapMPQFileName + "]" );
  		MapMPQReady = true;
-@@ -254,6 +974,15 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -254,6 +920,15 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  	else
  		CONSOLE_Print( "[MAP] warning - unable to load MPQ file [" + MapMPQFileName + "]" );
  
@@ -4489,7 +4435,7 @@ index 2bc089b..b73cd14 100644
  	// try to calculate map_size, map_info, map_crc, map_sha1
  
  	BYTEARRAY MapSize;
-@@ -278,13 +1007,17 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -278,13 +953,17 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  		// calculate map_crc (this is not the CRC) and map_sha1
  		// a big thank you to Strilanc for figuring the map_crc algorithm out
  
@@ -4509,7 +4455,7 @@ index 2bc089b..b73cd14 100644
  
  			if( BlizzardJ.empty( ) )
  				CONSOLE_Print( "[MAP] unable to calculate map_crc/sha1 - unable to read file [" + m_GHost->m_MapCFGPath + "blizzard.j]" );
-@@ -306,14 +1039,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -306,14 +985,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  
  					if( SFileOpenFileEx( MapMPQ, "Scripts\\common.j", 0, &SubFile ) )
  					{
@@ -4533,7 +4479,7 @@ index 2bc089b..b73cd14 100644
  							{
  								CONSOLE_Print( "[MAP] overriding default common.j with map copy while calculating map_crc/sha1" );
  								OverrodeCommonJ = true;
-@@ -342,14 +1082,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -342,14 +1028,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  
  					if( SFileOpenFileEx( MapMPQ, "Scripts\\blizzard.j", 0, &SubFile ) )
  					{
@@ -4557,7 +4503,7 @@ index 2bc089b..b73cd14 100644
  							{
  								CONSOLE_Print( "[MAP] overriding default blizzard.j with map copy while calculating map_crc/sha1" );
  								OverrodeBlizzardJ = true;
-@@ -400,14 +1147,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -400,14 +1093,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  
  						if( SFileOpenFileEx( MapMPQ, (*i).c_str( ), 0, &SubFile ) )
  						{
@@ -4581,7 +4527,7 @@ index 2bc089b..b73cd14 100644
  								{
  									if( *i == "war3map.j" || *i == "scripts\\war3map.j" )
  										FoundScript = true;
-@@ -467,14 +1221,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -467,14 +1167,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  
  			if( SFileOpenFileEx( MapMPQ, "war3map.w3i", 0, &SubFile ) )
  			{
@@ -4605,7 +4551,7 @@ index 2bc089b..b73cd14 100644
  					{
  						istringstream ISS( string( SubFileData, BytesRead ) );
  
-@@ -696,6 +1457,10 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -696,6 +1403,10 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  
  	if( MapMPQReady )
  		SFileCloseArchive( MapMPQ );
@@ -4667,6 +4613,110 @@ index 48acc3f..28a7c2a 100644
  	void CheckValid( );
  	uint32_t XORRotateLeft( unsigned char *data, uint32_t length );
  };
+diff --git a/ghost/native_sha256.h b/ghost/native_sha256.h
+new file mode 100644
+index 0000000..5c2a829
+--- /dev/null
++++ b/ghost/native_sha256.h
+@@ -0,0 +1,98 @@
++// SPDX-License-Identifier: Apache-2.0
++// Copyright 2026 War3 Dedicated contributors.
++// Original streaming SHA-256 implementation of FIPS 180-4. No kernel crypto API.
++#ifndef GHOST_NATIVE_SHA256_H
++#define GHOST_NATIVE_SHA256_H
++#include <stdint.h>
++#include <stddef.h>
++#include <string.h>
++
++class NativeSHA256
++{
++    uint32_t m_State[8];
++    uint64_t m_Bytes;
++    unsigned char m_Buffer[64];
++    size_t m_Used;
++    bool m_Done, m_Valid;
++
++    static uint32_t Rotate( uint32_t value, unsigned bits )
++    { return ( value >> bits ) | ( value << ( 32 - bits ) ); }
++
++    void Transform( const unsigned char *block )
++    {
++        static const uint32_t constants[64] = {
++            0x428a2f98U,0x71374491U,0xb5c0fbcfU,0xe9b5dba5U,0x3956c25bU,0x59f111f1U,0x923f82a4U,0xab1c5ed5U,
++            0xd807aa98U,0x12835b01U,0x243185beU,0x550c7dc3U,0x72be5d74U,0x80deb1feU,0x9bdc06a7U,0xc19bf174U,
++            0xe49b69c1U,0xefbe4786U,0x0fc19dc6U,0x240ca1ccU,0x2de92c6fU,0x4a7484aaU,0x5cb0a9dcU,0x76f988daU,
++            0x983e5152U,0xa831c66dU,0xb00327c8U,0xbf597fc7U,0xc6e00bf3U,0xd5a79147U,0x06ca6351U,0x14292967U,
++            0x27b70a85U,0x2e1b2138U,0x4d2c6dfcU,0x53380d13U,0x650a7354U,0x766a0abbU,0x81c2c92eU,0x92722c85U,
++            0xa2bfe8a1U,0xa81a664bU,0xc24b8b70U,0xc76c51a3U,0xd192e819U,0xd6990624U,0xf40e3585U,0x106aa070U,
++            0x19a4c116U,0x1e376c08U,0x2748774cU,0x34b0bcb5U,0x391c0cb3U,0x4ed8aa4aU,0x5b9cca4fU,0x682e6ff3U,
++            0x748f82eeU,0x78a5636fU,0x84c87814U,0x8cc70208U,0x90befffaU,0xa4506cebU,0xbef9a3f7U,0xc67178f2U
++        };
++        uint32_t words[64];
++        for( size_t i = 0; i < 16; ++i )
++            words[i] = (uint32_t)block[4*i] << 24 | (uint32_t)block[4*i+1] << 16 |
++                       (uint32_t)block[4*i+2] << 8 | (uint32_t)block[4*i+3];
++        for( size_t i = 16; i < 64; ++i )
++        {
++            uint32_t x = words[i-15], y = words[i-2];
++            words[i] = words[i-16] + ( Rotate(x,7) ^ Rotate(x,18) ^ (x >> 3) ) +
++                       words[i-7] + ( Rotate(y,17) ^ Rotate(y,19) ^ (y >> 10) );
++        }
++        uint32_t a=m_State[0], b=m_State[1], c=m_State[2], d=m_State[3];
++        uint32_t e=m_State[4], f=m_State[5], g=m_State[6], h=m_State[7];
++        for( size_t i = 0; i < 64; ++i )
++        {
++            uint32_t first = h + ( Rotate(e,6) ^ Rotate(e,11) ^ Rotate(e,25) ) +
++                             ( (e & f) ^ (~e & g) ) + constants[i] + words[i];
++            uint32_t second = ( Rotate(a,2) ^ Rotate(a,13) ^ Rotate(a,22) ) +
++                              ( (a & b) ^ (a & c) ^ (b & c) );
++            h=g; g=f; f=e; e=d+first; d=c; c=b; b=a; a=first+second;
++        }
++        m_State[0]+=a; m_State[1]+=b; m_State[2]+=c; m_State[3]+=d;
++        m_State[4]+=e; m_State[5]+=f; m_State[6]+=g; m_State[7]+=h;
++    }
++
++public:
++    NativeSHA256( ) : m_Bytes(0), m_Used(0), m_Done(false), m_Valid(true)
++    {
++        static const uint32_t initial[8] = { 0x6a09e667U,0xbb67ae85U,0x3c6ef372U,0xa54ff53aU,
++                                            0x510e527fU,0x9b05688cU,0x1f83d9abU,0x5be0cd19U };
++        memcpy(m_State, initial, sizeof m_State);
++    }
++
++    bool Update( const void *input, size_t length )
++    {
++        if( !m_Valid || m_Done || (length && !input) ||
++            (uint64_t)length > ((uint64_t)-1)/8 - m_Bytes )
++        { m_Valid=false; return false; }
++        m_Bytes += (uint64_t)length;
++        const unsigned char *bytes = (const unsigned char *)input;
++        while( length )
++        {
++            size_t take = length < 64-m_Used ? length : 64-m_Used;
++            memcpy(m_Buffer+m_Used, bytes, take);
++            m_Used+=take; bytes+=take; length-=take;
++            if( m_Used==64 ) { Transform(m_Buffer); m_Used=0; }
++        }
++        return true;
++    }
++
++    bool Final( unsigned char *digest )
++    {
++        if( !m_Valid || m_Done || !digest ) { m_Valid=false; return false; }
++        uint64_t bits = m_Bytes * 8;
++        m_Buffer[m_Used++] = 0x80;
++        if( m_Used>56 )
++        { memset(m_Buffer+m_Used,0,64-m_Used); Transform(m_Buffer); m_Used=0; }
++        memset(m_Buffer+m_Used,0,56-m_Used);
++        for( size_t i=0; i<8; ++i ) m_Buffer[56+i]=(unsigned char)(bits >> (56-8*i));
++        Transform(m_Buffer);
++        for( size_t i=0; i<8; ++i )
++            for( size_t j=0; j<4; ++j ) digest[4*i+j]=(unsigned char)(m_State[i] >> (24-8*j));
++        m_Done=true;
++        return true;
++    }
++};
++#endif
 diff --git a/ghost/socket.cpp b/ghost/socket.cpp
 index 9198e6b..e8f181e 100644
 --- a/ghost/socket.cpp

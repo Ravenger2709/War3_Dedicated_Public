@@ -44,6 +44,7 @@ FILES = ['scripts/build-ghost.sh', 'scripts/ghost-check-source.py',
          'tests/phase4/native-runtime-backend-e2e-test.py',
          'tests/phase4/native-controlled-restart-test.py',
          'tests/phase4/native-startup-catalog-test.py', 'tests/phase4/native-manifest-envelope-test.py',
+         'tests/phase4/native-sha256-test.py',
          'tests/phase4/native-catalog-close-recovery-test.py',
          'src/connector/__init__.py']
 # Lifecycle and sealed-map suites import the real controller and runtime modules.

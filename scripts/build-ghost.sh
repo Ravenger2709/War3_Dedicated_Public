@@ -51,6 +51,8 @@ if git -C vendor/ghostplusplus apply --check "$PATCH" 2>/dev/null; then
 elif ! git -C vendor/ghostplusplus apply --reverse --check "$PATCH" 2>/dev/null; then
     echo 'Checkout does not match the expected compatibility patch' >&2; exit 1
 fi
+# Exact patch comparison includes this newly added, declared source header.
+git -C vendor/ghostplusplus add -N -- ghost/native_sha256.h
 python3 scripts/ghost-check-source.py vendor/ghostplusplus
 STORM_REV=3846f0b8e2c47320c6b499492496f3e3f2e76821
 if [[ ! -d vendor/stormlib/.git ]]; then

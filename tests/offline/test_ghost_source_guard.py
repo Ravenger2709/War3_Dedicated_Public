@@ -13,6 +13,7 @@ def run():
     try:
         subprocess.run(['git', 'clone', '--shared', '--quiet', str(ROOT / 'vendor/ghostplusplus'), str(source)], check=True)
         subprocess.run(['git', '-C', str(source), 'apply', str(ROOT / 'patches/ghostplusplus-modern-linux.patch')], check=True)
+        subprocess.run(['git', '-C', str(source), 'add', '-N', '--', 'ghost/native_sha256.h'], check=True)
         guard = ['python3', str(ROOT / 'scripts/ghost-check-source.py'), str(source)]
         assert subprocess.run(guard, capture_output=True).returncode == 0
         injected = source / 'ghost/injected.hpp'

@@ -8,6 +8,7 @@
 #include "gameplayer.h"
 #include "map.h"
 #include "util.h"
+#include "native_sha256.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/resource.h>
@@ -304,6 +305,35 @@ int main(int argc,char **argv)
                 std::cout << "TEST CGROUPFAKE " << valid << ' ' << headroom << std::endl;
             }
 #endif
+            else if(command.compare(0, 11, "hashvector ")==0)
+            {
+                std::istringstream input(command.substr(11)); int fd=-1; string expected; size_t chunk=0;
+                input >> fd >> expected >> chunk;
+                string data; char buffer[65536]; ssize_t count=0; off_t offset=0;
+                bool valid=fd>=3 && chunk>0 && chunk<=65536;
+                while(valid)
+                {
+                    do { count=pread(fd,buffer,sizeof buffer,offset); } while(count<0 && errno==EINTR);
+                    if(count<0 || data.size()+(size_t)count>2*1024*1024) { valid=false; break; }
+                    if(!count) break;
+                    data.append(buffer,(size_t)count); offset+=count;
+                }
+                NativeSHA256 hash; unsigned char bytes[32]; string actual;
+                if(valid)
+                {
+                    valid=hash.Update(NULL,0);
+                    for(size_t pos=0;valid && pos<data.size();pos+=chunk)
+                        valid=hash.Update(data.data()+pos,std::min(chunk,data.size()-pos));
+                    valid=valid && hash.Final(bytes);
+                    static const char hex[]="0123456789abcdef";
+                    if(valid) for(size_t i=0;i<32;++i) { actual+=hex[bytes[i]>>4]; actual+=hex[bytes[i]&15]; }
+                }
+                bool sealed=valid && !hash.Update(NULL,0) && !hash.Final(bytes);
+                NativeSHA256 invalid;
+                bool rejects=!invalid.Update(NULL,1) && !invalid.Final(bytes);
+                std::cout << "TEST HASHVECTOR " << (valid && actual==expected) << ' '
+                          << (valid && NativeMapSHA256Matches(data,expected)) << ' ' << sealed << ' ' << rejects << std::endl;
+            }
             else if(command.compare(0, 13, "manifesthash ")==0)
             {
                 std::istringstream input(command.substr(13)); int fd=-1; string digest; input >> fd >> digest;
