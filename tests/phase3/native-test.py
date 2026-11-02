@@ -756,7 +756,12 @@ class GameplayTests(unittest.TestCase):
         self.assertTrue(any('Configured Test Bot | iCCup: Online' in c for c in public))
         for field in ('Lobby:', 'Map:', 'Players:', 'Autostart:', 'Votes:', 'State:', 'Countdown:', 'Uptime:', 'Commands:'):
             self.assertIn(field, '\n'.join(public))
-        self.assert_plain_english(public)
+        # Human/eligible are intentional words in the new command definitions.
+        definitions=('!vote - ', '!kick <player> - ', 'Kick votes need ', '!yes - ', '!status - ')
+        self.assert_plain_english([line for line in public if not line.startswith(definitions)])
+        self.assertTrue(all(line.isascii() for line in public))
+        self.assertFalse(any('publication ACK' in line or '[HOSTBOT]' in line for line in public))
+        self.assertTrue(any('Kick votes need 70%' in line for line in public))
         n.command('unlimit'); before = len(b.chats()); b.chat('!botstatus')
         self.assertFalse(any('publication ACK' in c for c in b.chats()[before:]))
         before = len(a.chats()); a.chat('!botstatus')
