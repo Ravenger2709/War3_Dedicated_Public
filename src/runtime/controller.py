@@ -243,7 +243,7 @@ class ICCupSupervisor(OperatorLogMixin,Supervisor):
             if self.cycle_status is not None:
                 from .cycle_monitor import public
                 from .cycle_readiness import cycle_allows_ready
-                cycle=public(self.cycle_status,now,self.config['iccup']['metadata_ttl'])
+                cycle=public(self.cycle_status,now,self.config['iccup']['native_state_ttl'])
                 child=self.children.get('native');session=self.cycle_session_read
                 reader=getattr(child,'session_reader',None)
                 bound=(session is not None and session[0] is child and reader is not None
@@ -432,7 +432,7 @@ class ICCupSupervisor(OperatorLogMixin,Supervisor):
         if self.cycle_session is not None:
             display={'version':1,'available':0}
             try:
-                observed=self._cycle_current_observation(allow_full=True)
+                observed=self._cycle_current_observation(allow_full=True,monitoring=True)
                 control=self.cycle_control
                 if observed is not None and control is not None and not self.cycle_failed:
                     _,event,stamp=observed
@@ -454,7 +454,7 @@ class ICCupSupervisor(OperatorLogMixin,Supervisor):
                                 and binding.get('session_generation')==catalog.generation
                                 and binding.get('host_counter')==record['counter']):
                             display={'version':1,'observed_monotonic_ms':int(stamp*1000),
-                                'ttl_ms':int(self.config['iccup']['metadata_ttl']*1000),
+                                'ttl_ms':int(min(10,self.config['iccup']['native_state_ttl'])*1000),
                                 'session_generation':catalog.generation,'manifest_sha256':catalog.digest,
                                 'request_id':record['request_id'],'host_counter':record['counter'],
                                 'catalog_index':record['index'],'cycle_position':position}
@@ -668,7 +668,7 @@ class ICCupSupervisor(OperatorLogMixin,Supervisor):
                                        driver.catalog.data['pending'] is not None)
                     status['state']='blocked_pending' if status['pending'] else 'waiting_native_ipc'
             from .cycle_monitor import project
-            observed=self._cycle_current_observation(allow_full=True)
+            observed=self._cycle_current_observation(allow_full=True,monitoring=True)
             telemetry=None
             if observed is not None:
                 event=dict(observed[1]);matches=event.get('matches_v1')
@@ -702,6 +702,7 @@ class ICCupSupervisor(OperatorLogMixin,Supervisor):
                          current=status['current_preset'],next_preset=status['next_preset'],
                          active=status['active_matches'],maximum=status['max_matches'],
                          cycle=status['map_cycle'],lobby=status['current_lobby'],
+                         lobby_name=telemetry[0].get('game_name') if telemetry is not None and status['current_lobby'] is not None else None,
                          lobby_availability=status['availability']['current_lobby'],
                          finished=status['finished_matches'],rotation_errors=status['rotation_errors'],
                          last_transition=None if self.cycle_last_transition is None else self.cycle_last_transition['event'],
@@ -713,7 +714,7 @@ class ICCupSupervisor(OperatorLogMixin,Supervisor):
             reason=str(error) if isinstance(error,ValueError) and str(error) in group_errors else 'CYCLE_JOURNAL_UNCERTAIN'
             self._cycle_block(reason)
 
-    def _cycle_current_observation(self, *, allow_full=False):
+    def _cycle_current_observation(self, *, allow_full=False, monitoring=False):
         control=self.cycle_control
         candidate=self.cycle_observation
         if control is None or control.driver is None or candidate is None:return None
@@ -723,14 +724,17 @@ class ICCupSupervisor(OperatorLogMixin,Supervisor):
         if session is None or session[0] is not child:return None
         # Native uptime is measured from before HOSTBOT_SESSION was emitted.
         # This upper bound catches old pipe-buffered records read much later.
+        # Monitoring follows the native heartbeat timeout (four-second producer),
+        # while admission/revalidation keeps the shorter realm metadata window.
+        ttl=self.config['iccup']['native_state_ttl' if monitoring else 'metadata_ttl']
         upper=session[1]+event['uptime_seconds']+1
-        if now-upper>self.config['iccup']['metadata_ttl'] or event['uptime_seconds']>now-child.started+1:return None
+        if now-upper>ttl or event['uptime_seconds']>now-child.started+1:return None
         if (child is not self.children.get('native') or child.session_owner is None
                 or control.lease._native_reader is None
                 or child.session_owner is not control.lease._native_reader.child
                 or not child.session_owner.is_running()
                 or event.get('session_generation')!=control.lease._native_generation
-                or not child.started<=stamp<=now or now-stamp>self.config['iccup']['metadata_ttl']
+                or not child.started<=stamp<=now or now-stamp>ttl
                 or type(event.get('active_games')) is not int
                 or not 0<=event['active_games']<=control.max_games
                 or not allow_full and event['active_games']>=control.max_games):return None

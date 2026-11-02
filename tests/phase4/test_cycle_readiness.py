@@ -106,8 +106,20 @@ class SupervisorCycleReadinessTests(unittest.TestCase):
             elif change=='different_child':s.cycle_session_read=(object(),90)
             elif change=='different_generation':s.children['native'].session_reader._session_record['session_generation']='b'*32
             elif change=='no_catalog':s.cycle_control.catalog=None
-            else:s.cycle_status['_native_observed_at']=96
+            else:s.cycle_status['_native_observed_at']=84
             with self.subTest(change=change):self.assertFalse(self.snapshot(s)['ready'])
+
+    def test_native_four_second_heartbeat_does_not_expire_with_realm_ttl(self):
+        s=self.service()
+        # Realm workers are current; native state is between its four-second heartbeats.
+        s.native_observed_at=96
+        s.cycle_status['_native_observed_at']=96
+        self.assertTrue(self.snapshot(s)['ready'])
+        s.cycle_status['_native_observed_at']=84
+        self.assertFalse(self.snapshot(s)['ready'])
+        s.cycle_status['_native_observed_at']=96
+        s.relay_observation['observed_monotonic_seconds']=96
+        self.assertFalse(self.snapshot(s)['ready'])  # Realm TTL remains strict.
 
     def test_actual_snapshot_full_matches_ready_without_lobby_advertisement(self):
         s=self.service();s.native_observation.update(phase='IN_GAME',active_games=3)

@@ -15,7 +15,7 @@ class CycleChatFeedbackTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)
         self.s=object.__new__(ICCupSupervisor)
-        self.s.config={'iccup':{'bridge_dir':str(self.root),'metadata_ttl':3}}
+        self.s.config={'iccup':{'bridge_dir':str(self.root),'metadata_ttl':3,'native_state_ttl':15}}
         self.s.last_feedback=0.;self.s.relay_observation={};self.s.cycle_session={};self.s.cycle_failed=False
         self.s.snapshot=lambda:{'realm_connected':False,'iccup_authenticated':False,
                                 'lobby_publication_accepted':False,'relay_healthy':False}
@@ -39,9 +39,9 @@ class CycleChatFeedbackTests(unittest.TestCase):
     def test_matched_lobby_writes_only_bound_ids_and_original_timestamp(self):
         data=self.feedback()
         self.assertEqual(data,{'version':'1','observed_monotonic_ms':str(int(self.stamp*1000)),
-            'ttl_ms':'3000','session_generation':'a'*32,'manifest_sha256':'c'*64,
+            'ttl_ms':'10000','session_generation':'a'*32,'manifest_sha256':'c'*64,
             'request_id':'b'*32,'host_counter':'7','catalog_index':'0','cycle_position':'0'})
-        self.s._cycle_current_observation.assert_called_once_with(allow_full=True)
+        self.s._cycle_current_observation.assert_called_once_with(allow_full=True,monitoring=True)
         self.assertNotIn('active_games',data)  # Counts must come from the native process.
         self.assertNotIn('next_preset',data)  # Native resolves validated cycle indices.
 

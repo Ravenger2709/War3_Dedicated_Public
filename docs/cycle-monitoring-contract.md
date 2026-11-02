@@ -14,8 +14,10 @@ access the leased cursor or journal directly.
   owned session state provides `active_matches` as an aggregate snapshot,
   including at capacity. It is not a native admission decision and can change
   immediately after observation. Old, missing, mismatched, or unowned state is
-  unavailable. Cached native telemetry expires using the metadata TTL even if
-  the controller loop stalls.
+  unavailable. Cached native monitoring expires using `native_state_ttl` even if
+  the controller loop stalls. Native state heartbeats arrive every four seconds;
+  the shorter Star/relay `metadata_ttl` remains the deadline for admission and
+  final revalidation, rather than expiring otherwise healthy monitoring.
 * `current_lobby` is populated only for LOBBY/COUNTDOWN when generation,
   request ID, catalog index and actual counter match the pending selection in a
   fresh owned state. `IDLE` means `none`; an IN_GAME state may represent a
@@ -71,8 +73,13 @@ Both use synthetic maps/W3GS peers. These are source/offline observations, not
 a new release, live/real-client acceptance or overall GREEN; no tests were
 rerun for this documentation update. See [startup evidence](catalog-startup-integration.md).
 
-AMP receives a concise `INFO supervisor: Cycle ...` console line when the
-verified summary changes. Its existing console stream can be searched by
+AMP receives a concise `INFO supervisor: Map cycle 1/1: lobby <title>; active matches 0/3.`
+console line when the verified summary changes. Internal host counters and missing
+optional values are not printed as lobby suffixes or repeated `unavailable` fields.
+The machine journal and `/status` retain explicit availability; real rotation
+failures and blocked cycle control still produce warnings/errors. The optional
+native chat sidecar retains the original observation time, with its TTL capped
+at the native reader's 10-second maximum. Its existing console stream can be searched by
 Analytics; this change does not add AMP panel widgets, numeric metric ingestion,
 player joins, or a finished/error counter. `/status` is the machine-readable
 source. Durable historical outcomes and counters across restarts need a separate

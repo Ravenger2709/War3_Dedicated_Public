@@ -40,7 +40,7 @@ class ProductionBackendE2E(unittest.TestCase):
              'http':{'host':'127.0.0.1','port':0},
              'iccup':{'native_config':str(maps.builder.source),'bridge_dir':str(root/'bridge'),
                       'profile':str(profile),'prefix':str(root/'prefix'),'session':str(root/'session'),
-                      'metadata_ttl':10,'native_state_ttl':60},
+                      'metadata_ttl':3,'native_state_ttl':15},
              'gameplay':{'map_cycle':['one','two','one'],'max_concurrent_matches':2,
                          'max_players':4,'autostart_players':4}}
         path=root/'supervisor.json';path.write_text(json.dumps(raw))
@@ -106,6 +106,17 @@ class ProductionBackendE2E(unittest.TestCase):
                 s.start()
                 a=lobby(0);native_pid=s.children['native'].process.pid
                 self.assertEqual(a['map_name'],'a.w3x')
+                # Observe several idle native heartbeats with the default 3s
+                # realm TTL. Monitoring must not flap between the 4s frames.
+                until(lambda:(s.snapshot()['cycle'].get('current_lobby') or {}).get('host_counter')==a['host_counter'],
+                      5,'initial cycle monitoring snapshot')
+                idle_until=time.monotonic()+10
+                while time.monotonic()<idle_until:
+                    cycle=s.snapshot()['cycle']
+                    self.assertEqual(cycle['active_matches'],0)
+                    self.assertEqual(cycle['current_lobby']['host_counter'],a['host_counter'])
+                    self.assertEqual(cycle['availability']['active_matches'],'verified_snapshot')
+                    time.sleep(.1)
                 first=join(['VoteA1'],maps.a.stat().st_size)
                 until(lambda:'Auto-start requires 4 human players (3 more needed).' in first[0].chats(),
                       15,'separate auto-start notice')
