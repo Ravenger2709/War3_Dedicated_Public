@@ -61,8 +61,9 @@ rereading a preloaded object. No production stdin protocol is provided.
 
 A second constructor, `CMap(host, config, label, fd, expected_sha256)`, also
 checks the sealed bytes against a lowercase 64-character SHA-256 before opening
-the MPQ. It streams the existing map data through Linux AF_ALG; unsupported or
-blocked AF_ALG, malformed digests and mismatches invalidate the map. This is a
+the MPQ. It streams the existing map data through the bundled portable SHA-256
+implementation, without requiring Linux AF_ALG. Malformed digests, read failures
+and mismatches invalidate the map. This is a
 native building block, not startup wiring. A production catalog must use this
 verified constructor rather than the earlier four-argument test-oriented form.
 
