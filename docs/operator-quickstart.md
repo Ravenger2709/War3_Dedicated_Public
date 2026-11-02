@@ -17,7 +17,7 @@ the runtime and original Star authentication.
 - `--game-dir`: folder with `war3.exe`, `game.dll` and `War3Patch.mpq` from Warcraft III 1.26a. No other Warcraft files are read by setup. The two PE files are validated/copied as **metadata only**, never executed; the MPQ supports map checksums.
 - `--map`: selected `.w3x` or `.w3m` map; `--redist`: pinned VC2015 x86 installer (or let setup find it under the supported Star paths).
 
-These paths must be accessible **on the host executing setup**, for example in a private temporary staging directory on `second-host-vm`, but do not need to become a full local Warcraft or Star installation. The setup command below copies only the allowlisted files to private per-instance `vendor/` and `data/` paths. Subsequent AMP Start/Stop/Restart uses those private files via Docker mounts and does not ask for the original source paths again. Keep a separate authorized backup for recovery. Do not place proprietary assets in the public Git repository, Docker image, or release assets.
+These paths must be accessible **on the host executing setup**, for example in a private temporary staging directory on your Docker host, but do not need to become a full local Warcraft or Star installation. The setup command below copies only the allowlisted files to private per-instance `vendor/` and `data/` paths. Subsequent AMP Start/Stop/Restart uses those private files via Docker mounts and does not ask for the original source paths again. Keep a separate authorized backup for recovery. Do not place proprietary assets in the public Git repository, Docker image, or release assets.
 
 
 ## 1. Make the two images available

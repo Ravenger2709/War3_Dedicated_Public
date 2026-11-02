@@ -343,3 +343,82 @@ already installed are retained; the accepted image needs the existing
 `src.runtime.presets` analyzer. For standalone installations, use the updated
 checkout's `scripts/war3.py`. Updating these controller files does not change the
 runtime image or its acceptance receipt.
+
+### Lobby welcome message (MOTD)
+
+Joining players receive this English command guide through GHost's existing
+welcome-message mechanism:
+
+```text
+Welcome to War3HostBot!
+!help - Show a summary of the available commands.
+!status - Show the map, players, presets, running matches and iCCup status.
+!vote - Start or join a vote to start early. The preset's minimum human-player requirement still applies.
+```
+
+The welcome uses the configured display name. To customize it, create
+`data/config/motd.txt` through AMP File Manager or an ordinary text editor.
+The same file works in standalone Docker. Use UTF-8 text, at most 200 bytes per
+line; GHost displays the first eight lines. A valid empty file disables the
+welcome. Missing or invalid text falls back to the English guide. Restart the
+instance to apply edits: native reads a private snapshot, and never changes the
+operator file. An explicitly configured legacy `bot_motdfile` retains its
+existing behavior.
+
+While the lobby waits, auto-start and voting reminders are separate messages.
+For example, one human with auto-start set to four and voting set to two sees:
+
+```text
+Auto-start requires 4 human players (3 more needed).
+```
+
+About 3.5 seconds later:
+
+```text
+Voting requires at least 2 human players (1 more needed). Type !vote when ready.
+```
+
+They recur on the native roughly ten-second cadence. The voting text uses the
+current human count when it is sent. Voting reminders also run with auto-start
+disabled, and stop during countdown/loading/play or when voting is disabled.
+They do not repeat the MOTD or pause packet processing for active games.
+
+### Cycle configuration and current availability
+
+The canonical gameplay selection is `map_cycle`, a JSON array of 1–32 lowercase
+preset IDs; repeated IDs are allowed. `max_concurrent_matches` is an integer
+from 1 to 5 and defaults to 3. A legacy `map_preset` is migrated to a one-item
+cycle. When both are present, the explicit cycle is authoritative at runtime;
+the stopped-instance migration rejects conflicting legacy values so an operator
+can reconcile them. AMP textarea input can be a JSON array or its JSON text;
+the generated supervisor configuration stores an array and omits `map_preset`.
+Every referenced preset must be enabled; the native preload stage additionally
+validates each map and any AI approval against its actual content.
+
+Map Cycle requires `autohost_enabled: true`; manual hosting is not implemented
+for this mode. A false setting is rejected before acquiring launch ownership,
+rather than being silently overridden by the catalog's native settings. Legacy
+direct configurations with only `map_preset` retain their existing behavior.
+
+The Phase 4 source wires explicit cycles, including a single ID, to a sealed
+native catalog and durable cursor. Loading and running matches count toward the
+configured limit. Each native start advances exactly one position; closing an
+unstarted lobby retains the same position. Repeated IDs retain their distinct
+positions. The next lobby reuses TCP 6113 without restarting GHost or replacing
+the map/settings owned by existing matches. A legacy direct runtime config with
+only `map_preset` keeps its single-match behavior; AMP/standalone migration emits
+an explicit cycle.
+
+AMP and standalone validate multi-entry cycles in an offline Python container
+before merging settings. Runtime startup checks all sealed map inputs before
+claiming a native launch and validates a fresh snapshot for the actual child.
+Map or preset errors therefore reject the full cycle. A concurrent file change
+or uncertain I/O during final preparation can still block an attempted launch;
+preserve the diagnostic state rather than deleting ownership files.
+
+A cycle-aware accepted image and matching controller are required. The Phase 4
+source has offline/native evidence, including normal backend rotation and
+concurrent W3GS traffic, but no real-client multi-match or live iCCup acceptance.
+See [acceptance status](phase4-acceptance-status.md). Map discovery
+preserves operator presets and AI approvals when a map is absent; selecting a
+missing map blocks startup until the map is restored or another preset selected.

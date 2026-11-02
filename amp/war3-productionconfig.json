@@ -195,20 +195,33 @@
     "Subcategory": "Lobby:groups:30"
   },
   {
-    "DisplayName": "Map preset",
-    "Description": "Apply while stopped, restart AMP (brief panel reconnect), then choose an enabled ID from your JSON before Start. Apply keeps the current selection.",
+    "DisplayName": "Map Cycle JSON array",
+    "Description": "Ordered JSON array of enabled preset IDs; repeat IDs to repeat maps. Every cycle entry must pass map and AI validation in the accepted runtime image before launch. Applied on next AMP Start/Restart.",
     "Category": "War3_Dedicated:sports_esports",
-    "FieldName": "map_preset",
-    "ParamFieldName": "map_preset",
-    "DefaultValue": "manual",
+    "FieldName": "map_cycle",
+    "ParamFieldName": "map_cycle",
+    "DefaultValue": "[\"manual\"]",
+    "Placeholder": "[\"footman-ultimate-ai\", \"afterlife\"]",
     "IncludeInCommandLine": false,
     "Required": true,
-    "EnumValues": {
-      "manual": "Manual (operator map configuration)",
-      "footman-ultimate-ai": "Footman Ultimate AI"
-    },
-    "InputType": "enum",
+    "EnumValues": {},
+    "InputType": "Textarea",
     "Subcategory": "Map presets:map:20"
+  },
+  {
+    "DisplayName": "Max concurrent matches",
+    "Description": "Maximum loading and running matches in the cycle-aware runtime, from 1 to 5. Full capacity waits for a match to finish before opening the next lobby.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "max_concurrent_matches",
+    "ParamFieldName": "max_concurrent_matches",
+    "DefaultValue": "3",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "number",
+    "minValue": "1",
+    "maxValue": "5",
+    "Subcategory": "Lobby:groups:30"
   },
   {
     "DisplayName": "Account username",
@@ -238,7 +251,7 @@
   },
   {
     "DisplayName": "Preset definitions JSON",
-    "Description": "Edit presets JSON. AI approval records can be omitted here and remain in data/config/presets.json. Preset IDs use lowercase letters, digits, hyphens and underscores. AI skill: 0 Easy, 1 Normal, 2 Insane. Stop before Apply; restart AMP to refresh choices, select a preset, then Start. Blank uses data/config/presets.json. Conflicting edits reject changes.",
+    "Description": "Edit presets JSON. AI approval records can be omitted here and remain in data/config/presets.json. Preset IDs use lowercase letters, digits, hyphens and underscores. AI skill: 0 Easy, 1 Normal, 2 Insane. Stop before applying changes, then enter enabled preset IDs in Map Cycle. Blank uses data/config/presets.json. Conflicting edits reject changes.",
     "Category": "War3_Dedicated:sports_esports",
     "Subcategory": "Map presets:map:20",
     "FieldName": "preset_definitions",

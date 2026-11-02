@@ -148,6 +148,26 @@ class OperatorEvents:
             if fields.get('state') in ('ERROR', 'RECONNECTING'):
                 level = 'ERROR' if fields['state'] == 'ERROR' else 'WARN'
                 message += ' ' + visible(fields.get('reason', '')).replace('_', ' ').capitalize().rstrip('.') + '.'
+        elif kind == 'cycle_monitor':
+            active = fields.get('active')
+            maximum = fields.get('maximum')
+            counts = f'{active}/{maximum}' if type(active) is int and type(maximum) is int else 'unavailable'
+            suffix = '; capacity full' if fields.get('capacity_full') is True else ''
+            maps = fields.get('cycle')
+            maps = ','.join(visible(item,32) for item in maps) if type(maps) is list else 'unavailable'
+            lobby = fields.get('lobby')
+            if type(lobby) is dict:
+                lobby_text = visible(lobby.get('preset_id',''),32) + ' #' + str(lobby.get('host_counter'))
+            else:
+                lobby_text = 'none' if fields.get('lobby_availability')=='none' else 'unavailable'
+            transition = fields.get('last_transition') or 'unavailable'
+            finished=fields.get('finished'); errors=fields.get('rotation_errors')
+            finished=str(finished) if type(finished) is int else 'unavailable'
+            errors=str(errors) if type(errors) is int else 'unavailable'
+            message = (f"Cycle [{maps}]; position {fields['position']}/{fields['total']}; "
+                       f"current {visible(fields['current'])}; next {visible(fields['next_preset'])}; "
+                       f"active matches {counts}{suffix}; lobby {lobby_text}; "
+                       f"retired matches {finished}; rotation errors {errors}; last transition {visible(transition)}.")
         elif kind in ('lobby_opened', 'lobby_rehosted'):
             component = 'native'
             message = ('Lobby opened: ' if kind == 'lobby_opened' else 'Lobby rehosted: ') + visible(fields['name'])

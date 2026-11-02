@@ -6,7 +6,7 @@ from pathlib import Path
 
 ADAPTER='original-star-v1'
 GAMEPLAY_DEFAULTS={
-    'map_preset':'manual',
+    'map_preset':'manual','map_cycle':['manual'],'max_concurrent_matches':3,
     'host_name':'War3HostBot','game_name':'War3 Dedicated','game_port':6113,
     'max_players':12,'autostart_enabled':True,'autostart_players':10,'countdown_seconds':5,
     'vote_enabled':True,'vote_required_percent':60,'vote_min_players':2,
@@ -39,6 +39,13 @@ def positive(value,lo,hi):
 def gameplay_config(raw):
     if not isinstance(raw,dict) or set(raw)-set(GAMEPLAY_DEFAULTS):raise ValueError('GAMEPLAY_SETTINGS_REJECTED')
     cfg={**GAMEPLAY_DEFAULTS,**raw}
+    cycle=raw['map_cycle'] if 'map_cycle' in raw else [raw.get('map_preset','manual')]
+    if (type(cycle) is not list or not 1<=len(cycle)<=32 or
+        any(type(x) is not str or re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,31}',x) is None for x in cycle)):
+        raise ValueError('MAP_CYCLE_REJECTED')
+    cfg['map_cycle']=list(cycle)
+    cfg['map_preset']=cycle[0]
+    if not bounded_int(cfg['max_concurrent_matches'],1,5):raise ValueError('MAP_CYCLE_MATCH_LIMIT_REJECTED')
     if not isinstance(cfg['map_preset'],str) or re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,31}',cfg['map_preset']) is None:raise ValueError('GAMEPLAY_PRESET_REJECTED')
     for k in ('host_name','game_name'):
         value=cfg[k]

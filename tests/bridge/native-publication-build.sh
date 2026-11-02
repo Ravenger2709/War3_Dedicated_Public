@@ -16,4 +16,5 @@ g++ "${flags[@]}" tests/bridge/native-publication-driver.cpp build/publication-d
     -Lbuild/ghost/lib -L/deps/usr/lib/x86_64-linux-gnu -lbncsutil -lStorm -lboost_filesystem -lboost_system -lgmp -lbz2 -lz -lpthread -ldl -lrt -o build/native-publication-driver
 export LD_LIBRARY_PATH=/repo/build/ghost/lib:/deps/usr/lib/x86_64-linux-gnu
 export PYTHONDONTWRITEBYTECODE=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
+PYTHONPATH=/repo python3 tests/bridge/test_publication_file_race.py
 python3 tests/bridge/native-publication-test.py

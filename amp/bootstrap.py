@@ -513,7 +513,9 @@ def setup(instance_dir, star_dir, game_dir, map_file, *, redist=None, image=None
         load_presets(app / "data/config/presets.json")
         settings_path = app / "data/config/amp-settings.json"
         settings = production.read_json(settings_path)
-        settings["map_preset"] = generated["presets"][0]["id"]
+        settings.pop("map_preset", None)
+        settings["map_cycle"] = [generated["presets"][0]["id"]]
+        settings["max_concurrent_matches"] = 3
         production.private_json(settings_path, settings)
         selected = production.validate_preset_selection(app)
         production.merge_settings(app / "data/config/supervisor.json", settings_path, validated=selected)

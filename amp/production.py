@@ -12,6 +12,7 @@ import socket
 import stat
 import subprocess
 import tempfile
+import uuid
 
 # Source checkout: amp.production/amp.account. Installed control: flat siblings.
 account = import_module(".account", __package__) if __package__ else import_module("account")
@@ -31,9 +32,9 @@ DEFAULTS = {
     "autostart_enabled": True,
 }
 RANGES = {"game_port": (6113, 6113), "max_players": (2, 12), "autostart_players": (2, 12),
-          "countdown_seconds": (1, 60), "vote_required_percent": (1, 100),
-          "vote_min_players": (2, 12), "vote_timeout": (5, 300), "vote_cooldown": (1, 600),
-          "lobby_refresh_interval": (10, 3600)}
+          "countdown_seconds": (0, 60), "vote_required_percent": (1, 100),
+          "vote_min_players": (2, 12), "vote_timeout": (5, 600), "vote_cooldown": (0, 600),
+          "lobby_refresh_interval": (10, 3600), "max_concurrent_matches": (1, 5)}
 RO = ("config", "maps", "warcraft")
 RW = ("state", "sqlite", "logs", "replays", "prefix", "session")
 VENDOR = ("star", "profile", "redist", "game")
@@ -55,11 +56,16 @@ class SettingsError(ValueError):
             return ("A retained preset or selector may contain a later edit. Close editors, inspect and merge "
                     f"the retained file, then remove its reviewed history folder: {path}")
         return {
+            "SUPERVISOR_EDIT_CONFLICT": "Supervisor config changed during startup. Start was cancelled; inspect control/preset-conflict and retained history before retrying.",
+            "MAP_CYCLE_MIGRATION_AMBIGUOUS": "Legacy preset and map cycle differ. Reconcile the private settings explicitly before migration; no changes were made.",
+            "MAP_CYCLE_OVERRIDE_CONFLICT": "--preset would replace an existing multi-entry Map Cycle. Edit map_cycle deliberately while stopped, or omit --preset to retain the full cycle.",
+            "MAP_CYCLE_PREFLIGHT_FAILED": "Full Map Cycle validation failed in the accepted image. Check every map, preset, AI approval and image compatibility; runtime was not started.",
+            "MAP_CYCLE_AUTOHOST_REQUIRED": "Enable Autohost to use Map Cycle. Manual hosting is not supported by the cycle runtime; settings were not applied.",
             "PRESET_ID_INVALID": "Settings rejected: invalid preset ID; choose a valid lowercase preset identifier.",
             "PRESET_JSON_INVALID": "Settings rejected: invalid preset JSON; check version, unique IDs, enabled flags and any explicit manual entry.",
             "PRESET_NONE_ENABLED": "Settings rejected: enable at least one preset in the JSON document.",
-            "PRESET_SELECTION_REQUIRED": "Select an enabled preset from Preset definitions JSON before Start. Apply presets and restart AMP to reload choices if needed.",
-            "PRESET_ACTIVE_MAP_MISSING": "The selected map was missing and its preset was removed. Select an available preset, then start again.",
+            "PRESET_SELECTION_REQUIRED": "Select an enabled preset from Preset definitions JSON in Map Cycle before Start.",
+            "PRESET_ACTIVE_MAP_MISSING": "The selected map is missing. Restore it or select an available preset, then start again.",
             "PRESET_SELECTION_CHANGED": "The selected preset changed during map discovery. Retry start.",
             "PRESET_EDIT_CONFLICT": "Settings rejected: preset editor and File Manager both changed; clear the editor and apply to adopt the file first.",
             "PRESET_EXTERNAL_CONFLICT": "Preset file changed during apply. Keep stopped and inspect control/preset-conflict and any control/war3-preset-* recovery directory before retrying; external edits were preserved.",
@@ -216,7 +222,10 @@ def validate_preset_selection(instance):
     """Read-only start validation; explicit preset apply leaves selection unchanged."""
     instance = Path(instance).absolute()
     validated = settings(read_json(instance / "data/config/amp-settings.json"))
-    if validated["map_preset"] not in preset_options(instance):
+    if not validated["autohost_enabled"]:
+        raise SettingsError("MAP_CYCLE_AUTOHOST_REQUIRED")
+    options = preset_options(instance)
+    if any(preset not in options for preset in validated["map_cycle"]):
         raise SettingsError("PRESET_SELECTION_REQUIRED")
     return validated
 
@@ -240,6 +249,10 @@ def preset_manifest_update(instance, check_revision=None):
         if not isinstance(manifest, list) or any(not isinstance(f, dict) for f in manifest):
             raise ValueError("preset selector manifest rejected")
         fields = [f for f in manifest if f.get("ParamFieldName") == "map_preset"]
+        if not fields:
+            cycle = [f for f in manifest if f.get("ParamFieldName") == "map_cycle"]
+            if len(cycle) == 1 and cycle[0].get("Category") == "War3_Dedicated:sports_esports" and cycle[0].get("InputType") == "Textarea":
+                continue
         if len(fields) != 1 or fields[0].get("Category") != "War3_Dedicated:sports_esports":
             raise ValueError("preset selector must belong to this War3_Dedicated manifest")
         if fields[0].get("InputType") == "enum" and fields[0].get("EnumValues") == options:
@@ -291,6 +304,64 @@ def apply_presets(instance, spec):
         stopped(spec)
         with preset_update(instance) as check_revision, preset_manifest_update(instance, check_revision):
             pass
+
+
+def migrate_cycle_settings(instance):
+    """Prepare a stopped legacy instance before installing the cycle-aware AMP UI."""
+    instance = Path(instance).absolute()
+    check_retained_history(instance)
+    if (instance / PRESET_RECOVERY).exists() or any((instance / "control").glob("war3-preset-*")):
+        raise SettingsError("PRESET_EXTERNAL_CONFLICT")
+    path = instance / "data/config/amp-settings.json"
+    snapshot = _preset_snapshot(path, private=True, limit=2 * 1024 * 1024)
+    if snapshot[0] is None:
+        raise ValueError("missing AMP settings")
+    raw = _preset_json(snapshot[0])
+    if not isinstance(raw, dict):
+        raise ValueError("settings object required")
+    normalized = settings(raw)
+    if "map_cycle" in raw:
+        if "map_preset" in raw and raw["map_preset"] != normalized["map_cycle"][0]:
+            raise SettingsError("MAP_CYCLE_MIGRATION_AMBIGUOUS")
+    options = preset_options(instance)
+    if any(preset not in options for preset in normalized["map_cycle"]):
+        raise SettingsError("PRESET_SELECTION_REQUIRED")
+    candidate = {**raw, "map_cycle": list(normalized["map_cycle"]),
+                 "max_concurrent_matches": normalized["max_concurrent_matches"]}
+    candidate.pop("map_preset", None)
+    if candidate == raw:
+        return False
+    settings(candidate)
+    transaction = _PresetTransaction(instance, snapshot, path=path, limit=2 * 1024 * 1024,
+                                     history_name="preset-metadata-history")
+    transaction.preserve_original = True
+    try:
+        transaction.install(candidate)
+        transaction.check()
+    except BaseException:
+        if not transaction.conflicted:
+            try:
+                transaction.rollback()
+            except (OSError, ValueError):
+                transaction.conflict()
+        raise
+    finally:
+        transaction.close()
+    return True
+
+
+def migrate_cycle_stopped(instance, spec):
+    account.directory(instance)
+    account.directory(instance / "control")
+    account.generator_owner(spec)
+    image_preflight(instance, spec)
+    with ExitStack() as locks:
+        locks.enter_context(account.locked(instance / "control/account-setup.lock", create=True))
+        profile = instance / "vendor/profile/launcher.ini"
+        if profile.exists() or profile.is_symlink():
+            locks.enter_context(account.locked(profile))
+        stopped(spec)
+        return migrate_cycle_settings(instance)
 
 
 def initialize_preset_editor(instance):
@@ -471,12 +542,13 @@ def check_retained_history(instance):
 
 
 @contextmanager
-def preset_update(instance, discovery_spec=None):
+def preset_update(instance, discovery_spec=None, active_transaction=None):
     """Called under profile_update's accepted-image/stopped checks and setup flock."""
     text = _preset_inputs(instance)
     check_retained_history(instance)
     if ((instance / PRESET_RECOVERY).exists() or (instance / PRESET_RECOVERY).is_symlink()
-            or any((instance / "control").glob("war3-preset-*"))):
+            or any(path != getattr(active_transaction, "work", None)
+                   for path in (instance / "control").glob("war3-preset-*"))):
         raise SettingsError("PRESET_EXTERNAL_CONFLICT")
     if not (instance / PRESET_EDITOR).exists() and discovery_spec is None:
         yield None
@@ -525,14 +597,18 @@ def preset_update(instance, discovery_spec=None):
             generated, skipped = map_discovery.discover(instance, base, discovery_spec, DOCKER, environment(),
                                                        account.generator_owner(discovery_spec), revisions=map_revisions)
             check()
-            removed = {entry['id'] for entry in base['presets']} - {entry['id'] for entry in generated['presets']}
-            if removed:
-                transaction.preserve_original = True
+            # Missing maps block selected presets without deleting operator data.
+            selected = settings(_preset_json(before_settings[0]))['map_cycle'] if before_settings[0] else ['manual']
+            maps_path = instance / 'data/maps'
+            if maps_path not in map_revisions:
+                map_revisions[maps_path] = ('directory', map_discovery.directory_snapshot(maps_path))
+            names = set(map_revisions[maps_path][1][1])
+            missing = {entry['id'] for entry in generated['presets']
+                       if entry.get('id') != 'manual' and isinstance(entry.get('map_filename'), str)
+                       and entry['map_filename'] not in names}
+            check.selected_removed = any(preset in missing for preset in selected)
+            if missing:
                 selection_revision = before_settings
-                check()
-                selected = settings(_preset_json(before_settings[0]))['map_preset'] if before_settings[0] else 'manual'
-                if selected in removed:
-                    check.selected_removed = True
             _preset_document(generated)
             if generated != base:
                 desired = generated
@@ -568,9 +644,33 @@ def preset_update(instance, discovery_spec=None):
 
 def settings(raw):
     # Existing instances acquire the new optional selection without changing maps.
+    if not isinstance(raw, dict):
+        raise ValueError("settings object required")
+    raw = dict(raw)
+    explicit_cycle = "map_cycle" in raw
+    cycle = raw.pop("map_cycle", None) if "map_cycle" in raw else [raw.get("map_preset", "manual")]
+    limit = raw.pop("max_concurrent_matches", 3)
     raw = {"map_preset": "manual", "autostart_enabled": True, **raw}
     if set(raw) != set(DEFAULTS):
         raise ValueError("settings must contain exactly the documented fields")
+    if isinstance(cycle, str):
+        if len(cycle.encode("utf-8")) > 65536:
+            raise ValueError("map cycle too large")
+        try:
+            cycle = json.loads(cycle, parse_constant=lambda _: (_ for _ in ()).throw(ValueError("invalid JSON")))
+        except (ValueError, UnicodeError, RecursionError):
+            raise ValueError("map cycle JSON rejected") from None
+    if (not isinstance(cycle, list) or not 1 <= len(cycle) <= 32
+            or any(not isinstance(x, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", x) for x in cycle)):
+        raise ValueError("map cycle rejected")
+    # AMP retains unknown/old JSON keys: an explicit cycle is authoritative.
+    # Preserve the stale key on disk; never let it block or override the UI.
+    if explicit_cycle:
+        raw["map_preset"] = cycle[0]
+    if isinstance(limit, str) and re.fullmatch(r"[0-9]{1,5}", limit):
+        limit = int(limit)
+    if type(limit) is not int or not 1 <= limit <= 5:
+        raise ValueError("max concurrent matches rejected")
     result = {}
     for name, default in DEFAULTS.items():
         value = raw[name]
@@ -599,17 +699,64 @@ def settings(raw):
     if (result["vote_min_players"] > result["max_players"]
             or (result["autostart_enabled"] and result["autostart_players"] > result["max_players"])):
         raise ValueError("vote minimum and enabled autostart threshold must not exceed maximum")
+    result["map_cycle"] = list(cycle)
+    result["max_concurrent_matches"] = limit
+    result["map_preset"] = cycle[0]
     return result
 
 
-def merge_settings(config_path, settings_path, validated=None):
+class _SupervisorTransaction(_PresetTransaction):
+    def conflict(self, external=None):
+        try:
+            super().conflict(external)
+        except SettingsError:
+            raise SettingsError("SUPERVISOR_EDIT_CONFLICT") from None
+
+
+@contextmanager
+def supervisor_update(instance):
+    """Retain revisions and roll back a failed startup without erasing FM edits."""
+    transaction = None
+    def write(path, value, snapshot):
+        nonlocal transaction
+        if transaction is not None or snapshot[0] is None:
+            raise ValueError("supervisor transaction rejected")
+        transaction = _SupervisorTransaction(instance, snapshot, path=Path(path), limit=2 * 1024 * 1024,
+                                             history_name="preset-metadata-history")
+        transaction.preserve_original = True
+        transaction.install(value)
+    try:
+        yield write
+        if transaction is not None:
+            transaction.check()
+    except BaseException:
+        if transaction is not None and not transaction.conflicted:
+            try:
+                transaction.rollback()
+            except (OSError, ValueError):
+                transaction.conflict()
+        raise
+    finally:
+        if transaction is not None:
+            transaction.close()
+
+
+def merge_settings(config_path, settings_path, validated=None, writer=None):
     validated = settings(read_json(settings_path) if validated is None else validated)
-    config = read_json(config_path)
-    if config.get("http") != {"host": "127.0.0.1", "port": 8080}:
+    config_path = Path(config_path)
+    snapshot = _preset_snapshot(config_path, private=True, limit=2 * 1024 * 1024)
+    if snapshot[0] is None:
+        raise ValueError("missing supervisor config")
+    config = _preset_json(snapshot[0])
+    if not isinstance(config, dict) or config.get("http") != {"host": "127.0.0.1", "port": 8080}:
         raise ValueError("production status must bind container loopback port 8080")
-    # Main runtime validates/injects native keys and map metadata. No duplicate native mapping here.
-    config["gameplay"] = {k: v for k, v in validated.items() if k != "game_port"}
-    private_json(config_path, config)
+    config["gameplay"] = {k: v for k, v in validated.items() if k not in {"game_port", "map_preset"}}
+    if writer is None:
+        instance = config_path.parent.parent.parent if config_path.parent.name == "config" and config_path.parent.parent.name == "data" else config_path.parent
+        with supervisor_update(instance) as guarded_write:
+            guarded_write(config_path, config, snapshot)
+    else:
+        writer(config_path, config, snapshot)
     return validated
 
 
@@ -735,6 +882,49 @@ def preflight(instance, spec, check_port=True):
             probe.bind(("0.0.0.0", 6113))  # Local conflict check, never a WAN scan.
 
 
+def validate_cycle_candidate(instance, spec, validated):
+    """Check every multi-cycle entry offline before merging the selected snapshot.
+
+    Single-entry deployments retain their existing image startup validation.
+    No fallback to first-preset validation is allowed for multi-entry cycles,
+    including when an older accepted image lacks the full-cycle validator.
+    """
+    game = settings(validated)
+    if len(game["map_cycle"]) == 1:
+        return
+    game = {key: value for key, value in game.items() if key not in {"game_port", "map_preset"}}
+    host = Path(spec.get("host_instance_dir", str(Path(instance).absolute())))
+    if (not host.is_absolute() or ".." in host.parts
+            or any(ord(c) < 32 or ord(c) == 127 or c == "," for c in str(host))):
+        raise ValueError("invalid cycle validation bind path")
+    name = "war3-cycle-validation-" + uuid.uuid4().hex
+    args = [*DOCKER, "run", "--rm", "--pull=never", "--name", name,
+            "--interactive", "--restart=no", "--network", "none", "--read-only",
+            "--user", f'{spec["uid"]}:{spec["gid"]}', "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges:true", "--pids-limit", "32",
+            "--memory", "256m", "--memory-swap", "256m", "--cpus", "1",
+            "--ulimit", "core=0", "--log-driver", "none", "--no-healthcheck",
+            "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777",
+            "--workdir", "/opt/war3", "--env", "PYTHONDONTWRITEBYTECODE=1"]
+    for source in ("config", "maps"):
+        args += ["--mount", f"type=bind,src={host / 'data' / source},dst=/data/{source},readonly"]
+    script = ("import json,sys; from src.runtime.map_cycle import validate_full_cycle; "
+              "game=json.load(sys.stdin); "
+              "validate_full_cycle(game['map_cycle'], '/data/config/ghost.cfg', game)")
+    args += ["--entrypoint", "python3", spec["image_id"], "-c", script]
+    try:
+        subprocess.run(args, input=json.dumps(game).encode(), env=environment(),
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       check=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        raise SettingsError("MAP_CYCLE_PREFLIGHT_FAILED") from None
+    finally:
+        # A timed-out Docker client does not imply its container has stopped.
+        subprocess.run([*DOCKER, "rm", "--force", name], env=environment(),
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, check=False, timeout=10)
+
+
 def prepare(instance, image_id, acceptance, supervisor_config, native_config, map_config):
     accepted = read_json(acceptance)
     gate(accepted, image_id)
@@ -781,7 +971,7 @@ def prepare(instance, image_id, acceptance, supervisor_config, native_config, ma
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
-    for action in ("prepare", "plan", "preflight", "run", "rollback", "list-presets", "apply-presets"):
+    for action in ("prepare", "plan", "preflight", "run", "rollback", "list-presets", "apply-presets", "migrate-cycle"):
         sub = commands.add_parser(action)
         sub.add_argument("--instance-dir", required=True, type=Path)
         if action in ("prepare", "rollback"):
@@ -800,6 +990,10 @@ def main(argv=None):
         print("Private staging skeleton prepared; supply local runtime assets separately. No Docker or AMP changes made.")
         return 0
     spec = deployment(instance)
+    if args.action == "migrate-cycle":
+        changed = migrate_cycle_stopped(instance, spec)
+        print("Legacy cycle migrated." if changed else "Cycle already present; no settings changed.")
+        return 0
     if args.action == "apply-presets":
         apply_presets(instance, spec)
         print("Preset JSON and selector applied; selection unchanged. Restart the AMP instance, reconnect to the panel, choose an enabled preset from your JSON, then Start. Bot start not performed.")
@@ -820,21 +1014,25 @@ def main(argv=None):
         print(json.dumps({"command": command(instance, spec), "restart_owner": "AMP", "remote_operations": False}))
         return 0
     if args.action == "preflight":
+        validated = validate_preset_selection(instance)
         preflight(instance, spec)
+        validate_cycle_candidate(instance, spec, validated)
         print("Local staging preflight passed; AMP start not performed.")
         return 0
     # Offline setup precedes full preflight (including the first-ever profile).
     # A failed preflight/merge rolls the profile transaction back before returning.
-    with account.profile_update(instance, spec):
-        with preset_update(instance, discovery_spec=spec) as check_revision:
-            with preset_manifest_update(instance, check_revision):
-                if not check_revision.selected_removed:
-                    validated = validate_preset_selection(instance)
-                    preflight(instance, spec)
-                    merge_settings(instance / "data/config/supervisor.json", instance / "data/config/amp-settings.json",
-                                   validated=validated)
-        if check_revision.selected_removed:
-            raise SettingsError("PRESET_ACTIVE_MAP_MISSING")
+    with supervisor_update(instance) as config_writer:
+        with account.profile_update(instance, spec):
+            with preset_update(instance, discovery_spec=spec) as check_revision:
+                with preset_manifest_update(instance, check_revision):
+                    if not check_revision.selected_removed:
+                        validated = validate_preset_selection(instance)
+                        preflight(instance, spec)
+                        validate_cycle_candidate(instance, spec, validated)
+                        merge_settings(instance / "data/config/supervisor.json", instance / "data/config/amp-settings.json",
+                                       validated=validated, writer=config_writer)
+            if check_revision.selected_removed:
+                raise SettingsError("PRESET_ACTIVE_MAP_MISSING")
     # No shell, no detached container, no TTY. exec preserves stdin and AMP's SIGTERM chain.
     os.execvpe(DOCKER[0], command(instance, spec), environment())
 

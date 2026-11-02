@@ -100,7 +100,32 @@ class ContextTests(unittest.TestCase):
 class SettingsTests(unittest.TestCase):
     def test_amp_string_types_normalize_to_validated_gameplay_defaults(self):
         raw = {k: (str(v).lower() if type(v) is bool else str(v)) for k, v in production.DEFAULTS.items()}
-        self.assertEqual(production.settings(raw), production.DEFAULTS)
+        self.assertEqual(production.settings(raw), {**production.DEFAULTS, "map_cycle": ["manual"], "max_concurrent_matches": 3})
+
+    def test_amp_cycle_takes_precedence_after_ui_updates_legacy_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("control", "data", "data/config"):
+                (root / name).mkdir(mode=0o700)
+            path = root / "data/config/amp-settings.json"
+            config = root / "data/config/supervisor.json"
+            legacy = {**production.DEFAULTS, "map_preset": "manual", "game_name": "Keep This"}
+            production.private_json(path, legacy)
+            production.private_json(config, {"http": {"host": "127.0.0.1", "port": 8080}})
+            production.private_json(root / production.PRESETS, {"version": 1, "presets": [
+                {"id": "manual", "enabled": True},
+                {"id": "new-map", "enabled": True, "map_filename": "new.w3x"}]})
+            # AMP adds the textarea to the old JSON while preserving map_preset.
+            ui_saved = {**legacy, "map_cycle": '["new-map"]', "max_concurrent_matches": "3"}
+            production.private_json(path, ui_saved)
+            original = path.read_bytes()
+            for _ in range(2):
+                validated = production.validate_preset_selection(root)
+                self.assertEqual(validated["map_cycle"], ["new-map"])
+                production.merge_settings(config, path, validated=validated)
+                self.assertEqual(production.read_json(config)["gameplay"]["map_cycle"], ["new-map"])
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(production.read_json(path), ui_saved)
 
     def test_invalid_port_thresholds_names_and_unknown_fields_rejected(self):
         cases = [{"game_port": 6112}, {"autostart_players": 13}, {"max_players": 4},
@@ -114,6 +139,7 @@ class SettingsTests(unittest.TestCase):
     def test_atomic_merge_preserves_runtime_config_and_never_writes_native_keys(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            (root / "control").mkdir(mode=0o700)
             config = {"mode": "offline", "http": {"host": "127.0.0.1", "port": 8080},
                       "runtime": {"generation": 7}, "hostbot": {"cwd": "/data"}}
             production.private_json(root / "supervisor.json", config)
@@ -124,7 +150,7 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(saved["gameplay"]["autostart_players"], 10)
             self.assertIs(saved["gameplay"]["autostart_enabled"], True)
             self.assertEqual(saved["gameplay"]["max_players"], 12)
-            self.assertEqual(saved["gameplay"]["map_preset"], "manual")
+            self.assertEqual(saved["gameplay"]["map_cycle"], ["manual"])
             self.assertEqual(saved["gameplay"]["lobby_refresh_interval"], 10)
             self.assertNotIn("game_port", saved["gameplay"])
             self.assertEqual((root / "supervisor.json").stat().st_mode & 0o777, 0o600)
@@ -146,7 +172,7 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual((root / "original").read_text(), "keep")
 
     def test_runtime_incompatible_amp_values_do_not_replace_supervisor_config(self):
-        for change in ({"countdown_seconds": 0}, {"vote_timeout": 301}, {"vote_cooldown": 0},
+        for change in ({"countdown_seconds": -1}, {"vote_timeout": 601}, {"vote_cooldown": -1},
                        {"autostart_players": 13, "autostart_enabled": False}):
             with self.subTest(change=change), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -454,8 +480,8 @@ class ManifestAndReleaseTests(unittest.TestCase):
             "Account:account_circle:10", "Map presets:map:20", "Lobby:groups:30",
             "Voting:how_to_vote:40", "Refresh:refresh:50"})
         internal_settings = {"autostart_players", "autostart_enabled", "game_port", "max_players"}
-        self.assertEqual(len(gameplay), 14)
-        self.assertEqual({s["ParamFieldName"] for s in gameplay}, set(production.DEFAULTS) - internal_settings)
+        self.assertEqual(len(gameplay), 13)
+        self.assertEqual({s["ParamFieldName"] for s in gameplay}, set(production.DEFAULTS) - internal_settings - {"map_preset"})
         self.assertTrue(internal_settings.isdisjoint(s["FieldName"] for s in settings))
         self.assertTrue(internal_settings.isdisjoint(s["ParamFieldName"] for s in settings))
         self.assertEqual({s["ParamFieldName"] for s in auth}, {"username", "password"})
@@ -464,11 +490,14 @@ class ManifestAndReleaseTests(unittest.TestCase):
         self.assertEqual(editor["Subcategory"], "Map presets:map:20")
         self.assertEqual(editor["Actions"], [{"Caption": "Apply presets", "Module": "Core",
             "Method": "UpdateApplication", "Argument": "", "IsClientSide": False}])
-        selector = next(s for s in gameplay if s["ParamFieldName"] == "map_preset")
-        self.assertEqual(selector["InputType"], "enum")
-        self.assertIn("manual", selector["EnumValues"])
-        self.assertIn("footman-ultimate-ai", selector["EnumValues"])
+        selector = next(s for s in settings if s["ParamFieldName"] == "map_cycle")
+        self.assertEqual(selector["InputType"], "Textarea")
+        self.assertEqual(json.loads(selector["DefaultValue"]), ["manual"])
         self.assertFalse(selector.get("Actions"))
+        limit = next(s for s in settings if s["ParamFieldName"] == "max_concurrent_matches")
+        self.assertEqual((limit["minValue"], limit["maxValue"], limit["DefaultValue"]), ("1", "5", "3"))
+        self.assertIn("inactive", limit["DisplayName"])
+        self.assertIn("no effect", limit["Description"])
         self.assertFalse(any(action.get("Method") == "ReloadGenericConfig"
                              for setting in settings for action in setting.get("Actions", [])))
         refresh = next(s for s in gameplay if s["ParamFieldName"] == "lobby_refresh_interval")

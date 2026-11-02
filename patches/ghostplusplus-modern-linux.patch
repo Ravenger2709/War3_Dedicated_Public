@@ -12,10 +12,10 @@ index 090fdbe..104e4c6 100644
  $(CXXOBJ): %.o: %.cpp
  	$(CXX) $(CXXFLAGS) -c $< -o $@ 
 diff --git a/ghost/bnetprotocol.cpp b/ghost/bnetprotocol.cpp
-index c1045c8..649ec52 100644
+index c1045c8..c517a83 100644
 --- a/ghost/bnetprotocol.cpp
 +++ b/ghost/bnetprotocol.cpp
-@@ -1131,3 +1131,151 @@ string CIncomingClanList :: GetDescription( )
+@@ -1131,3 +1131,207 @@ string CIncomingClanList :: GetDescription( )
  	Description += GetRank( ) + "\n\n";
  	return Description;
  }
@@ -60,7 +60,7 @@ index c1045c8..649ec52 100644
 +
 +CExternalPublisher :: CExternalPublisher( string path, string realm, string hostName ) :
 +	m_Directory( -1 ), m_Path( path ), m_Realm( realm ), m_HostName( hostName ),
-+	m_Generation( 0 ), m_Sequence( 0 ), m_Counter( 0 ), m_LastTicks( 0 ), m_StartedTicks( 0 ), m_Valid( true ), m_Published( false )
++	m_Generation( 0 ), m_Sequence( 0 ), m_IntentDevice( 0 ), m_IntentInode( 0 ), m_Counter( 0 ), m_LastTicks( 0 ), m_StartedTicks( 0 ), m_LastRetryTicks( 0 ), m_RetryDelay( 1000 ), m_Valid( true ), m_Published( false ), m_IntentOwned( false )
 +{
 +	if( !Enabled( ) ) return;
 +	m_Valid = false;
@@ -135,12 +135,68 @@ index c1045c8..649ec52 100644
 +		if( renameat( m_Directory, temporary.c_str( ), m_Directory, m_Name.c_str( ) ) ) ok = false;
 +		else { renamed = true; ++m_Sequence; } // visible even if directory fsync subsequently fails
 +	}
++	if( renamed )
++	{
++		// Retain the exact inode we wrote so an inaccessible old directory cannot
++		// revive its stale advertisement when the pathname is restored.
++		struct stat published;
++		m_IntentOwned = !fstatat( m_Directory, m_Name.c_str( ), &published, AT_SYMLINK_NOFOLLOW ) &&
++			S_ISREG( published.st_mode ) && published.st_uid == geteuid( ) && ( published.st_mode & 07777 ) == 0600 && published.st_nlink == 1;
++		if( m_IntentOwned ) { m_IntentDevice = published.st_dev; m_IntentInode = published.st_ino; }
++		else ok = false;
++	}
 +	if( ok && fsync( m_Directory ) ) ok = false;
++	// A replaced pathname must not make a successful write to the old inode valid.
++	if( ok )
++	{
++		int current = ExternalPublishDirectory( m_Path.substr( 0, m_Path.rfind( '/' ) ) );
++		struct stat now, held;
++		ok = current >= 0 && !fstat( current, &now ) && !fstat( m_Directory, &held ) && now.st_dev == held.st_dev && now.st_ino == held.st_ino;
++		if( current >= 0 ) close( current );
++	}
 +	if( !renamed ) unlinkat( m_Directory, temporary.c_str( ), 0 );
 +	return ok;
 +#else
 +	return false;
 +#endif
++}
++
++void CExternalPublisher :: Failed( )
++{
++#ifndef WIN32
++	// Invalidate only our own last intent; do not follow or remove a substituted
++	// target. The held directory FD remains usable even when its path moved.
++	struct stat current;
++	if( m_IntentOwned && !fstatat( m_Directory, m_Name.c_str( ), &current, AT_SYMLINK_NOFOLLOW ) &&
++		S_ISREG( current.st_mode ) && current.st_uid == geteuid( ) && ( current.st_mode & 07777 ) == 0600 &&
++		current.st_nlink == 1 && (uint64_t)current.st_dev == m_IntentDevice && (uint64_t)current.st_ino == m_IntentInode )
++	{
++		if( !unlinkat( m_Directory, m_Name.c_str( ), 0 ) ) fsync( m_Directory );
++	}
++#endif
++	m_IntentOwned = false;
++	m_Valid = false;
++	m_Published = false;
++	m_LastRetryTicks = GetTicks( );
++	m_RetryDelay = 1000;
++}
++
++void CExternalPublisher :: Retry( )
++{
++	if( !Enabled( ) || m_Valid || !m_Generation || GetTicks( ) - m_LastRetryTicks < m_RetryDelay ) return;
++	m_LastRetryTicks = GetTicks( );
++	// Always revoke the old advertisement before any current lobby republishes.
++	// Never retain a CMap pointer or retry a stale publish across lobby changes.
++	CBNETProtocol protocol;
++	if( Write( false, m_Counter, protocol.SEND_SID_STOPADV( ) ) )
++	{
++		m_Valid = true;
++		m_Published = false;
++		m_RetryDelay = 1000;
++		CONSOLE_Print( "[GHOST] external publication recovered" );
++	}
++	else
++		m_RetryDelay = m_RetryDelay >= 15000 ? 30000 : m_RetryDelay * 2;
 +}
 +
 +void CExternalPublisher :: Publish( CMap *map, string gameName, uint32_t counter, bool reconnect, uint32_t gameType )
@@ -154,7 +210,7 @@ index c1045c8..649ec52 100644
 +	BYTEARRAY width = reconnect ? UTIL_CreateByteArray( (uint16_t)1984, false ) : map->GetMapWidth( );
 +	BYTEARRAY height = reconnect ? UTIL_CreateByteArray( (uint16_t)1984, false ) : map->GetMapHeight( );
 +	BYTEARRAY packet = protocol.SEND_SID_STARTADVEX3( 16, UTIL_CreateByteArray( gameType, false ), map->GetMapGameFlags( ), width, height, gameName, m_HostName, ( GetTicks( ) - m_StartedTicks ) / 1000, map->GetMapPath( ), map->GetMapCRC( ), map->GetMapSHA1( ), counter | 0xF0000000 );
-+	if( !Write( true, counter, packet ) ) { m_Valid = false; CONSOLE_Print( "[GHOST] external publication write failed" ); return; }
++	if( !Write( true, counter, packet ) ) { Failed( ); CONSOLE_Print( "[GHOST] external publication write failed" ); return; }
 +	m_Counter = counter;
 +	m_Published = true;
 +	m_LastTicks = GetTicks( );
@@ -162,16 +218,16 @@ index c1045c8..649ec52 100644
 +
 +void CExternalPublisher :: Stop( uint32_t counter, bool force )
 +{
-+	if( !Enabled( ) || ( !force && ( !m_Published || m_Counter != ( counter & 0x0FFFFFFF ) ) ) ) return;
++	if( !Enabled( ) || !m_Valid || ( !force && ( !m_Published || m_Counter != ( counter & 0x0FFFFFFF ) ) ) ) return;
 +	CBNETProtocol protocol;
-+	if( !Write( false, counter, protocol.SEND_SID_STOPADV( ) ) ) { m_Valid = false; CONSOLE_Print( "[GHOST] external publication stop failed" ); }
++	if( !Write( false, counter, protocol.SEND_SID_STOPADV( ) ) ) { Failed( ); CONSOLE_Print( "[GHOST] external publication stop failed" ); }
 +	m_Published = false;
 +}
 diff --git a/ghost/bnetprotocol.h b/ghost/bnetprotocol.h
-index 3be3e4c..6b49b8c 100644
+index 3be3e4c..45ad0a6 100644
 --- a/ghost/bnetprotocol.h
 +++ b/ghost/bnetprotocol.h
-@@ -27,6 +27,28 @@
+@@ -27,6 +27,30 @@
  
  #define BNET_HEADER_CONSTANT 255
  
@@ -181,10 +237,11 @@ index 3be3e4c..6b49b8c 100644
 +{
 +	int m_Directory;
 +	string m_Path, m_Name, m_Realm, m_HostName;
-+	uint64_t m_Generation, m_Sequence;
-+	uint32_t m_Counter, m_LastTicks, m_StartedTicks;
-+	bool m_Valid, m_Published;
++	uint64_t m_Generation, m_Sequence, m_IntentDevice, m_IntentInode;
++	uint32_t m_Counter, m_LastTicks, m_StartedTicks, m_LastRetryTicks, m_RetryDelay;
++	bool m_Valid, m_Published, m_IntentOwned;
 +	bool Write( bool publish, uint32_t counter, const BYTEARRAY &packet );
++	void Failed( );
 +public:
 +	CExternalPublisher( string path, string realm, string hostName );
 +	~CExternalPublisher( );
@@ -192,6 +249,7 @@ index 3be3e4c..6b49b8c 100644
 +	bool Enabled( ) const { return !m_Path.empty( ); }
 +	bool Published( uint32_t counter ) const { return m_Valid && m_Published && m_Counter == ( counter & 0x0FFFFFFF ); }
 +	string Realm( ) const { return m_Realm; }
++	void Retry( );
 +	void Publish( CMap *map, string gameName, uint32_t counter, bool reconnect, uint32_t gameType );
 +	void Stop( uint32_t counter, bool force = false );
 +	void StopCurrent( ) { Stop( m_Counter ); }
@@ -201,14 +259,14 @@ index 3be3e4c..6b49b8c 100644
  class CIncomingChatEvent;
  class CIncomingFriendList;
 diff --git a/ghost/game.cpp b/ghost/game.cpp
-index 8b54fcd..ebbbce6 100644
+index 8b54fcd..2b2c550 100644
 --- a/ghost/game.cpp
 +++ b/ghost/game.cpp
 @@ -68,6 +68,7 @@ public:
  
  CGame :: CGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16_t nHostPort, unsigned char nGameState, string nGameName, string nOwnerName, string nCreatorName, string nCreatorServer ) : CBaseGame( nGHost, nMap, nSaveGame, nHostPort, nGameState, nGameName, nOwnerName, nCreatorName, nCreatorServer ), m_DBBanLast( NULL ), m_Stats( NULL ) ,m_CallableGameAdd( NULL )
  {
-+	SetAutoStartPlayers( m_GHost->m_DefaultAutoStartPlayers );
++	SetAutoStartPlayers( m_NativeGameplay.DefaultAutoStartPlayers );
  	m_DBGame = new CDBGame( 0, string( ), m_Map->GetMapPath( ), string( ), string( ), string( ), 0 );
  
  	if( m_Map->GetMapType( ) == "w3mmd" )
@@ -278,7 +336,49 @@ index 8b54fcd..ebbbce6 100644
  				}
  			}
  
-@@ -1383,9 +1411,11 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+@@ -1305,16 +1333,18 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+ 			// !PRIV (rehost as private game)
+ 			//
+ 
+-			else if( Command == "priv" && !Payload.empty( ) && !m_CountDownStarted && !m_SaveGame )
++			else if( Command == "priv" && !Payload.empty( ) && !m_CountDownStarted && !m_SaveGame && !m_GameLoading && !m_GameLoaded )
+ 			{
+ 				if( Payload.length() < 31 )
+ 				{
++					if( !FenceNativeLobby( ) ) return HideCommand;
+ 					CONSOLE_Print( "[GAME: " + m_GameName + "] trying to rehost as private game [" + Payload + "]" );
+ 					SendAllChat( m_GHost->m_Language->TryingToRehostAsPrivateGame( Payload ) );
+ 					m_GameState = GAME_PRIVATE;
+ 					m_LastGameName = m_GameName;
+ 					m_GameName = Payload;
+-					m_HostCounter = m_GHost->m_HostCounter++;
++					m_HostCounter = m_GHost->AllocateNativeHostCounter( );
++					ResetNativeLobbyFence( );
+ 					m_RefreshError = false;
+ 					m_RefreshRehosted = true;
+ 
+@@ -1347,16 +1377,18 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+ 			// !PUB (rehost as public game)
+ 			//
+ 
+-			else if( Command == "pub" && !Payload.empty( ) && !m_CountDownStarted && !m_SaveGame )
++			else if( Command == "pub" && !Payload.empty( ) && !m_CountDownStarted && !m_SaveGame && !m_GameLoading && !m_GameLoaded )
+ 			{
+ 				if( Payload.length() < 31 )
+ 				{
++					if( !FenceNativeLobby( ) ) return HideCommand;
+ 					CONSOLE_Print( "[GAME: " + m_GameName + "] trying to rehost as public game [" + Payload + "]" );
+ 					SendAllChat( m_GHost->m_Language->TryingToRehostAsPublicGame( Payload ) );
+ 					m_GameState = GAME_PUBLIC;
+ 					m_LastGameName = m_GameName;
+ 					m_GameName = Payload;
+-					m_HostCounter = m_GHost->m_HostCounter++;
++					m_HostCounter = m_GHost->AllocateNativeHostCounter( );
++					ResetNativeLobbyFence( );
+ 					m_RefreshError = false;
+ 					m_RefreshRehosted = true;
+ 
+@@ -1383,9 +1415,11 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
  			// !REFRESH (turn on or off refresh messages)
  			//
  
@@ -292,7 +392,7 @@ index 8b54fcd..ebbbce6 100644
  				{
  					SendAllChat( m_GHost->m_Language->RefreshMessagesEnabled( ) );
  					m_RefreshMessages = true;
-@@ -1820,7 +1850,9 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
+@@ -1820,7 +1854,9 @@ bool CGame :: EventPlayerBotCommand( CGamePlayer *player, string command, string
  
  void CGame :: EventGameStarted( )
  {
@@ -303,7 +403,7 @@ index 8b54fcd..ebbbce6 100644
  	// record everything we need to ban each player in case we decide to do so later
  	// this is because when a player leaves the game an admin might want to ban that player
 diff --git a/ghost/game_base.cpp b/ghost/game_base.cpp
-index 121bc52..d2e0938 100644
+index 121bc52..77ffba3 100644
 --- a/ghost/game_base.cpp
 +++ b/ghost/game_base.cpp
 @@ -25,6 +25,7 @@
@@ -314,7 +414,7 @@ index 121bc52..d2e0938 100644
  #include "map.h"
  #include "packed.h"
  #include "savegame.h"
-@@ -39,12 +40,46 @@
+@@ -39,12 +40,66 @@
  
  #include "next_combination.h"
  
@@ -350,8 +450,28 @@ index 121bc52..d2e0938 100644
  //
  
 -CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16_t nHostPort, unsigned char nGameState, string nGameName, string nOwnerName, string nCreatorName, string nCreatorServer ) : m_GHost( nGHost ), m_SaveGame( nSaveGame ), m_Replay( NULL ), m_Exiting( false ), m_Saving( false ), m_HostPort( nHostPort ), m_GameState( nGameState ), m_VirtualHostPID( 255 ), m_FakePlayerPID( 255 ), m_GProxyEmptyActions( 0 ), m_GameName( nGameName ), m_LastGameName( nGameName ), m_VirtualHostName( m_GHost->m_VirtualHostName ), m_OwnerName( nOwnerName ), m_CreatorName( nCreatorName ), m_CreatorServer( nCreatorServer ), m_HCLCommandString( nMap->GetMapDefaultHCL( ) ), m_RandomSeed( GetTicks( ) ), m_HostCounter( m_GHost->m_HostCounter++ ), m_EntryKey( rand( ) ), m_Latency( m_GHost->m_Latency ), m_SyncLimit( m_GHost->m_SyncLimit ), m_SyncCounter( 0 ), m_GameTicks( 0 ), m_CreationTime( GetTime( ) ), m_LastPingTime( GetTime( ) ), m_LastRefreshTime( GetTime( ) ), m_LastDownloadTicks( GetTime( ) ), m_DownloadCounter( 0 ), m_LastDownloadCounterResetTicks( GetTime( ) ), m_LastAnnounceTime( 0 ), m_AnnounceInterval( 0 ), m_LastAutoStartTime( GetTime( ) ), m_AutoStartPlayers( 0 ), m_LastCountDownTicks( 0 ), m_CountDownCounter( 0 ), m_StartedLoadingTicks( 0 ), m_StartPlayers( 0 ), m_LastLagScreenResetTime( 0 ), m_LastActionSentTicks( 0 ), m_LastActionLateBy( 0 ), m_StartedLaggingTime( 0 ), m_LastLagScreenTime( 0 ), m_LastReservedSeen( GetTime( ) ), m_StartedKickVoteTime( 0 ), m_GameOverTime( 0 ), m_LastPlayerLeaveTicks( 0 ), m_MinimumScore( 0. ), m_MaximumScore( 0. ), m_SlotInfoChanged( false ), m_Locked( false ), m_RefreshMessages( m_GHost->m_RefreshMessages ), m_RefreshError( false ), m_RefreshRehosted( false ), m_MuteAll( false ), m_MuteLobby( false ), m_CountDownStarted( false ), m_GameLoading( false ), m_GameLoaded( false ), m_LoadInGame( nMap->GetMapLoadInGame( ) ), m_Lagging( false ), m_AutoSave( m_GHost->m_AutoSave ), m_MatchMaking( false ), m_LocalAdminMessages( m_GHost->m_LocalAdminMessages )
-+CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16_t nHostPort, unsigned char nGameState, string nGameName, string nOwnerName, string nCreatorName, string nCreatorServer ) : m_GHost( nGHost ), m_SaveGame( nSaveGame ), m_Replay( NULL ), m_Exiting( false ), m_Saving( false ), m_HostPort( nHostPort ), m_GameState( nGameState ), m_VirtualHostPID( 255 ), m_FakePlayerPID( 255 ), m_GProxyEmptyActions( 0 ), m_GameName( nGameName ), m_LastGameName( nGameName ), m_VirtualHostName( m_GHost->m_VirtualHostName ), m_OwnerName( nOwnerName ), m_CreatorName( nCreatorName ), m_CreatorServer( nCreatorServer ), m_HCLCommandString( nMap->GetMapDefaultHCL( ) ), m_RandomSeed( GetTicks( ) ), m_HostCounter( m_GHost->m_HostCounter++ ), m_EntryKey( rand( ) ), m_Latency( m_GHost->m_Latency ), m_SyncLimit( m_GHost->m_SyncLimit ), m_SyncCounter( 0 ), m_GameTicks( 0 ), m_CreationTime( GetTime( ) ), m_LastPingTime( GetTime( ) ), m_LastRefreshTime( GetTime( ) ), m_LastDownloadTicks( GetTime( ) ), m_DownloadCounter( 0 ), m_LastDownloadCounterResetTicks( GetTime( ) ), m_LastAnnounceTime( 0 ), m_AnnounceInterval( 0 ), m_LastAutoStartTime( GetTime( ) ), m_AutoStartPlayers( 0 ), m_LastCountDownTicks( 0 ), m_CountDownCounter( 0 ), m_StartedLoadingTicks( 0 ), m_StartPlayers( 0 ), m_LastLagScreenResetTime( 0 ), m_LastActionSentTicks( 0 ), m_LastActionLateBy( 0 ), m_StartedLaggingTime( 0 ), m_LastLagScreenTime( 0 ), m_LastReservedSeen( GetTime( ) ), m_StartedKickVoteTime( 0 ), m_GameOverTime( 0 ), m_LastPlayerLeaveTicks( 0 ), m_MinimumScore( 0. ), m_MaximumScore( 0. ), m_SlotInfoChanged( false ), m_Locked( false ), m_RefreshMessages( m_GHost->m_RefreshMessages ), m_RefreshError( false ), m_RefreshRehosted( false ), m_MuteAll( false ), m_MuteLobby( false ), m_CountDownStarted( false ), m_GameLoading( false ), m_GameLoaded( false ), m_LoadInGame( nMap->GetMapLoadInGame( ) ), m_Lagging( false ), m_AutoSave( m_GHost->m_AutoSave ), m_MatchMaking( false ), m_NativeRefreshSlot( 0, 255, SLOTSTATUS_OPEN, 0, 0, 0, SLOTRACE_RANDOM ), m_LocalAdminMessages( m_GHost->m_LocalAdminMessages )
++CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16_t nHostPort, unsigned char nGameState, string nGameName, string nOwnerName, string nCreatorName, string nCreatorServer ) : m_GHost( nGHost ), m_SaveGame( nSaveGame ), m_Replay( NULL ), m_Exiting( false ), m_Saving( false ), m_HostPort( nHostPort ), m_GameState( nGameState ), m_VirtualHostPID( 255 ), m_FakePlayerPID( 255 ), m_GProxyEmptyActions( 0 ), m_GameName( nGameName ), m_LastGameName( nGameName ), m_VirtualHostName( m_GHost->m_VirtualHostName ), m_OwnerName( nOwnerName ), m_CreatorName( nCreatorName ), m_CreatorServer( nCreatorServer ), m_HCLCommandString( nMap->GetMapDefaultHCL( ) ), m_RandomSeed( GetTicks( ) ), m_HostCounter( m_GHost->AllocateNativeHostCounter( ) ), m_EntryKey( rand( ) ), m_Latency( m_GHost->m_Latency ), m_SyncLimit( m_GHost->m_SyncLimit ), m_SyncCounter( 0 ), m_GameTicks( 0 ), m_CreationTime( GetTime( ) ), m_LastPingTime( GetTime( ) ), m_LastRefreshTime( GetTime( ) ), m_LastDownloadTicks( GetTime( ) ), m_DownloadCounter( 0 ), m_LastDownloadCounterResetTicks( GetTime( ) ), m_LastAnnounceTime( 0 ), m_AnnounceInterval( 0 ), m_LastAutoStartTime( GetTime( ) ), m_AutoStartPlayers( 0 ), m_LastCountDownTicks( 0 ), m_CountDownCounter( 0 ), m_StartedLoadingTicks( 0 ), m_StartPlayers( 0 ), m_LastLagScreenResetTime( 0 ), m_LastActionSentTicks( 0 ), m_LastActionLateBy( 0 ), m_StartedLaggingTime( 0 ), m_LastLagScreenTime( 0 ), m_LastReservedSeen( GetTime( ) ), m_StartedKickVoteTime( 0 ), m_GameOverTime( 0 ), m_LastPlayerLeaveTicks( 0 ), m_MinimumScore( 0. ), m_MaximumScore( 0. ), m_SlotInfoChanged( false ), m_Locked( false ), m_RefreshMessages( m_GHost->m_RefreshMessages ), m_RefreshError( false ), m_RefreshRehosted( false ), m_MuteAll( false ), m_MuteLobby( false ), m_CountDownStarted( false ), m_GameLoading( false ), m_GameLoaded( false ), m_LoadInGame( nMap->GetMapLoadInGame( ) ), m_Lagging( false ), m_AutoSave( m_GHost->m_AutoSave ), m_MatchMaking( false ), m_NativeRefreshSlot( 0, 255, SLOTSTATUS_OPEN, 0, 0, 0, SLOTRACE_RANDOM ), m_LocalAdminMessages( m_GHost->m_LocalAdminMessages )
  {
++	m_NativeGameplay.Phase3ConfigValid = m_GHost->m_Phase3ConfigValid;
++	m_NativeGameplay.MaxPlayers = m_GHost->m_MaxPlayers;
++	m_NativeGameplay.DefaultAutoStartPlayers = m_GHost->m_DefaultAutoStartPlayers;
++	m_NativeGameplay.VoteEnabled = m_GHost->m_VoteEnabled;
++	m_NativeGameplay.VoteRequiredPercent = m_GHost->m_VoteRequiredPercent;
++	m_NativeGameplay.VoteMinPlayers = m_GHost->m_VoteMinPlayers;
++	m_NativeGameplay.VoteTimeout = m_GHost->m_VoteTimeout;
++	m_NativeGameplay.VoteCooldown = m_GHost->m_VoteCooldown;
++	m_NativeGameplay.LobbyRefreshEnabled = m_GHost->m_LobbyRefreshEnabled;
++	m_NativeGameplay.LobbyRefreshInterval = m_GHost->m_LobbyRefreshInterval;
++	m_NativeGameplay.LobbyAISupported = m_GHost->m_LobbyAISupported;
++	m_NativeGameplay.LobbyAITarget = m_GHost->m_LobbyAITarget;
++	m_NativeGameplay.LobbyAISkill = m_GHost->m_LobbyAISkill;
++	m_NativeGameplay.LobbyMinHumans = m_GHost->m_LobbyMinHumans;
++	m_NativeGameplay.AutoStartEnabled = m_GHost->m_AutoStartEnabled;
++	m_NativeGameplay.CountDownSeconds = m_GHost->m_CountDownSeconds;
++	m_NativeVoteReminderDueMS = m_NativeVoteReminderLastSentMS = 0;
++	m_NativeFenced = m_NativeCloseRecorded = false;
++	m_NativePresetAutoHost = false;
++	m_NativeCatalogIndex = m_NativeCatalogCounter = 0;
 +	m_VoteStartedTicks = m_VoteCooldownTicks = 0;
 +	m_LastLobbyRefreshTicks = GetTicks( );
 +	m_VoteActive = m_VoteCooling = false;
@@ -362,14 +482,14 @@ index 121bc52..d2e0938 100644
  	m_Socket = new CTCPServer( );
  	m_Protocol = new CGameProtocol( m_GHost );
  	m_Map = new CMap( *nMap );
-@@ -88,6 +123,27 @@ CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16
+@@ -88,6 +143,27 @@ CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16
  	else
  		m_Slots = m_Map->GetSlots( );
  
 +	string nativePath = m_Map->GetMapPath( );
 +	m_NativeMapName = nativePath.substr( nativePath.find_last_of( "/\\" ) == string::npos ? 0 : nativePath.find_last_of( "/\\" ) + 1 );
 +	m_NativeCapacity = NativeMaxPlayers( );
-+	if( m_GHost->m_LobbyAISupported && m_GHost->m_LobbyAITarget >= 2 && m_GameState == GAME_PUBLIC && !m_SaveGame )
++	if( m_NativeGameplay.LobbyAISupported && m_NativeGameplay.LobbyAITarget >= 2 && m_GameState == GAME_PUBLIC && !m_SaveGame )
 +	{
 +		vector<CGameSlot> original = m_Map->GetSlots( );
 +		set<unsigned char> colours, teams;
@@ -384,13 +504,13 @@ index 121bc52..d2e0938 100644
 +			if( !slot.GetComputer( ) ) ++humanSlots;
 +		}
 +		m_NativeAISupported = valid && teams.size( ) >= 2 && teams.size( ) <= m_Map->GetMapNumTeams( ) &&
-+			m_GHost->m_LobbyAITarget <= min( humanSlots, NativeMaxPlayers( ) );
++			m_NativeGameplay.LobbyAITarget <= min( humanSlots, NativeMaxPlayers( ) );
 +		if( !m_NativeAISupported ) { CONSOLE_Print( "[GAME] approved AI configuration does not fit this map" ); m_Exiting = true; }
 +	}
  	if( !m_GHost->m_IPBlackListFile.empty( ) )
  	{
  		ifstream in;
-@@ -143,10 +199,13 @@ CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16
+@@ -143,10 +219,14 @@ CBaseGame :: CBaseGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint16
  		CONSOLE_Print( "[GAME: " + m_GameName + "] error listening on port " + UTIL_ToString( m_HostPort ) );
  		m_Exiting = true;
  	}
@@ -399,12 +519,13 @@ index 121bc52..d2e0938 100644
  
  CBaseGame :: ~CBaseGame( )
  {
++	FenceNativeLobby( );
 +	RestoreNativeRefresh( false );
 +	if( m_GHost->m_CurrentGame == this ) m_GHost->m_ExternalPublisher->StopCurrent( );
  	// save replay
  	// todotodo: put this in a thread
  
-@@ -309,6 +368,8 @@ unsigned int CBaseGame :: SetFD( void *fd, void *send_fd, int *nfds )
+@@ -309,6 +389,8 @@ unsigned int CBaseGame :: SetFD( void *fd, void *send_fd, int *nfds )
  
  bool CBaseGame :: Update( void *fd, void *send_fd )
  {
@@ -413,16 +534,44 @@ index 121bc52..d2e0938 100644
  	// update callables
  
  	for( vector<CCallableScoreCheck *> :: iterator i = m_ScoreChecks.begin( ); i != m_ScoreChecks.end( ); )
-@@ -445,7 +506,7 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
+@@ -391,7 +473,8 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
+ 		// see the !sendlan code later in this file for some more information about how this works
+ 		// todotodo: should we send a game cancel message somewhere? we'll need to implement a host counter for it to work
+ 
+-		if( !m_CountDownStarted )
++		// The map is released at start; running/loading games must not advertise.
++		if( m_Map && !m_CountDownStarted && !m_GameLoading && !m_GameLoaded )
+ 		{
+ 			// construct a fixed host counter which will be used to identify players from this "realm" (i.e. LAN)
+ 			// the fixed host counter's 4 most significant bits will contain a 4 bit ID (0-15)
+@@ -439,17 +522,22 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
+ 
+ 	// auto rehost if there was a refresh error in autohosted games
+ 
+-	if( m_RefreshError && !m_CountDownStarted && m_GameState == GAME_PUBLIC && !m_GHost->m_AutoHostGameName.empty( ) && m_GHost->m_AutoHostMaximumGames != 0 && m_GHost->m_AutoHostAutoStartPlayers != 0 && m_AutoStartPlayers != 0 )
++	if( m_RefreshError && !m_CountDownStarted && !m_GameLoading && !m_GameLoaded && m_GameState == GAME_PUBLIC && m_GHost->m_AutoHostMaximumGames != 0 && m_AutoStartPlayers != 0 && ( m_NativePresetAutoHost || ( !m_GHost->m_AutoHostGameName.empty( ) && m_GHost->m_AutoHostAutoStartPlayers != 0 ) ) )
+ 	{
+ 		// there's a slim chance that this isn't actually an autohosted game since there is no explicit autohost flag
  		// however, if autohosting is enabled and this game is public and this game is set to autostart, it's probably autohosted
- 		// so rehost it using the current autohost game name
+-		// so rehost it using the current autohost game name
++		// keep this lobby's title, including a staged preset title
  
 -		string GameName = m_GHost->m_AutoHostGameName + " #" + UTIL_ToString( m_GHost->m_HostCounter );
-+		string GameName = m_GHost->m_AutoHostGameName;
++		if( !FenceNativeLobby( ) ) return true;
++		// Catalog request IDs name one lobby counter. Rehost closes it; a
++		// fresh durable selection must create any subsequent lobby.
++		if( !m_NativeCatalogRequestID.empty( ) ) { m_Exiting = true; return true; }
++		string GameName = m_GameName;
  		CONSOLE_Print( "[GAME: " + m_GameName + "] automatically trying to rehost as public game [" + GameName + "] due to refresh failure" );
  		m_LastGameName = m_GameName;
  		m_GameName = GameName;
-@@ -584,11 +645,15 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
+-		m_HostCounter = m_GHost->m_HostCounter++;
++		m_HostCounter = m_GHost->AllocateNativeHostCounter( );
++		ResetNativeLobbyFence( );
+ 		m_RefreshError = false;
+ 
+                 for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); ++i )
+@@ -584,14 +672,20 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
  		}
  	}
  
@@ -439,7 +588,12 @@ index 121bc52..d2e0938 100644
  		m_LastAutoStartTime = GetTime( );
  	}
  
-@@ -602,8 +667,10 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
++	UpdateNativeVoteReminder( );
++
+ 	// countdown every 500 ms
+ 
+ 	if( m_CountDownStarted && GetTicks( ) - m_LastCountDownTicks >= 500 )
+@@ -602,8 +696,10 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
  			// this sometimes resulted in a countdown of e.g. "6 5 3 2 1" during my testing which looks pretty dumb
  			// doing it this way ensures it's always "5 4 3 2 1" but each interval might not be *exactly* the same length
  
@@ -451,7 +605,7 @@ index 121bc52..d2e0938 100644
  		}
  		else if( !m_GameLoading && !m_GameLoaded )
  			EventGameStarted( );
-@@ -921,7 +988,7 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
+@@ -921,7 +1017,7 @@ bool CBaseGame :: Update( void *fd, void *send_fd )
  
  	// start the gameover timer if there's only one player left
  
@@ -460,7 +614,7 @@ index 121bc52..d2e0938 100644
  	{
  		CONSOLE_Print( "[GAME: " + m_GameName + "] gameover timer started (one player left)" );
  		m_GameOverTime = GetTime( );
-@@ -1383,6 +1450,8 @@ void CBaseGame :: SendEndMessage( )
+@@ -1383,6 +1479,8 @@ void CBaseGame :: SendEndMessage( )
  
  void CBaseGame :: EventPlayerDeleted( CGamePlayer *player )
  {
@@ -469,7 +623,7 @@ index 121bc52..d2e0938 100644
  	CONSOLE_Print( "[GAME: " + m_GameName + "] deleting player [" + player->GetName( ) + "]: " + player->GetLeftReason( ) );
  
  	// remove any queued spoofcheck messages for this player
-@@ -1609,8 +1678,48 @@ void CBaseGame :: EventPlayerDisconnectConnectionClosed( CGamePlayer *player )
+@@ -1609,8 +1707,48 @@ void CBaseGame :: EventPlayerDisconnectConnectionClosed( CGamePlayer *player )
  		OpenSlot( GetSIDFromPID( player->GetPID( ) ), false );
  }
  
@@ -518,7 +672,7 @@ index 121bc52..d2e0938 100644
  	// check if the new player's name is empty or too long
  
  	if( joinPlayer->GetName( ).empty( ) || joinPlayer->GetName( ).size( ) > 15 )
-@@ -1642,37 +1751,14 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -1642,37 +1780,14 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  		return;
  	}
  
@@ -531,14 +685,14 @@ index 121bc52..d2e0938 100644
 -	string JoinedRealm;
 -
 -	for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); ++i )
--	{
++	if( !m_SaveGame && ( m_Exiting || m_GameLoading || m_GameLoaded || NativeEligiblePlayers( ).size( ) > NativeMaxPlayers( ) ) )
+ 	{
 -		if( (*i)->GetHostCounterID( ) == HostCounterID )
 -			JoinedRealm = (*i)->GetServer( );
 -	}
 -
 -	if( JoinedRealm.empty( ) )
-+	if( !m_SaveGame && ( m_Exiting || m_GameLoading || m_GameLoaded || NativeEligiblePlayers( ).size( ) > NativeMaxPlayers( ) ) )
- 	{
+-	{
 -		// the player is pretending to join via LAN, which they might or might not be (i.e. it could be spoofed)
 -		// however, we've been broadcasting a random entry key to the LAN
 -		// if the player is really on the LAN they'll know the entry key, otherwise they won't
@@ -562,7 +716,7 @@ index 121bc52..d2e0938 100644
  
  	// check if the new player's name is banned but only if bot_banmethod is not 0
  	// this is because if bot_banmethod is 0 and we announce the ban here it's possible for the player to be rejected later because the game is full
-@@ -1811,13 +1897,13 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -1811,13 +1926,13 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  	{
  		// try to find an empty slot
  
@@ -578,7 +732,7 @@ index 121bc52..d2e0938 100644
  
  			if( SID != 255 )
  			{
-@@ -1843,11 +1929,11 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -1843,11 +1958,11 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  			// the owner player is trying to join the game but it's full and we couldn't even find a reserved slot, kick the player in the lowest numbered slot
  			// updated this to try to find a player slot so that we don't end up kicking a computer
  
@@ -592,7 +746,7 @@ index 121bc52..d2e0938 100644
  				{
  					SID = i;
  					break;
-@@ -1939,7 +2025,14 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -1939,7 +2054,14 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  		m_Slots[SID] = EnforceSlot;
  	else
  	{
@@ -608,7 +762,7 @@ index 121bc52..d2e0938 100644
  			m_Slots[SID] = CGameSlot( Player->GetPID( ), 255, SLOTSTATUS_OCCUPIED, 0, m_Slots[SID].GetTeam( ), m_Slots[SID].GetColour( ), m_Slots[SID].GetRace( ) );
  		else
  		{
-@@ -1971,6 +2064,8 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -1971,6 +2093,8 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  		}
  	}
  
@@ -617,7 +771,7 @@ index 121bc52..d2e0938 100644
  	// send slot info to the new player
  	// the SLOTINFOJOIN packet also tells the client their assigned PID and that the join was successful
  
-@@ -2083,6 +2178,8 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
+@@ -2083,6 +2207,8 @@ void CBaseGame :: EventPlayerJoined( CPotentialPlayer *potential, CIncomingJoinP
  
  void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CIncomingJoinPlayer *joinPlayer, double score )
  {
@@ -626,7 +780,7 @@ index 121bc52..d2e0938 100644
  	// this function is only called when matchmaking is enabled
  	// EventPlayerJoined will be called first in all cases
  	// if matchmaking is enabled EventPlayerJoined will start a database query to retrieve the player's score and keep the connection open while we wait
-@@ -2109,6 +2206,15 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2109,6 +2235,15 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  		return;
  	}
  
@@ -642,7 +796,7 @@ index 121bc52..d2e0938 100644
  	// check if the new player's score is within the limits
  
  	if( score > -99999.0 && ( score < m_MinimumScore || score > m_MaximumScore ) )
-@@ -2121,7 +2227,7 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2121,7 +2256,7 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  
  	// try to find an empty slot
  
@@ -651,7 +805,7 @@ index 121bc52..d2e0938 100644
  
  	// check if the player is an admin or root admin on any connected realm for determining reserved status
  	// we can't just use the spoof checked realm like in EventPlayerBotCommand because the player hasn't spoof checked yet
-@@ -2212,6 +2318,12 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2212,6 +2347,12 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  			// kick the furthest player
  
  			SID = GetSIDFromPID( FurthestPlayer->GetPID( ) );
@@ -664,7 +818,7 @@ index 121bc52..d2e0938 100644
  			FurthestPlayer->SetDeleteMe( true );
  
  			if( FurthestPlayer->GetScore( ) < -99999.0 )
-@@ -2272,6 +2384,12 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2272,6 +2413,12 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  			// kick the lowest player
  
  			SID = GetSIDFromPID( LowestPlayer->GetPID( ) );
@@ -677,7 +831,7 @@ index 121bc52..d2e0938 100644
  			LowestPlayer->SetDeleteMe( true );
  
  			if( LowestPlayer->GetScore( ) < -99999.0 )
-@@ -2307,44 +2425,6 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2307,44 +2454,6 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  	if( GetNumPlayers( ) >= 11 )
  		DeleteVirtualHost( );
  
@@ -722,7 +876,7 @@ index 121bc52..d2e0938 100644
  	CONSOLE_Print( "[GAME: " + m_GameName + "] player [" + joinPlayer->GetName( ) + "|" + potential->GetExternalIPString( ) + "] joined the game" );
  	CGamePlayer *Player = new CGamePlayer( potential, GetNewPID( ), JoinedRealm, joinPlayer->GetName( ), joinPlayer->GetInternalIP( ), false );
  
-@@ -2359,7 +2439,16 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
+@@ -2359,7 +2468,16 @@ void CBaseGame :: EventPlayerJoinedWithScore( CPotentialPlayer *potential, CInco
  	m_Players.push_back( Player );
  	potential->SetSocket( NULL );
  	potential->SetDeleteMe( true );
@@ -740,7 +894,7 @@ index 121bc52..d2e0938 100644
  
  	// send slot info to the new player
  	// the SLOTINFOJOIN packet also tells the client their assigned PID and that the join was successful
-@@ -2830,7 +2919,8 @@ void CBaseGame :: EventPlayerChatToHost( CGamePlayer *player, CIncomingChatPlaye
+@@ -2830,7 +2948,8 @@ void CBaseGame :: EventPlayerChatToHost( CGamePlayer *player, CIncomingChatPlaye
  
  			if( Message == "?trigger" )
  				SendChat( player, m_GHost->m_Language->CommandTrigger( string( 1, m_GHost->m_CommandTrigger ) ) );
@@ -750,7 +904,7 @@ index 121bc52..d2e0938 100644
  			{
  				// extract the command trigger, the command, and the payload
  				// e.g. "!say hello world" -> command: "say", payload: "hello world"
-@@ -2879,12 +2969,34 @@ bool CBaseGame :: EventPlayerBotCommand( CGamePlayer *player, string command, st
+@@ -2879,12 +2998,34 @@ bool CBaseGame :: EventPlayerBotCommand( CGamePlayer *player, string command, st
  
  void CBaseGame :: EventPlayerChangeTeam( CGamePlayer *player, unsigned char team )
  {
@@ -786,7 +940,7 @@ index 121bc52..d2e0938 100644
  	{
  		unsigned char oldSID = GetSIDFromPID( player->GetPID( ) );
  		unsigned char newSID = GetEmptySlot( team, player->GetPID( ) );
-@@ -2941,10 +3053,16 @@ void CBaseGame :: EventPlayerChangeTeam( CGamePlayer *player, unsigned char team
+@@ -2941,10 +3082,16 @@ void CBaseGame :: EventPlayerChangeTeam( CGamePlayer *player, unsigned char team
  			SendAllSlotInfo( );
  		}
  	}
@@ -803,7 +957,7 @@ index 121bc52..d2e0938 100644
  	// player is requesting a colour change
  
  	if( m_SaveGame )
-@@ -2971,6 +3089,7 @@ void CBaseGame :: EventPlayerChangeColour( CGamePlayer *player, unsigned char co
+@@ -2971,6 +3118,7 @@ void CBaseGame :: EventPlayerChangeColour( CGamePlayer *player, unsigned char co
  
  void CBaseGame :: EventPlayerChangeRace( CGamePlayer *player, unsigned char race )
  {
@@ -811,7 +965,7 @@ index 121bc52..d2e0938 100644
  	// player is requesting a race change
  
  	if( m_SaveGame )
-@@ -2996,6 +3115,7 @@ void CBaseGame :: EventPlayerChangeRace( CGamePlayer *player, unsigned char race
+@@ -2996,6 +3144,7 @@ void CBaseGame :: EventPlayerChangeRace( CGamePlayer *player, unsigned char race
  
  void CBaseGame :: EventPlayerChangeHandicap( CGamePlayer *player, unsigned char handicap )
  {
@@ -819,25 +973,73 @@ index 121bc52..d2e0938 100644
  	// player is requesting a handicap change
  
  	if( m_SaveGame )
-@@ -3166,6 +3286,17 @@ void CBaseGame :: EventGameRefreshed( string server )
+@@ -3164,9 +3313,64 @@ void CBaseGame :: EventGameRefreshed( string server )
+ 	}
+ }
  
++// The game loop is single-threaded. Set the fence before publishing the
++// durable close; the old identity can never reach EventGameStarted afterwards.
++bool CBaseGame :: FenceNativeLobby( )
++{
++    if( !m_GHost->m_StartReservationGate || m_GHost->m_CurrentGame != this || m_GameLoading || m_GameLoaded ) return true;
++    if( m_NativeFenced ) return m_NativeCloseRecorded;
++    m_NativeFenced = true;
++    // Exhausted counters are never reservable; ambiguous start journal errors
++    // must never be converted into proof that no start was committed.
++    if( m_HostCounter == 0 || m_HostCounter > 0x0fffffff ) { m_NativeCloseRecorded = true; return true; }
++    if( !m_GHost->m_LifecycleWriteFailed && m_GHost->PersistNativeLobbyClosed( m_HostCounter, m_NativeCatalogRequestID, m_NativeCatalogDigest, m_NativeCatalogIndex ) )
++    {
++        m_NativeCloseRecorded = true;
++        return true;
++    }
++    CONSOLE_Print( "[GHOST] lifecycle close write failed; disabling new games" );
++    m_Exiting = true;
++    m_GHost->m_Enabled = false;
++    if( !m_GHost->m_LifecycleWriteFailed && m_GHost->m_NativeCatalogOnly ) m_GHost->CountNativeRotationError( );
++		m_GHost->m_LifecycleWriteFailed = true;
++    return false;
++}
++
++void CBaseGame :: ResetNativeLobbyFence( )
++{
++    m_NativeFenced = m_NativeCloseRecorded = false;
++}
++
  void CBaseGame :: EventGameStarted( )
  {
+-	CONSOLE_Print( "[GAME: " + m_GameName + "] started loading with " + UTIL_ToString( GetNumHumanPlayers( ) ) + " players" );
 +	RestoreNativeRefresh( );
-+	if( m_GameLoading || m_GameLoaded ) return;
++	if( m_GameLoading || m_GameLoaded || m_NativeFenced || m_GHost->m_LifecycleWriteFailed ) return;
 +	if( m_CountDownStarted )
 +	{
 +		UpdateNativeGameplay( );
 +		if( !m_CountDownStarted ) return;
 +	}
++	// Check at the final transition, including force-start and test callers.
++	// A denied reservation cancels this lobby's countdown only; running games
++	// continue and the host stays available for a later explicit retry.
++	if( !m_GHost->NativeStartReserved( m_HostCounter ) )
++	{
++		bool wasCounting = m_CountDownStarted;
++		m_CountDownStarted = false;
++		m_CountDownCounter = 0;
++		CancelNativeVote( "cancelled while waiting for reservation", false );
++		m_CountdownKind = 0;
++		if( wasCounting ) SendAllChat( "Countdown cancelled: waiting for match reservation." );
++		return;
++	}
 +	m_StartVotes.clear( );
 +	m_VoteActive = m_VoteCooling = false;
 +	m_CountdownKind = 0;
-+	if( m_GHost->m_CurrentGame == this ) m_GHost->m_ExternalPublisher->StopCurrent( );
- 	CONSOLE_Print( "[GAME: " + m_GameName + "] started loading with " + UTIL_ToString( GetNumHumanPlayers( ) ) + " players" );
++	if( m_GHost->m_LifecycleDirectory.empty( ) )
++	{
++		if( m_GHost->m_CurrentGame == this ) m_GHost->m_ExternalPublisher->StopCurrent( );
++		CONSOLE_Print( "[GAME: " + m_GameName + "] started loading with " + UTIL_ToString( GetNumHumanPlayers( ) ) + " players" );
++	}
  
  	// encode the HCL command string in the slot handicaps
-@@ -3212,7 +3343,11 @@ void CBaseGame :: EventGameStarted( )
+ 	// here's how it works:
+@@ -3212,7 +3416,11 @@ void CBaseGame :: EventGameStarted( )
  
  					unsigned char HandicapIndex = ( m_Slots[CurrentSlot].GetHandicap( ) - 50 ) / 10;
  					unsigned char CharIndex = HCLChars.find( *si );
@@ -850,7 +1052,34 @@ index 121bc52..d2e0938 100644
  				}
  
  				SendAllSlotInfo( );
-@@ -3635,7 +3770,7 @@ unsigned char CBaseGame :: GetHostPID( )
+@@ -3234,9 +3442,25 @@ void CBaseGame :: EventGameStarted( )
+ 	if( m_SlotInfoChanged )
+ 		SendAllSlotInfo( );
+ 
++	// Commit the loading transition before publication or start packets.
++	m_GameLoading = true;
++	if( m_GHost->m_CurrentGame == this && !m_GHost->PersistNativeGameStarted( m_HostCounter, m_NativeMatchID ) )
++	{
++		CONSOLE_Print( "[GHOST] lifecycle journal write failed; closing lobby and disabling new games" );
++		m_GameLoading = false;
++		m_Exiting = true;
++		m_GHost->m_Enabled = false;
++		if( !m_GHost->m_LifecycleWriteFailed && m_GHost->m_NativeCatalogOnly ) m_GHost->CountNativeRotationError( );
++		m_GHost->m_LifecycleWriteFailed = true;
++		return;
++	}
++	if( !m_GHost->m_LifecycleDirectory.empty( ) )
++	{
++		if( m_GHost->m_CurrentGame == this ) m_GHost->m_ExternalPublisher->StopCurrent( );
++		CONSOLE_Print( "[GAME: " + m_GameName + "] started loading with " + UTIL_ToString( GetNumHumanPlayers( ) ) + " players" );
++	}
+ 	m_StartedLoadingTicks = GetTicks( );
+ 	m_LastLagScreenResetTime = GetTime( );
+-	m_GameLoading = true;
+ 
+ 	// since we use a fake countdown to deal with leavers during countdown the COUNTDOWN_START and COUNTDOWN_END packets are sent in quick succession
+ 	// send a start countdown packet
+@@ -3635,7 +3859,7 @@ unsigned char CBaseGame :: GetHostPID( )
  	return 255;
  }
  
@@ -859,7 +1088,7 @@ index 121bc52..d2e0938 100644
  {
  	if( m_Slots.size( ) > 255 )
  		return 255;
-@@ -3662,7 +3797,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3662,7 +3886,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  
                  for( unsigned char i = 0; i < m_Slots.size( ); ++i )
  		{
@@ -868,7 +1097,7 @@ index 121bc52..d2e0938 100644
  				return i;
  		}
  
-@@ -3672,7 +3807,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3672,7 +3896,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  
                          for( unsigned char i = 0; i < m_Slots.size( ); ++i )
  			{
@@ -877,7 +1106,7 @@ index 121bc52..d2e0938 100644
  					return i;
  			}
  
-@@ -3686,7 +3821,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3686,7 +3910,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  			{
  				CGamePlayer *Player = GetPlayerFromSID( i );
  
@@ -886,7 +1115,7 @@ index 121bc52..d2e0938 100644
  				{
  					LeastDownloaded = m_Slots[i].GetDownloadStatus( );
  					LeastSID = i;
-@@ -3702,7 +3837,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3702,7 +3926,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  			{
  				CGamePlayer *Player = GetPlayerFromSID( i );
  
@@ -895,7 +1124,7 @@ index 121bc52..d2e0938 100644
  					return i;
  			}
  		}
-@@ -3772,10 +3907,12 @@ unsigned char CBaseGame :: GetEmptySlot( unsigned char team, unsigned char PID )
+@@ -3772,10 +3996,12 @@ unsigned char CBaseGame :: GetEmptySlot( unsigned char team, unsigned char PID )
  
  void CBaseGame :: SwapSlots( unsigned char SID1, unsigned char SID2 )
  {
@@ -908,7 +1137,7 @@ index 121bc52..d2e0938 100644
  
  		if( m_Map->GetMapOptions( ) & MAPOPT_FIXEDPLAYERSETTINGS )
  		{
-@@ -3798,12 +3935,16 @@ void CBaseGame :: SwapSlots( unsigned char SID1, unsigned char SID2 )
+@@ -3798,12 +4024,16 @@ void CBaseGame :: SwapSlots( unsigned char SID1, unsigned char SID2 )
  			m_Slots[SID2] = Slot1;
  		}
  
@@ -925,7 +1154,7 @@ index 121bc52..d2e0938 100644
  	if( SID < m_Slots.size( ) )
  	{
  		if( kick )
-@@ -3819,13 +3960,20 @@ void CBaseGame :: OpenSlot( unsigned char SID, bool kick )
+@@ -3819,13 +4049,20 @@ void CBaseGame :: OpenSlot( unsigned char SID, bool kick )
  		}
  
  		CGameSlot Slot = m_Slots[SID];
@@ -947,7 +1176,7 @@ index 121bc52..d2e0938 100644
  	if( SID < m_Slots.size( ) )
  	{
  		if( kick )
-@@ -3848,6 +3996,7 @@ void CBaseGame :: CloseSlot( unsigned char SID, bool kick )
+@@ -3848,6 +4085,7 @@ void CBaseGame :: CloseSlot( unsigned char SID, bool kick )
  
  void CBaseGame :: ComputerSlot( unsigned char SID, unsigned char skill, bool kick )
  {
@@ -955,7 +1184,7 @@ index 121bc52..d2e0938 100644
  	if( SID < m_Slots.size( ) && skill < 3 )
  	{
  		if( kick )
-@@ -3863,15 +4012,18 @@ void CBaseGame :: ComputerSlot( unsigned char SID, unsigned char skill, bool kic
+@@ -3863,15 +4101,18 @@ void CBaseGame :: ComputerSlot( unsigned char SID, unsigned char skill, bool kic
  		}
  
  		CGameSlot Slot = m_Slots[SID];
@@ -975,7 +1204,7 @@ index 121bc52..d2e0938 100644
  		// make sure the requested colour isn't already taken
  
  		bool Taken = false;
-@@ -3895,6 +4047,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
+@@ -3895,6 +4136,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
  
  			m_Slots[TakenSID].SetColour( m_Slots[SID].GetColour( ) );
  			m_Slots[SID].SetColour( colour );
@@ -983,7 +1212,7 @@ index 121bc52..d2e0938 100644
  			SendAllSlotInfo( );
  		}
  		else if( !Taken )
-@@ -3902,6 +4055,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
+@@ -3902,6 +4144,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
  			// the requested colour isn't used by ANY slot
  
  			m_Slots[SID].SetColour( colour );
@@ -991,7 +1220,7 @@ index 121bc52..d2e0938 100644
  			SendAllSlotInfo( );
  		}
  	}
-@@ -3909,6 +4063,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
+@@ -3909,6 +4152,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
  
  void CBaseGame :: OpenAllSlots( )
  {
@@ -999,7 +1228,7 @@ index 121bc52..d2e0938 100644
  	bool Changed = false;
  
          for( vector<CGameSlot> :: iterator i = m_Slots.begin( ); i != m_Slots.end( ); ++i )
-@@ -3926,6 +4081,7 @@ void CBaseGame :: OpenAllSlots( )
+@@ -3926,6 +4170,7 @@ void CBaseGame :: OpenAllSlots( )
  
  void CBaseGame :: CloseAllSlots( )
  {
@@ -1007,7 +1236,7 @@ index 121bc52..d2e0938 100644
  	bool Changed = false;
  
          for( vector<CGameSlot> :: iterator i = m_Slots.begin( ); i != m_Slots.end( ); ++i )
-@@ -3943,6 +4099,7 @@ void CBaseGame :: CloseAllSlots( )
+@@ -3943,6 +4188,7 @@ void CBaseGame :: CloseAllSlots( )
  
  void CBaseGame :: ShuffleSlots( )
  {
@@ -1015,7 +1244,7 @@ index 121bc52..d2e0938 100644
  	// we only want to shuffle the player slots
  	// that means we need to prevent this function from shuffling the open/closed/computer slots too
  	// so we start by copying the player slots to a temporary vector
-@@ -4102,6 +4259,8 @@ vector<unsigned char> CBaseGame :: BalanceSlotsRecursive( vector<unsigned char>
+@@ -4102,6 +4348,8 @@ vector<unsigned char> CBaseGame :: BalanceSlotsRecursive( vector<unsigned char>
  
  void CBaseGame :: BalanceSlots( )
  {
@@ -1024,7 +1253,7 @@ index 121bc52..d2e0938 100644
  	if( !( m_Map->GetMapOptions( ) & MAPOPT_FIXEDPLAYERSETTINGS ) )
  	{
  		CONSOLE_Print( "[GAME: " + m_GameName + "] error balancing slots - can't balance slots without fixed player settings" );
-@@ -4276,6 +4435,7 @@ void CBaseGame :: AddToSpoofed( string server, string name, bool sendMessage )
+@@ -4276,6 +4524,7 @@ void CBaseGame :: AddToSpoofed( string server, string name, bool sendMessage )
  
  void CBaseGame :: AddToReserved( string name )
  {
@@ -1032,7 +1261,7 @@ index 121bc52..d2e0938 100644
  	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
  
  	// check that the user is not already reserved
-@@ -4346,12 +4506,19 @@ void CBaseGame :: SaveGameData( )
+@@ -4346,12 +4595,19 @@ void CBaseGame :: SaveGameData( )
  
  void CBaseGame :: StartCountDown( bool force )
  {
@@ -1046,27 +1275,56 @@ index 121bc52..d2e0938 100644
  		{
  			m_CountDownStarted = true;
 -			m_CountDownCounter = 10;
-+			m_CountDownCounter = m_GHost->m_CountDownSeconds * 2;
++			m_CountDownCounter = m_NativeGameplay.CountDownSeconds * 2;
 +			m_LastCountDownTicks = GetTicks( );
 +			m_CountdownComposition = NativeComposition( );
 +			if( !m_CountdownKind ) m_CountdownKind = 3;
  		}
  		else
  		{
-@@ -4431,7 +4598,10 @@ void CBaseGame :: StartCountDown( bool force )
+@@ -4431,24 +4687,59 @@ void CBaseGame :: StartCountDown( bool force )
  			if( StillDownloading.empty( ) && NotSpoofChecked.empty( ) && NotPinged.empty( ) )
  			{
  				m_CountDownStarted = true;
 -				m_CountDownCounter = 10;
-+				m_CountDownCounter = m_GHost->m_CountDownSeconds * 2;
++				m_CountDownCounter = m_NativeGameplay.CountDownSeconds * 2;
 +				m_LastCountDownTicks = GetTicks( );
 +				m_CountdownComposition = NativeComposition( );
 +				if( !m_CountdownKind ) m_CountdownKind = 3;
  			}
  		}
  	}
-@@ -4439,16 +4609,22 @@ void CBaseGame :: StartCountDown( bool force )
+ }
  
++// Per-game monotonic display timer; no message body or player list is cached.
++void CBaseGame :: ScheduleNativeVoteReminder( )
++{
++    if(!m_NativeGameplay.VoteEnabled || m_CountDownStarted || m_GameLoading || m_GameLoaded || m_Exiting || m_SaveGame || m_NativeVoteReminderDueMS) return;
++    uint64_t now=NativeMonotonicMS();
++    if(!now) return;
++    m_NativeVoteReminderDueMS=now+3500;
++    if(m_NativeVoteReminderLastSentMS && m_NativeVoteReminderDueMS<m_NativeVoteReminderLastSentMS+10000)
++        m_NativeVoteReminderDueMS=m_NativeVoteReminderLastSentMS+10000;
++}
++
++void CBaseGame :: UpdateNativeVoteReminder( )
++{
++    if(!m_NativeGameplay.VoteEnabled || m_CountDownStarted || m_GameLoading || m_GameLoaded || m_Exiting || m_SaveGame)
++    { m_NativeVoteReminderDueMS=0; return; }
++    uint64_t now=NativeMonotonicMS();
++    if(!now) { m_NativeVoteReminderDueMS=0; return; }
++    // With auto-start off, continue the same approximate ten-second reminder
++    // cadence independently; repeated event-loop calls never postpone a due.
++    if(!m_NativeVoteReminderDueMS && !NativeAutoStartPlayers())
++        m_NativeVoteReminderDueMS=m_NativeVoteReminderLastSentMS ? m_NativeVoteReminderLastSentMS+10000 : now+10000;
++    if(!m_NativeVoteReminderDueMS || now<m_NativeVoteReminderDueMS) return;
++    m_NativeVoteReminderDueMS=0;
++    m_NativeVoteReminderLastSentMS=now;
++    uint32_t humans=(uint32_t)NativeEligiblePlayers().size();
++    if(humans)
++        SendAllChat(NativeHumanRequirement("Voting requires at least ",max(m_NativeGameplay.VoteMinPlayers,NativeMinimumHumans()),humans)+" Type !vote when ready.");
++}
++
  void CBaseGame :: StartCountDownAuto( bool requireSpoofChecks )
  {
 +	if( !NativeAutoStartPlayers( ) ) return;
@@ -1074,11 +1332,8 @@ index 121bc52..d2e0938 100644
 +	uint32_t humans = NativeEligiblePlayers( ).size( );
 +	if( humans < NativeAutoStartPlayers( ) )
 +	{
-+		string notice = NativeHumanRequirement( "Auto-start requires ", NativeAutoStartPlayers( ), humans );
-+		if( m_GHost->m_VoteEnabled )
-+			notice += " " + NativeHumanRequirement( "Voting requires at least ", max( m_GHost->m_VoteMinPlayers, NativeMinimumHumans( ) ), humans ) + " Type !vote when ready.";
-+		else notice += " Voting is disabled.";
-+		SendAllChat( notice );
++		SendAllChat( NativeHumanRequirement( "Auto-start requires ", NativeAutoStartPlayers( ), humans ) );
++		ScheduleNativeVoteReminder( );
 +		return;
 +	}
 +	string reason;
@@ -1096,14 +1351,14 @@ index 121bc52..d2e0938 100644
  		// check if everyone has the map
  
  		string StillDownloading;
-@@ -4522,14 +4698,19 @@ void CBaseGame :: StartCountDownAuto( bool requireSpoofChecks )
+@@ -4522,14 +4813,19 @@ void CBaseGame :: StartCountDownAuto( bool requireSpoofChecks )
  
  		if( StillDownloading.empty( ) && NotSpoofChecked.empty( ) && NotPinged.empty( ) )
  		{
 +			RestoreNativeRefresh( );
  			m_CountDownStarted = true;
 -			m_CountDownCounter = 10;
-+			m_CountDownCounter = m_GHost->m_CountDownSeconds * 2;
++			m_CountDownCounter = m_NativeGameplay.CountDownSeconds * 2;
 +			m_LastCountDownTicks = GetTicks( );
 +			m_CountdownComposition = NativeComposition( );
 +			if( !m_CountdownKind ) m_CountdownKind = 3;
@@ -1117,7 +1372,7 @@ index 121bc52..d2e0938 100644
  	// disconnect every player and set their left reason to the passed string
  	// we use this function when we want the code in the Update function to run before the destructor (e.g. saving players to the database)
  	// therefore calling this function when m_GameLoading || m_GameLoaded is roughly equivalent to setting m_Exiting = true
-@@ -4581,6 +4762,7 @@ void CBaseGame :: DeleteVirtualHost( )
+@@ -4581,6 +4877,7 @@ void CBaseGame :: DeleteVirtualHost( )
  
  void CBaseGame :: CreateFakePlayer( )
  {
@@ -1125,7 +1380,7 @@ index 121bc52..d2e0938 100644
  	if( m_FakePlayerPID != 255 )
  		return;
  
-@@ -4605,6 +4787,7 @@ void CBaseGame :: CreateFakePlayer( )
+@@ -4605,6 +4902,7 @@ void CBaseGame :: CreateFakePlayer( )
  
  void CBaseGame :: DeleteFakePlayer( )
  {
@@ -1133,7 +1388,7 @@ index 121bc52..d2e0938 100644
  	if( m_FakePlayerPID == 255 )
  		return;
  
-@@ -4618,3 +4801,480 @@ void CBaseGame :: DeleteFakePlayer( )
+@@ -4618,3 +4916,486 @@ void CBaseGame :: DeleteFakePlayer( )
  	SendAllSlotInfo( );
  	m_FakePlayerPID = 255;
  }
@@ -1142,17 +1397,17 @@ index 121bc52..d2e0938 100644
 +// before player deletion, so a reconnect/reused PID never inherits a ballot.
 +uint32_t CBaseGame :: NativeMaxPlayers( )
 +{
-+	if( !m_Map ) return min( m_GHost->m_MaxPlayers, m_NativeCapacity );
++	if( !m_Map ) return min( m_NativeGameplay.MaxPlayers, m_NativeCapacity );
 +	vector<CGameSlot> original = m_Map->GetSlots( );
 +	uint32_t slots = 0;
 +	for( size_t i = 0; i < original.size( ); ++i )
 +		if( original[i].GetTeam( ) < 12 && original[i].GetColour( ) < 12 ) ++slots;
-+	return min( m_GHost->m_MaxPlayers, min( m_Map->GetMapNumPlayers( ), slots ) );
++	return min( m_NativeGameplay.MaxPlayers, min( m_Map->GetMapNumPlayers( ), slots ) );
 +}
 +
 +bool CBaseGame :: NativeAIEnabled( )
 +{
-+	return m_NativeAISupported && m_GHost->m_LobbyAISupported && m_GHost->m_LobbyAITarget >= 2 && m_GHost->m_LobbyAITarget <= NativeMaxPlayers( ) && m_GameState == GAME_PUBLIC && !m_SaveGame && m_EnforceSlots.empty( ) && m_EnforcePlayers.empty( );
++	return m_NativeAISupported && m_NativeGameplay.LobbyAISupported && m_NativeGameplay.LobbyAITarget >= 2 && m_NativeGameplay.LobbyAITarget <= NativeMaxPlayers( ) && m_GameState == GAME_PUBLIC && !m_SaveGame && m_EnforceSlots.empty( ) && m_EnforcePlayers.empty( );
 +}
 +
 +uint32_t CBaseGame :: NativeComputerPlayers( )
@@ -1232,7 +1487,7 @@ index 121bc52..d2e0938 100644
 +	}
 +	set<unsigned char> humans = NativeEligiblePlayers( );
 +	uint32_t owned = m_NativeAISlots.size( ), other = NativeComputerPlayers( ) - owned;
-+	uint32_t wanted = m_GHost->m_LobbyAITarget > humans.size( ) + other ? m_GHost->m_LobbyAITarget - humans.size( ) - other : 0;
++	uint32_t wanted = m_NativeGameplay.LobbyAITarget > humans.size( ) + other ? m_NativeGameplay.LobbyAITarget - humans.size( ) - other : 0;
 +	uint32_t headroom = NativeReservedHeadroom( ), free = 0;
 +	vector<CGameSlot> original = m_Map->GetSlots( );
 +	for( size_t i = 0; i < m_Slots.size( ); ++i )
@@ -1273,7 +1528,7 @@ index 121bc52..d2e0938 100644
 +		RestoreNativeRefresh( );
 +		CGameSlot empty = m_Slots[chosen], computer = empty;
 +		computer.SetPID( 0 ); computer.SetDownloadStatus( 100 ); computer.SetSlotStatus( SLOTSTATUS_OCCUPIED );
-+		computer.SetComputer( 1 ); computer.SetComputerType( m_GHost->m_LobbyAISkill );
++		computer.SetComputer( 1 ); computer.SetComputerType( m_NativeGameplay.LobbyAISkill );
 +		m_Slots[chosen] = computer;
 +		m_NativeAISlots.insert( make_pair( chosen, make_pair( empty, computer ) ) );
 +		++owned; --free; changed = true;
@@ -1289,7 +1544,7 @@ index 121bc52..d2e0938 100644
 +bool CBaseGame :: NativeSingleHumanAIOpponent( )
 +{
 +	// Computer rows survive map-data deletion at load; they are not client connections.
-+	if( !NativeAIEnabled( ) || m_GHost->m_LobbyMinHumans != 1 || m_Exiting ) return false;
++	if( !NativeAIEnabled( ) || m_NativeGameplay.LobbyMinHumans != 1 || m_Exiting ) return false;
 +	set<unsigned char> humans = NativeEligiblePlayers( );
 +	if( humans.size( ) != 1 ) return false;
 +	unsigned char sid = GetSIDFromPID( *humans.begin( ) );
@@ -1301,7 +1556,7 @@ index 121bc52..d2e0938 100644
 +
 +uint32_t CBaseGame :: NativeMinimumHumans( )
 +{
-+	return NativeAIEnabled( ) ? m_GHost->m_LobbyMinHumans : max( (uint32_t)2, m_GHost->m_LobbyMinHumans );
++	return NativeAIEnabled( ) ? m_NativeGameplay.LobbyMinHumans : max( (uint32_t)2, m_NativeGameplay.LobbyMinHumans );
 +}
 +
 +// Project the population using the slot layout that the join handler will assign.
@@ -1329,7 +1584,7 @@ index 121bc52..d2e0938 100644
 +
 +uint32_t CBaseGame :: NativeAutoStartPlayers( )
 +{
-+	return m_GHost->m_AutoStartEnabled && m_AutoStartPlayers ? min( m_AutoStartPlayers, NativeMaxPlayers( ) ) : 0;
++	return m_NativeGameplay.AutoStartEnabled && m_AutoStartPlayers ? min( m_AutoStartPlayers, NativeMaxPlayers( ) ) : 0;
 +}
 +
 +set<unsigned char> CBaseGame :: NativeEligiblePlayers( )
@@ -1347,7 +1602,7 @@ index 121bc52..d2e0938 100644
 +
 +uint32_t CBaseGame :: NativeVotesRequired( )
 +{
-+	return max( (uint32_t)( m_GHost->m_VoteMinPlayers == 1 && NativeSingleHumanAIReady( ) ? 1 : 2 ), ( (uint32_t)NativeEligiblePlayers( ).size( ) * m_GHost->m_VoteRequiredPercent + 99 ) / 100 );
++	return max( (uint32_t)( m_NativeGameplay.VoteMinPlayers == 1 && NativeSingleHumanAIReady( ) ? 1 : 2 ), ( (uint32_t)NativeEligiblePlayers( ).size( ) * m_NativeGameplay.VoteRequiredPercent + 99 ) / 100 );
 +}
 +
 +BYTEARRAY CBaseGame :: NativeComposition( )
@@ -1362,7 +1617,7 @@ index 121bc52..d2e0938 100644
 +
 +bool CBaseGame :: NativeStartReady( string &reason )
 +{
-+	if( m_Exiting || m_GameLoading || m_GameLoaded || !m_Map->GetValid( ) || !m_GHost->m_Phase3ConfigValid ) { reason = "game is unavailable."; return false; }
++	if( m_Exiting || m_GameLoading || m_GameLoaded || !m_Map->GetValid( ) || !m_NativeGameplay.Phase3ConfigValid ) { reason = "game is unavailable."; return false; }
 +	set<unsigned char> eligible = NativeEligiblePlayers( );
 +	if( eligible.size( ) < NativeMinimumHumans( ) ) { reason = "we need more players before starting."; return false; }
 +	if( eligible.size( ) == 1 && !NativeSingleHumanAIReady( ) ) { reason = "a computer opponent is needed for a solo game."; return false; }
@@ -1430,7 +1685,7 @@ index 121bc52..d2e0938 100644
 +		m_StartVotes.clear( ); m_VoteActive = m_VoteCooling = false; m_CountdownKind = 0;
 +		return;
 +	}
-+	if( m_VoteCooling && GetTicks( ) - m_VoteCooldownTicks >= m_GHost->m_VoteCooldown * 1000 ) m_VoteCooling = false;
++	if( m_VoteCooling && GetTicks( ) - m_VoteCooldownTicks >= m_NativeGameplay.VoteCooldown * 1000 ) m_VoteCooling = false;
 +	if( !m_CountDownStarted && m_CountdownKind )
 +	{
 +		// The existing join/leave/abort handlers can cancel a countdown first.
@@ -1441,7 +1696,7 @@ index 121bc52..d2e0938 100644
 +	{
 +		string reason;
 +		bool valid = NativeStartReady( reason ) && NativeComposition( ) == m_CountdownComposition;
-+		if( m_CountdownKind == 1 ) valid = valid && eligible.size( ) >= max( m_GHost->m_VoteMinPlayers, NativeMinimumHumans( ) ) && m_StartVotes.size( ) >= NativeVotesRequired( );
++		if( m_CountdownKind == 1 ) valid = valid && eligible.size( ) >= max( m_NativeGameplay.VoteMinPlayers, NativeMinimumHumans( ) ) && m_StartVotes.size( ) >= NativeVotesRequired( );
 +		if( m_CountdownKind == 2 ) valid = valid && NativeAutoStartPlayers( ) && eligible.size( ) >= NativeAutoStartPlayers( );
 +		if( !valid )
 +		{
@@ -1456,8 +1711,8 @@ index 121bc52..d2e0938 100644
 +	}
 +	if( m_VoteActive )
 +	{
-+		if( !m_GHost->m_VoteEnabled || eligible.size( ) < max( m_GHost->m_VoteMinPlayers, NativeMinimumHumans( ) ) || m_SaveGame ) CancelNativeVote( "cancelled because we need more players" );
-+		else if( GetTicks( ) - m_VoteStartedTicks >= m_GHost->m_VoteTimeout * 1000 ) CancelNativeVote( "timed out" );
++		if( !m_NativeGameplay.VoteEnabled || eligible.size( ) < max( m_NativeGameplay.VoteMinPlayers, NativeMinimumHumans( ) ) || m_SaveGame ) CancelNativeVote( "cancelled because we need more players" );
++		else if( GetTicks( ) - m_VoteStartedTicks >= m_NativeGameplay.VoteTimeout * 1000 ) CancelNativeVote( "timed out" );
 +		else if( m_StartVotes.size( ) >= NativeVotesRequired( ) )
 +		{
 +			m_CountdownKind = 1;
@@ -1465,12 +1720,12 @@ index 121bc52..d2e0938 100644
 +			if( m_CountDownStarted )
 +			{
 +				m_VoteActive = false;
-+				SendAllChat( "Vote passed! The game starts in " + UTIL_ToString( m_GHost->m_CountDownSeconds ) + ( m_GHost->m_CountDownSeconds == 1 ? " second." : " seconds." ) );
++				SendAllChat( "Vote passed! The game starts in " + UTIL_ToString( m_NativeGameplay.CountDownSeconds ) + ( m_NativeGameplay.CountDownSeconds == 1 ? " second." : " seconds." ) );
 +			}
 +			else { CancelNativeVote( "passed. Complete the readiness checks above, then type !vote again" ); m_CountdownKind = 0; }
 +		}
 +	}
-+	if( !m_CountDownStarted && m_NativeRefreshSID == 255 && m_GHost->m_LobbyRefreshEnabled && GetTicks( ) - m_LastLobbyRefreshTicks >= m_GHost->m_LobbyRefreshInterval * 1000 )
++	if( !m_CountDownStarted && m_NativeRefreshSID == 255 && m_NativeGameplay.LobbyRefreshEnabled && GetTicks( ) - m_LastLobbyRefreshTicks >= m_NativeGameplay.LobbyRefreshInterval * 1000 )
 +	{
 +		m_LastLobbyRefreshTicks = GetTicks( );
 +		NativeRefresh( );
@@ -1483,10 +1738,10 @@ index 121bc52..d2e0938 100644
 +	if( !player || player->GetDeleteMe( ) ) return;
 +	set<unsigned char> eligible = NativeEligiblePlayers( );
 +	string message, reason;
-+	if( !m_GHost->m_VoteEnabled ) message = "Voting is disabled.";
++	if( !m_NativeGameplay.VoteEnabled ) message = "Voting is disabled.";
 +	else if( m_GameLoading || m_GameLoaded || m_CountDownStarted || m_SaveGame ) message = "Voting is unavailable while the game is starting or running.";
 +	else if( !eligible.count( player->GetPID( ) ) ) message = "Only players taking part in the game can vote.";
-+	else if( eligible.size( ) < max( m_GHost->m_VoteMinPlayers, NativeMinimumHumans( ) ) ) message = NativeHumanRequirement( "Voting requires at least ", max( m_GHost->m_VoteMinPlayers, NativeMinimumHumans( ) ), eligible.size( ) );
++	else if( eligible.size( ) < max( m_NativeGameplay.VoteMinPlayers, NativeMinimumHumans( ) ) ) message = NativeHumanRequirement( "Voting requires at least ", max( m_NativeGameplay.VoteMinPlayers, NativeMinimumHumans( ) ), eligible.size( ) );
 +	else if( eligible.size( ) == 1 && !NativeStartReady( reason ) ) message = "Cannot start yet: " + reason;
 +	else if( m_VoteCooling ) message = "Please wait before starting another vote.";
 +	else if( m_StartVotes.count( player->GetPID( ) ) ) message = "You already voted.";
@@ -1524,6 +1779,8 @@ index 121bc52..d2e0938 100644
 +	uint32_t countdown = m_CountDownStarted && !m_GameLoading && !m_GameLoaded ? ( m_CountDownCounter + 1 ) / 2 : 0;
 +	SendChat( player, m_GHost->m_StatusName + " | iCCup: " + ( m_GHost->m_NativeOnline ? "Online" : "Offline" ) );
 +	SendChat( player, "Lobby: " + m_GameName + " | Map: " + map );
++	SendChat( player, "Preset: " + m_GHost->NativeStatusPreset( this ) + " | Cycle lobby preset: " + ( m_GHost->m_CurrentGame ? m_GHost->NativeStatusPreset( m_GHost->m_CurrentGame ) : "none" ) );
++	SendChat( player, "Next preset: " + m_GHost->NativeStatusNextPreset( ) + " | Running matches: " + UTIL_ToString( (uint32_t)m_GHost->m_Games.size( ) ) + "/" + UTIL_ToString( m_GHost->m_MaxGames ) );
 +	SendChat( player, "Players: " + UTIL_ToString( (uint32_t)NativeEligiblePlayers( ).size( ) ) + ( NativeAIEnabled( ) ? " humans, " + UTIL_ToString( NativeComputerPlayers( ) ) + " computers" : "/" + UTIL_ToString( NativeMaxPlayers( ) ) ) + " | Autostart: " + ( NativeAutoStartPlayers( ) ? UTIL_ToString( NativeAutoStartPlayers( ) ) + ( NativeAIEnabled( ) ? " humans" : " players" ) : "off" ) + " | Votes: " + UTIL_ToString( (uint32_t)m_StartVotes.size( ) ) + "/" + UTIL_ToString( NativeVotesRequired( ) ) );
 +	SendChat( player, "State: " + string( m_GameLoading || m_GameLoaded ? "In Game" : m_CountDownStarted ? "Starting" : "Waiting" ) + " | Countdown: " + UTIL_ToString( countdown ) + ( countdown == 1 ? " second" : " seconds" ) + " | Uptime: " + hours + ":" + minutes + ":" + seconds );
 +	SendChat( player, "Commands: !vote to start early, !status for game details, !help for help." );
@@ -1605,20 +1862,45 @@ index 121bc52..d2e0938 100644
 +string CBaseGame :: NativeStateJSON( )
 +{
 +	string map = m_NativeMapName;
++	string catalog;
++	if( !m_NativeCatalogRequestID.empty( ) && !m_NativeFenced && m_NativeCatalogCounter == m_HostCounter )
++		catalog = ",\"catalog_request_id\":" + NativeJSONQuote( m_NativeCatalogRequestID ) +
++			",\"catalog_index\":" + UTIL_ToString( m_NativeCatalogIndex );
 +	return "\"phase\":" + NativeJSONQuote( m_GameLoading || m_GameLoaded ? "IN_GAME" : m_CountDownStarted ? "COUNTDOWN" : "LOBBY" ) +
 +		",\"game_name\":" + NativeJSONQuote( m_GameName ) + ",\"map_name\":" + NativeJSONQuote( map ) +
 +		",\"players\":" + UTIL_ToString( (uint32_t)NativeEligiblePlayers( ).size( ) ) +
-+		",\"computer_players\":" + UTIL_ToString( NativeComputerPlayers( ) ) + ",\"ai_target\":" + UTIL_ToString( NativeAIEnabled( ) ? m_GHost->m_LobbyAITarget : 0 ) +
++		",\"computer_players\":" + UTIL_ToString( NativeComputerPlayers( ) ) + ",\"ai_target\":" + UTIL_ToString( NativeAIEnabled( ) ? m_NativeGameplay.LobbyAITarget : 0 ) +
 +		",\"ai_supported\":" + ( NativeAIEnabled( ) ? "true" : "false" ) + ",\"max_players\":" + UTIL_ToString( NativeMaxPlayers( ) ) +
 +		",\"autostart_players\":" + UTIL_ToString( NativeAutoStartPlayers( ) ) + ",\"votes\":" + UTIL_ToString( (uint32_t)m_StartVotes.size( ) ) +
 +		",\"votes_required\":" + UTIL_ToString( NativeVotesRequired( ) ) + ",\"countdown\":" + UTIL_ToString( m_CountDownStarted && !m_GameLoading && !m_GameLoaded ? ( m_CountDownCounter + 1 ) / 2 : 0 ) +
-+		",\"host_counter\":" + UTIL_ToString( m_HostCounter & 0x0FFFFFFF ) + ",\"loading\":" + ( m_GameLoading ? "true" : "false" );
++		",\"host_counter\":" + UTIL_ToString( m_HostCounter & 0x0FFFFFFF ) + ",\"loading\":" + ( m_GameLoading ? "true" : "false" ) + catalog;
 +}
 diff --git a/ghost/game_base.h b/ghost/game_base.h
-index ed6c35a..a378af2 100644
+index ed6c35a..5880980 100644
 --- a/ghost/game_base.h
 +++ b/ghost/game_base.h
-@@ -124,6 +124,22 @@ protected:
+@@ -117,13 +117,44 @@ protected:
+ 	bool m_RefreshRehosted;							// if we just rehosted and are waiting for confirmation that it was successful
+ 	bool m_MuteAll;									// if we should stop forwarding ingame chat messages targeted for all players or not
+ 	bool m_MuteLobby;								// if we should stop forwarding lobby chat messages
++	bool m_NativeFenced, m_NativeCloseRecorded; // current lobby identity only
++	bool m_NativePresetAutoHost; // preserve preset rehost eligibility independently of host defaults
++	string m_NativeCatalogRequestID, m_NativeCatalogDigest, m_NativeMatchID;
++	uint32_t m_NativeCatalogIndex, m_NativeCatalogCounter;
+ 	bool m_CountDownStarted;						// if the game start countdown has started or not
+ 	bool m_GameLoading;								// if the game is currently loading or not
+ 	bool m_GameLoaded;								// if the game has loaded or not
+ 	bool m_LoadInGame;								// if the load-in-game feature is enabled or not
++	// Gameplay defaults are captured once for this lobby/match. Host-wide
++	// services and explicit per-game commands retain their existing semantics.
++	struct NativeGameplaySettings
++	{
++		bool Phase3ConfigValid, VoteEnabled, LobbyRefreshEnabled;
++		bool LobbyAISupported, AutoStartEnabled;
++		uint32_t MaxPlayers, DefaultAutoStartPlayers, VoteRequiredPercent;
++		uint32_t VoteMinPlayers, VoteTimeout, VoteCooldown, LobbyRefreshInterval;
++		uint32_t LobbyAITarget, LobbyAISkill, LobbyMinHumans, CountDownSeconds;
++	} m_NativeGameplay;
  	bool m_Lagging;									// if the lag screen is active or not
  	bool m_AutoSave;								// if we should auto save the game before someone disconnects
  	bool m_MatchMaking;								// if matchmaking mode is enabled
@@ -1628,6 +1910,7 @@ index ed6c35a..a378af2 100644
 +	map<unsigned char,uint32_t> m_PublicCommandTicks;
 +	uint32_t m_VoteStartedTicks, m_VoteCooldownTicks, m_LastLobbyRefreshTicks;
 +	bool m_VoteActive, m_VoteCooling;
++	uint64_t m_NativeVoteReminderDueMS, m_NativeVoteReminderLastSentMS;
 +	unsigned char m_NativeRefreshSID; // 255 when no temporary slot closure is pending
 +	uint32_t m_NativeRefreshTicks;
 +	CGameSlot m_NativeRefreshSlot;
@@ -1641,7 +1924,7 @@ index ed6c35a..a378af2 100644
  	bool m_LocalAdminMessages;						// if local admin messages should be relayed or not
  
  public:
-@@ -151,10 +167,10 @@ public:
+@@ -151,10 +182,19 @@ public:
  	virtual bool GetGameLoaded( )					{ return m_GameLoaded; }
  	virtual bool GetLagging( )						{ return m_Lagging; }
  
@@ -1651,12 +1934,21 @@ index ed6c35a..a378af2 100644
 -	virtual void SetAutoStartPlayers( uint32_t nAutoStartPlayers )		{ m_AutoStartPlayers = nAutoStartPlayers; }
 +	virtual void SetEnforceSlots( vector<CGameSlot> nEnforceSlots )		{ RestoreNativeRefresh( ); m_EnforceSlots = nEnforceSlots; }
 +	virtual void SetEnforcePlayers( vector<PIDPlayer> nEnforcePlayers )	{ RestoreNativeRefresh( ); m_EnforcePlayers = nEnforcePlayers; }
++	bool GetExiting( ) const { return m_Exiting; }
++	const string &NativeMatchID( ) const { return m_NativeMatchID; }
++	const string &NativeCatalogRequestID( ) const { return m_NativeCatalogRequestID; }
++	const string &NativeCatalogDigest( ) const { return m_NativeCatalogDigest; }
++	bool NativeCatalogIndex( uint32_t &index ) const
++	{ if( m_NativeCatalogRequestID.empty( ) || m_NativeCatalogCounter != m_HostCounter || m_NativeCatalogIndex >= 32 ) return false; index = m_NativeCatalogIndex; return true; }
++	void SetNativePresetAutoHost( ) { m_NativePresetAutoHost = true; }
++	void AdoptNativeCatalogProof( string &id, string &digest, uint32_t index )
++	{ m_NativeCatalogRequestID.swap( id ); m_NativeCatalogDigest.swap( digest ); m_NativeCatalogIndex=index; m_NativeCatalogCounter=m_HostCounter; }
 +	virtual void SetExiting( bool nExiting )							{ if( nExiting ) RestoreNativeRefresh( false ); m_Exiting = nExiting; }
 +	virtual void SetAutoStartPlayers( uint32_t nAutoStartPlayers )		{ m_AutoStartPlayers = nAutoStartPlayers == 0 ? 0 : min( max( nAutoStartPlayers, (uint32_t)2 ), NativeMaxPlayers( ) ); }
  	virtual void SetMinimumScore( double nMinimumScore )				{ m_MinimumScore = nMinimumScore; }
  	virtual void SetMaximumScore( double nMaximumScore )				{ m_MaximumScore = nMaximumScore; }
  	virtual void SetRefreshError( bool nRefreshError )					{ m_RefreshError = nRefreshError; }
-@@ -171,6 +187,33 @@ public:
+@@ -171,6 +211,37 @@ public:
  
  	// processing functions
  
@@ -1679,9 +1971,13 @@ index ed6c35a..a378af2 100644
 +	BYTEARRAY NativeComposition( );
 +	bool NativeStartReady( string &reason );
 +	void UpdateNativeGameplay( );
++	bool FenceNativeLobby( );
++	void ResetNativeLobbyFence( );
 +	void CancelNativeVote( const string &reason, bool cooldown = true );
 +	void NativeVote( CGamePlayer *player );
 +	void NativeStatus( CGamePlayer *player, bool diagnostic = false );
++	void ScheduleNativeVoteReminder( );
++	void UpdateNativeVoteReminder( );
 +	bool NativeRefresh( );
 +	void RestoreNativeRefresh( bool publish = true, bool advance = false );
 +	string NativeStateJSON( );
@@ -1690,7 +1986,7 @@ index ed6c35a..a378af2 100644
  	virtual unsigned int SetFD( void *fd, void *send_fd, int *nfds );
  	virtual bool Update( void *fd, void *send_fd );
  	virtual void UpdatePost( void *send_fd );
-@@ -242,7 +285,7 @@ public:
+@@ -242,7 +313,7 @@ public:
  	virtual BYTEARRAY GetPIDs( );
  	virtual BYTEARRAY GetPIDs( unsigned char excludePID );
  	virtual unsigned char GetHostPID( );
@@ -1700,10 +1996,19 @@ index ed6c35a..a378af2 100644
  	virtual void SwapSlots( unsigned char SID1, unsigned char SID2 );
  	virtual void OpenSlot( unsigned char SID, bool kick );
 diff --git a/ghost/ghost.cpp b/ghost/ghost.cpp
-index c723c77..b8fa947 100644
+index c723c77..0d95622 100644
 --- a/ghost/ghost.cpp
 +++ b/ghost/ghost.cpp
-@@ -30,6 +30,7 @@
+@@ -18,6 +18,8 @@
+ 
+ */
+ 
++#include <new>
++#include <stdexcept>
+ #include "ghost.h"
+ #include "util.h"
+ #include "crc32.h"
+@@ -30,6 +32,7 @@
  #include "ghostdbsqlite.h"
  #include "ghostdbmysql.h"
  #include "bnet.h"
@@ -1711,7 +2016,21 @@ index c723c77..b8fa947 100644
  #include "map.h"
  #include "packed.h"
  #include "savegame.h"
-@@ -48,7 +49,7 @@
+@@ -42,13 +45,21 @@
+ 
+ #include <signal.h>
+ #include <stdlib.h>
++#ifndef WIN32
++#include <sys/syscall.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <errno.h>
++#include <linux/fs.h>
++#endif
+ 
+ #ifdef WIN32
+  #include <ws2tcpip.h>		// for WSAIoctl
  #endif
  
  #define __STORMLIB_SELF__
@@ -1720,7 +2039,7 @@ index c723c77..b8fa947 100644
  
  /*
  
-@@ -70,6 +71,7 @@
+@@ -70,6 +81,7 @@
  #include "bnlsclient.h"
  #include "bnetprotocol.h"
  #include "bnet.h"
@@ -1728,7 +2047,7 @@ index c723c77..b8fa947 100644
  #include "map.h"
  #include "packed.h"
  #include "savegame.h"
-@@ -140,36 +142,53 @@ uint32_t GetTicks( )
+@@ -140,36 +152,53 @@ uint32_t GetTicks( )
  #endif
  }
  
@@ -1763,7 +2082,8 @@ index c723c77..b8fa947 100644
 -	signal( SIGINT, SignalCatcher2 );
 +	static sig_atomic_t Handled = 0;
 +	sig_atomic_t Pending = gShutdownSignals;
-+
+ 
+-	CONSOLE_Print( "[!!!] caught signal " + UTIL_ToString( s ) + ", exiting nicely" );
 +	if( Pending > Handled )
 +	{
 +		if( Handled == 0 )
@@ -1772,17 +2092,16 @@ index c723c77..b8fa947 100644
 +			gGHost->m_ExitingNice = true;
 +		}
  
--	CONSOLE_Print( "[!!!] caught signal " + UTIL_ToString( s ) + ", exiting nicely" );
+-	if( gGHost )
+-		gGHost->m_ExitingNice = true;
+-	else
+-		exit( 1 );
 +		if( Pending >= 2 )
 +		{
 +			CONSOLE_Print( "[!!!] caught repeated shutdown signal, exiting NOW" );
 +			gGHost->m_Exiting = true;
 +		}
- 
--	if( gGHost )
--		gGHost->m_ExitingNice = true;
--	else
--		exit( 1 );
++
 +		Handled = Pending;
 +	}
  }
@@ -1802,7 +2121,7 @@ index c723c77..b8fa947 100644
  	cout << message << endl;
  
  	// logging
-@@ -281,10 +300,23 @@ int main( int argc, char **argv )
+@@ -281,10 +310,23 @@ int main( int argc, char **argv )
  	else
  		CONSOLE_Print( "[GHOST] no log file specified, logging is disabled" );
  
@@ -1829,7 +2148,7 @@ index c723c77..b8fa947 100644
  
  #ifndef WIN32
  	// disable SIGPIPE since some systems like OS X don't define MSG_NOSIGNAL
-@@ -355,6 +387,8 @@ int main( int argc, char **argv )
+@@ -355,6 +397,8 @@ int main( int argc, char **argv )
  		// block for 50ms on all sockets - if you intend to perform any timed actions more frequently you should change this
  		// that said it's likely we'll loop more often than this due to there being data waiting on one of the sockets but there aren't any guarantees
  
@@ -1838,7 +2157,7 @@ index c723c77..b8fa947 100644
  		if( gGHost->Update( 50000 ) )
  			break;
  	}
-@@ -391,6 +425,214 @@ int main( int argc, char **argv )
+@@ -391,6 +435,509 @@ int main( int argc, char **argv )
  // CGHost
  //
  
@@ -1958,7 +2277,28 @@ index c723c77..b8fa947 100644
 +	return fd;
 +}
 +
-+static bool NativeReadFeedback( const string &path, map<string,uint64_t> &values )
++// 128 bits from the kernel CSPRNG, represented without locale or escaping.
++static bool NativeRandomID( string &id )
++{
++    unsigned char bytes[16];
++    int fd = open( "/dev/urandom", O_RDONLY | O_CLOEXEC );
++    if( fd < 0 ) return false;
++    size_t offset = 0;
++    while( offset < sizeof bytes )
++    {
++        ssize_t n = read( fd, bytes + offset, sizeof bytes - offset );
++        if( n < 0 && errno == EINTR ) continue;
++        if( n <= 0 ) { close( fd ); return false; }
++        offset += n;
++    }
++    close( fd );
++    static const char hex[] = "0123456789abcdef";
++    id.clear( );
++    for( size_t i = 0; i < sizeof bytes; ++i ) { id += hex[bytes[i] >> 4]; id += hex[bytes[i] & 15]; }
++    return true;
++}
++
++static bool NativeReadStatusFile( const string &path, string &data )
 +{
 +	if( path.size( ) > 4096 || path.find( '\0' ) != string::npos ) return false;
 +	size_t slash = path.rfind( '/' );
@@ -1970,7 +2310,6 @@ index c723c77..b8fa947 100644
 +	int fd = openat( dir, name.c_str( ), O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC );
 +	struct stat st;
 +	bool ok = fd >= 0 && !fstat( fd, &st ) && S_ISREG( st.st_mode ) && st.st_uid == geteuid( ) && ( st.st_mode & 07777 ) == 0600 && st.st_nlink == 1 && st.st_size > 0 && st.st_size <= 4096;
-+	string data;
 +	char bytes[4097];
 +	while( ok )
 +	{
@@ -1989,6 +2328,13 @@ index c723c77..b8fa947 100644
 +	if( fd >= 0 ) close( fd );
 +	close( dir );
 +	if( !ok || data.find( '\0' ) != string::npos ) return false;
++	return true;
++}
++
++static bool NativeReadFeedback( const string &path, map<string,uint64_t> &values )
++{
++	string data;
++	if( !NativeReadStatusFile( path, data ) ) return false;
 +	static const char *keys[] = { "version", "observed_monotonic_ms", "connected", "authenticated", "publication_accepted", "relay_healthy", "last_ack_monotonic_ms", "publication_refresh_count", "publication_refresh_successes", "publication_refresh_failures" };
 +	set<string> allowed( keys, keys + 10 );
 +	stringstream lines( data );
@@ -2010,6 +2356,37 @@ index c723c77..b8fa947 100644
 +	if( values["publication_refresh_count"] > UINT32_MAX || values["publication_refresh_successes"] > UINT32_MAX || values["publication_refresh_failures"] > UINT32_MAX ) return false;
 +	return true;
 +}
++// Optional display-only sidecar. It never supplies a gameplay permission.
++static bool NativeReadCycleStatus( const string &path, map<string,string> &values )
++{
++    string data;
++    if(!NativeReadStatusFile(path,data)) return false;
++    static const char *keys[]={"version","observed_monotonic_ms","ttl_ms","session_generation",
++        "manifest_sha256","request_id","host_counter","catalog_index","cycle_position"};
++    set<string> allowed(keys,keys+9);
++    stringstream lines(data); string line;
++    while(getline(lines,line))
++    {
++        line=NativeTrim(line);
++        if(line.empty()) continue;
++        size_t eq=line.find('=');
++        if(eq==string::npos) return false;
++        string key=NativeTrim(line.substr(0,eq)), value=NativeTrim(line.substr(eq+1));
++        if(!allowed.count(key) || values.count(key) || value.empty()) return false;
++        values[key]=value;
++    }
++    if(values.size()!=9 || values["version"]!="1") return false;
++    const char *ids[]={"session_generation","manifest_sha256","request_id"};
++    for(size_t i=0;i<3;++i)
++        if(values[ids[i]].size()!=(i==1 ? 64 : 32) || values[ids[i]].find_first_not_of("0123456789abcdef")!=string::npos) return false;
++    const char *numbers[]={"observed_monotonic_ms","ttl_ms","host_counter","catalog_index","cycle_position"};
++    uint64_t parsed[5];
++    for(size_t i=0;i<5;++i) if(!NativeUInt(values[numbers[i]],parsed[i])) return false;
++    uint64_t now=NativeMonotonicMS();
++    return now && parsed[0]<=now && parsed[1]>=1 && parsed[1]<=10000 && now-parsed[0]<=parsed[1] &&
++        parsed[2]>0 && parsed[2]<(1u<<28) && parsed[3]<32 && parsed[4]<32;
++}
++
 +#endif
 +
 +void CGHost :: UpdateNativeFeedback( bool force )
@@ -2032,6 +2409,217 @@ index c723c77..b8fa947 100644
 +#endif
 +}
 +
++string CGHost :: NativeStatusPreset( CBaseGame *game ) const
++{
++    uint32_t index=0;
++    if(!game || !m_NativeAdmissionCatalog || !game->NativeCatalogIndex(index) ||
++       game->NativeCatalogDigest()!=m_NativeAdmissionCatalog->Digest()) return "unavailable";
++    string id=m_NativeAdmissionCatalog->ID(index);
++    return id.empty() ? "unavailable" : id;
++}
++
++string CGHost :: NativeStatusNextPreset( ) const
++{
++#ifndef WIN32
++    CBaseGame *anchor=m_CurrentGame ? m_CurrentGame : m_Games.empty() ? NULL : m_Games.back();
++    CNativeStartupCatalog *catalog=m_NativeAdmissionCatalog;
++    uint32_t index=0;
++    if(!m_LifecycleValid || !catalog || !anchor || !anchor->NativeCatalogIndex(index) ||
++       anchor->NativeCatalogDigest()!=catalog->Digest() || m_ExternalStatusPath.empty()) return "unavailable";
++    map<string,string> feedback;
++    if(!NativeReadCycleStatus(m_ExternalStatusPath+".cycle",feedback) ||
++       feedback["session_generation"]!=m_LifecycleGeneration || feedback["manifest_sha256"]!=catalog->Digest() ||
++       feedback["request_id"]!=anchor->NativeCatalogRequestID()) return "unavailable";
++    uint64_t counter=0, reportedIndex=0, position=0, observed=0;
++    if(!NativeUInt(feedback["host_counter"],counter) || !NativeUInt(feedback["catalog_index"],reportedIndex) ||
++       !NativeUInt(feedback["cycle_position"],position) || !NativeUInt(feedback["observed_monotonic_ms"],observed) ||
++       observed<m_NativeStartedMS || counter!=anchor->GetHostCounter() || reportedIndex!=index ||
++       position>=catalog->CycleCount() || catalog->CycleIndex(position)!=index) return "unavailable";
++    // Position is supplied by the leased cursor, never guessed from a repeated ID.
++    return catalog->ID(catalog->CycleIndex((position+1)%catalog->CycleCount()));
++#else
++    return "unavailable";
++#endif
++}
++
++// Every lifecycle operation must still refer to the directory pinned at startup.
++int CGHost :: NativeOpenLifecycleDirectory( )
++{
++#ifndef WIN32
++    if( m_LifecycleDirFD < 0 ) return -1;
++    int dir = NativeStatusDirectory( m_LifecycleDirectory );
++    struct stat pinned, current;
++    if( dir < 0 ) return -1;
++    if( fstat( m_LifecycleDirFD, &pinned ) || fstat( dir, &current ) ||
++        pinned.st_dev != current.st_dev || pinned.st_ino != current.st_ino ||
++        (unsigned long)current.st_dev != m_LifecycleDirDevice || (unsigned long)current.st_ino != m_LifecycleDirInode )
++    { close( dir ); return -1; }
++    return dir;
++#else
++    return -1;
++#endif
++}
++
++// Never reuse a 28-bit lobby counter in a gate-enabled process.
++uint32_t CGHost :: AllocateNativeHostCounter( )
++{
++    if( m_StartReservationGate && ( m_HostCounter == 0 || m_HostCounter > 0x0fffffff ) ) return 0;
++    return m_HostCounter++;
++}
++
++// Reservation markers are immutable, private files published only after the
++// supervisor's reservation is durable. Sync both file and directory before
++// trusting a marker that may be visible just before the publisher's dir fsync.
++bool CGHost :: NativeStartReserved( uint32_t hostCounter )
++{
++    if( !m_StartReservationGate ) return true;
++#ifndef WIN32
++    if( !m_LifecycleValid || m_LifecycleDirectory.empty( ) || hostCounter == 0 || hostCounter > 0x0fffffff ) return false;
++    int dir = NativeOpenLifecycleDirectory( );
++    if( dir < 0 ) return false;
++    string count = UTIL_ToString( hostCounter );
++    string name = "reservation-" + m_LifecycleGeneration + "-" + count + ".ready";
++    string expected = "version=1\nsession_generation=" + m_LifecycleGeneration + "\nhost_counter=" + count + "\n";
++    int fd = openat( dir, name.c_str( ), O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC );
++    struct stat before, after, named, held, currentStat;
++    bool ok = fd >= 0 && !fstat( fd, &before ) && S_ISREG( before.st_mode ) && before.st_uid == geteuid( ) &&
++        ( before.st_mode & 07777 ) == 0600 && before.st_nlink == 1 && before.st_size == (off_t)expected.size( );
++    string contents;
++    char bytes[256];
++    while( ok )
++    {
++        ssize_t n = read( fd, bytes, sizeof bytes );
++        if( n < 0 && errno == EINTR ) continue;
++        if( n < 0 ) { ok = false; break; }
++        if( n == 0 ) break;
++        contents.append( bytes, n );
++        if( contents.size( ) > 128 ) { ok = false; break; }
++    }
++    ok = ok && contents == expected;
++    if( ok && fsync( fd ) ) ok = false;
++    if( ok && fsync( dir ) ) ok = false;
++    int current = NativeOpenLifecycleDirectory( );
++    ok = ok && current >= 0 && !fstat( dir, &held ) && !fstat( current, &currentStat ) &&
++        held.st_dev == currentStat.st_dev && held.st_ino == currentStat.st_ino &&
++        !fstat( fd, &after ) && !fstatat( dir, name.c_str( ), &named, AT_SYMLINK_NOFOLLOW ) &&
++        before.st_dev == after.st_dev && before.st_ino == after.st_ino &&
++        before.st_size == after.st_size && before.st_mtim.tv_sec == after.st_mtim.tv_sec &&
++        before.st_mtim.tv_nsec == after.st_mtim.tv_nsec && before.st_ctim.tv_sec == after.st_ctim.tv_sec &&
++        before.st_ctim.tv_nsec == after.st_ctim.tv_nsec && before.st_mode == after.st_mode &&
++        before.st_uid == after.st_uid && after.st_nlink == 1 && named.st_dev == after.st_dev && named.st_ino == after.st_ino;
++    if( current >= 0 ) close( current );
++    if( fd >= 0 ) close( fd );
++    close( dir );
++    return ok;
++#else
++    return false;
++#endif
++}
++
++bool CGHost :: PersistNativeGameStarted( uint32_t hostCounter, string &matchID )
++{
++    if( m_LifecycleDirectory.empty( ) ) return true;
++#ifndef WIN32
++    if( !m_LifecycleValid ) return false;
++    int dir = NativeOpenLifecycleDirectory( );
++    string id;
++    if( dir < 0 || !NativeRandomID( id ) ) { if( dir >= 0 ) close( dir ); return false; }
++    string base = "start-" + m_LifecycleGeneration + "-" + id;
++    string temp = "." + base + ".tmp";
++    string name = base + ".json";
++    string payload = "{\"version\":1,\"event\":\"game_started\",\"session_generation\":\"" + m_LifecycleGeneration +
++        "\",\"match_id\":\"" + id + "\",\"host_counter\":" + UTIL_ToString( hostCounter & 0x0fffffff ) + "}\n";
++    int fd = openat( dir, temp.c_str( ), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600 );
++    bool ok = fd >= 0 && fchmod( fd, 0600 ) == 0;
++    size_t offset = 0;
++    while( ok && offset < payload.size( ) )
++    {
++        ssize_t n = write( fd, payload.data( ) + offset, payload.size( ) - offset );
++        if( n < 0 && errno == EINTR ) continue;
++        if( n <= 0 ) { ok = false; break; }
++        offset += n;
++    }
++    if( ok && fsync( fd ) ) ok = false;
++    if( fd >= 0 && close( fd ) ) ok = false;
++    // Confirm the configured directory has not been replaced before publishing.
++    int current = NativeOpenLifecycleDirectory( );
++    struct stat held, now;
++    if( current < 0 || fstat( dir, &held ) || fstat( current, &now ) || held.st_dev != now.st_dev || held.st_ino != now.st_ino ) ok = false;
++    if( current >= 0 ) close( current );
++    bool renamed = false;
++    if( ok )
++    {
++        if( syscall( SYS_renameat2, dir, temp.c_str( ), dir, name.c_str( ), RENAME_NOREPLACE ) ) ok = false;
++        else renamed = true;
++    }
++    if( ok && fsync( dir ) ) ok = false;
++    if( !renamed ) unlinkat( dir, temp.c_str( ), 0 );
++    close( dir );
++    if( !ok ) return false;
++    // Publish the ID to this game only after the durable journal commit.
++    matchID.swap( id );
++    CONSOLE_Print( "[HOSTBOT_LIFECYCLE] " + payload.substr( 0, payload.size( ) - 1 ) );
++    return true;
++#else
++    return false;
++#endif
++}
++
++// A deterministic name makes duplicate closure publication fail closed.
++// This event is emitted only after the live lobby has been fenced in memory.
++bool CGHost :: PersistNativeLobbyClosed( uint32_t hostCounter, const string &requestID, const string &digest, uint32_t catalogIndex )
++{
++#ifndef WIN32
++    if( !m_StartReservationGate || !m_LifecycleValid || m_LifecycleDirectory.empty( ) ||
++        hostCounter == 0 || hostCounter > 0x0fffffff ) return false;
++    int dir = NativeOpenLifecycleDirectory( );
++    string nonce;
++    if( dir < 0 || !NativeRandomID( nonce ) ) { if( dir >= 0 ) close( dir ); return false; }
++    string count = UTIL_ToString( hostCounter );
++    string name = "close-" + m_LifecycleGeneration + "-" + count + ".json";
++    string temporary = "." + name + "." + nonce + ".tmp";
++    bool catalog = !requestID.empty( );
++    if( catalog && ( requestID.size()!=32 || requestID.find_first_not_of("0123456789abcdef")!=string::npos ||
++        digest.size()!=64 || digest.find_first_not_of("0123456789abcdef")!=string::npos || catalogIndex>=32 ) )
++    { close(dir); return false; }
++    string payload = "{\"version\":" + string(catalog ? "2" : "1") + ",\"event\":\"lobby_closed\",\"session_generation\":\"" + m_LifecycleGeneration +
++        "\",\"host_counter\":" + count;
++    if(catalog) payload += ",\"request_id\":\"" + requestID + "\",\"manifest_sha256\":\"" + digest +
++        "\",\"catalog_index\":" + UTIL_ToString(catalogIndex);
++    payload += "}\n";
++    int fd = openat( dir, temporary.c_str( ), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600 );
++    bool ok = fd >= 0 && !fchmod( fd, 0600 );
++    size_t offset = 0;
++    while( ok && offset < payload.size( ) )
++    {
++        ssize_t n = write( fd, payload.data( ) + offset, payload.size( ) - offset );
++        if( n < 0 && errno == EINTR ) continue;
++        if( n <= 0 ) { ok = false; break; }
++        offset += n;
++    }
++    if( ok && fsync( fd ) ) ok = false;
++    if( fd >= 0 && close( fd ) ) ok = false;
++    int current = NativeOpenLifecycleDirectory( );
++    struct stat held, now;
++    if( current < 0 || fstat( dir, &held ) || fstat( current, &now ) || held.st_dev != now.st_dev || held.st_ino != now.st_ino ) ok = false;
++    if( current >= 0 ) close( current );
++    bool renamed = false;
++    if( ok )
++    {
++        if( syscall( SYS_renameat2, dir, temporary.c_str( ), dir, name.c_str( ), RENAME_NOREPLACE ) ) ok = false;
++        else renamed = true;
++    }
++    if( ok && fsync( dir ) ) ok = false;
++    if( !renamed ) unlinkat( dir, temporary.c_str( ), 0 );
++    close( dir );
++    if( !ok ) return false;
++    CONSOLE_Print( "[HOSTBOT_LIFECYCLE] " + payload.substr( 0, payload.size( ) - 1 ) );
++    return true;
++#else
++    return false;
++#endif
++}
++
 +void CGHost :: EmitNativeState( )
 +{
 +	UpdateNativeFeedback( );
@@ -2042,6 +2630,32 @@ index c723c77..b8fa947 100644
 +		",\"realm_online\":" + ( m_NativeOnline ? "true" : "false" ) + ",\"feedback_valid\":" + ( m_NativeFeedbackValid ? "true" : "false" ) +
 +		",\"publication_refresh_count\":" + UTIL_ToString( m_PublicationRefreshCount ) + ",\"publication_refresh_successes\":" + UTIL_ToString( m_PublicationRefreshSuccesses ) +
 +		",\"publication_refresh_failures\":" + UTIL_ToString( m_PublicationRefreshFailures ) + ",\"last_ack_monotonic_ms\":" + UTIL_ToString( m_NativeLastAckMS ) + ",\"active_games\":" + UTIL_ToString( (uint32_t)m_Games.size( ) );
++	// Bounded process-lifetime telemetry: no names, player data or paths.
++	if( m_NativeCatalogOnly && m_LifecycleValid && !m_LifecycleGeneration.empty( ) && m_Games.size( ) <= 5 &&
++	    m_NativeRetiredMatches != (uint64_t)-1 && m_NativeRotationErrors != (uint64_t)-1 )
++	{
++		string matches = "[";
++		bool valid = true;
++		set<uint32_t> counters;
++		for( size_t i = 0; i < m_Games.size( ); ++i )
++		{
++			CBaseGame *g = m_Games[i];
++			uint32_t counter = g ? (g->GetHostCounter( ) & 0x0fffffff) : 0, index = 0;
++			if( !counter || !counters.insert( counter ).second ) { valid = false; break; }
++			if( i ) matches += ",";
++			const string &matchID = g->NativeMatchID( );
++			matches += "{\"host_counter\":" + UTIL_ToString( counter ) +
++			    ",\"match_id\":" + ( matchID.empty( ) ? "null" : NativeJSONQuote( matchID ) ) +
++			    ",\"catalog_index\":" + ( g->NativeCatalogIndex( index ) ? UTIL_ToString( index ) : "null" ) +
++			    ",\"phase\":" + NativeJSONQuote( g->GetGameLoaded( ) ? "playing" : "loading" ) + "}";
++		}
++		if( valid ) state += ",\"matches_v1\":{\"version\":1,\"active_count\":" + UTIL_ToString( (uint32_t)m_Games.size( ) ) +
++		    ",\"retired_count\":" + UTIL_ToString( (unsigned long)m_NativeRetiredMatches ) +
++		    ",\"rotation_error_count\":" + UTIL_ToString( (unsigned long)m_NativeRotationErrors ) + ",\"matches\":" + matches + "]}";
++	}
++	// Expose the journal generation before any lobby is reserved.
++	if( m_LifecycleValid && !m_LifecycleDirectory.empty( ) )
++		state += ",\"session_generation\":" + NativeJSONQuote( m_LifecycleGeneration );
 +	if( state != m_LastNativeState || GetTicks( ) - m_LastNativeStateTicks >= 4000 )
 +	{
 +		m_LastNativeState = state;
@@ -2053,10 +2667,12 @@ index c723c77..b8fa947 100644
  CGHost :: CGHost( CConfig *CFG )
  {
  	m_UDPSocket = new CUDPSocket( );
-@@ -484,6 +726,11 @@ CGHost :: CGHost( CConfig *CFG )
+@@ -484,10 +1031,23 @@ CGHost :: CGHost( CConfig *CFG )
  
  	m_Language = NULL;
  	m_Exiting = false;
++	m_StartReservationGate = false;
++	m_LifecycleWriteFailed = false;
 +	m_NativeStartedMS = NativeMonotonicMS( );
 +	m_NativeRefreshSequence = m_NativeRefreshCount = m_NativeRefreshSkipped = m_NativeLastRefreshMS = m_NativeRefreshStartedMS = 0;
 +	m_LastNativeStateTicks = m_LastNativeFeedbackTicks = 0;
@@ -2065,10 +2681,45 @@ index c723c77..b8fa947 100644
  	m_ExitingNice = false;
  	m_Enabled = true;
  	m_Version = "17.2";
-@@ -688,6 +935,20 @@ CGHost :: CGHost( CConfig *CFG )
+ 	m_HostCounter = 1;
++	m_NativeCatalogOnly = m_NativeCatalogStaging = m_NativeCatalogAdmission = false;
++	m_NativeRetiredMatches = m_NativeRotationErrors = 0;
++	m_NativeStartupCatalog = m_NativeAdmissionCatalog = NULL;
++	m_NativePendingCatalogIndex = 0;
++	m_NativePendingMap = NULL;
++	m_NativePendingPreset = NULL;
+ 	m_AutoHostMaximumGames = CFG->GetInt( "autohost_maxgames", 0 );
+ 	m_AutoHostAutoStartPlayers = CFG->GetInt( "autohost_startplayers", 0 );
+ 	m_AutoHostGameName = CFG->GetString( "autohost_gamename", string( ) );
+@@ -688,6 +1248,85 @@ CGHost :: CGHost( CConfig *CFG )
  #else
  	CONSOLE_Print( "[GHOST] GHost++ Version " + m_Version + " (without MySQL support)" );
  #endif
++	m_LifecycleDirectory = CFG->GetString( "bot_lifecycle_event_dir", string( ) );
++	m_LifecycleValid = true;
++	m_LifecycleDirFD = -1;
++	m_LifecycleDirDevice = m_LifecycleDirInode = 0;
++	if( !m_LifecycleDirectory.empty( ) )
++	{
++#ifndef WIN32
++		int dir = NativeStatusDirectory( m_LifecycleDirectory );
++		struct stat st;
++		m_LifecycleValid = dir >= 0 && !fstat( dir, &st ) && NativeRandomID( m_LifecycleGeneration );
++		if( m_LifecycleValid ) { m_LifecycleDirFD = dir; m_LifecycleDirDevice = (unsigned long)st.st_dev; m_LifecycleDirInode = (unsigned long)st.st_ino; }
++		else if( dir >= 0 ) close( dir );
++#else
++		m_LifecycleValid = false;
++#endif
++		if( !m_LifecycleValid ) { CONSOLE_Print( "[GHOST] lifecycle journal initialization failed" ); m_Enabled = false; m_Exiting = true; }
++	}
++	string StartGate = NativeTrim( CFG->GetString( "bot_start_reservation_gate", "0" ) );
++	m_StartReservationGate = StartGate == "1" || StartGate == "true";
++	if( ( StartGate != "0" && StartGate != "false" && !m_StartReservationGate ) ||
++	    ( m_StartReservationGate && ( !m_LifecycleValid || m_LifecycleDirectory.empty( ) ) ) )
++	{
++		CONSOLE_Print( "[GHOST] invalid start reservation gate configuration" );
++		m_LifecycleValid = false; m_Enabled = false; m_Exiting = true;
++	}
 +	m_ExternalPublisher = new CExternalPublisher( CFG->GetString( "bot_externalpublishpath", string( ) ), CFG->GetString( "bot_externalpublishrealm", string( ) ), CFG->GetString( "bot_externalpublishhostname", string( ) ) );
 +	if( !m_Phase3ConfigValid || !m_ExternalPublisher->Valid( ) || ( m_ExternalPublisher->Enabled( ) && !m_BNETs.empty( ) ) )
 +	{
@@ -2076,9 +2727,49 @@ index c723c77..b8fa947 100644
 +		m_Enabled = false;
 +		m_Exiting = true;
 +	}
++    // Opt-in startup catalog. The producer passes only sealed descriptors;
++    // incomplete configuration or any validation failure closes startup.
++    string preloadFD=CFG->GetString("bot_preload_manifest_fd",string());
++    string preloadDigest=CFG->GetString("bot_preload_manifest_sha256",string());
++    string preloadDirectory=CFG->GetString("bot_preload_ipc_dir",string());
++    string preloadDefaultDigest=CFG->GetString("bot_preload_default_sha256",string());
++    if(!preloadFD.empty() || !preloadDigest.empty() || !preloadDirectory.empty() || !preloadDefaultDigest.empty())
++    {
++        bool valid=!m_Exiting && m_Enabled && m_StartReservationGate && m_LifecycleValid &&
++            !preloadFD.empty() && preloadFD.size()<=10 && !(preloadFD.size()>1 && preloadFD[0]=='0');
++        uint64_t fd=0;
++        for(size_t i=0;valid && i<preloadFD.size();++i)
++        {
++            if(preloadFD[i]<'0'||preloadFD[i]>'9') valid=false;
++            else { fd=fd*10+(preloadFD[i]-'0'); if(fd>0x7fffffff) valid=false; }
++        }
++        if(fd<3) valid=false;
++        if(valid) m_NativeStartupCatalog=NativeBuildBoundStartupCatalog(this,(int)fd,preloadDigest);
++        if(!m_NativeStartupCatalog || (!preloadDefaultDigest.empty() && !m_NativeStartupCatalog->DefaultMapMatches(this,preloadDefaultDigest)) || !m_NativeStartupCatalog->AttachIPC(this,preloadDirectory))
++        {
++            delete m_NativeStartupCatalog; m_NativeStartupCatalog=NULL;
++            CONSOLE_Print("[GHOST] native catalog startup validation failed");
++            m_Enabled=false; m_Exiting=true;
++        }
++    }
++#ifndef WIN32
++	if( !m_Exiting && m_LifecycleValid && m_LifecycleDirFD >= 0 && m_ExternalPublisher->Valid( ) && m_Map->GetValid( ) && !m_DB->HasError( ) && !m_DBLocal->HasError( ) )
++	{
++		string ipcFields;
++		if( m_NativeStartupCatalog )
++		{
++			uint64_t ipcDevice=0, ipcInode=0;
++			if( !m_NativeStartupCatalog->IPCIdentity(ipcDevice,ipcInode) ) { m_Enabled=false; m_Exiting=true; }
++			else ipcFields=",\"ipc_device\":"+UTIL_ToString(ipcDevice)+",\"ipc_inode\":"+UTIL_ToString(ipcInode);
++		}
++		if( !m_Exiting ) CONSOLE_Print( "[HOSTBOT_SESSION] {\"version\":" + UTIL_ToString(m_NativeStartupCatalog ? 2 : 1) + ",\"pid\":" + UTIL_ToString( (unsigned long)getpid( ) ) +
++		    ",\"session_generation\":\"" + m_LifecycleGeneration + "\",\"journal_device\":" + UTIL_ToString( m_LifecycleDirDevice ) +
++		    ",\"journal_inode\":" + UTIL_ToString( m_LifecycleDirInode ) + ipcFields + "}" );
++	}
++#endif
 +	if( m_BNETs.empty( ) )
 +	{
-+		if( m_ExternalPublisher->Valid( ) && m_Map->GetValid( ) && !m_DB->HasError( ) && !m_DBLocal->HasError( ) )
++		if( !m_Exiting && m_LifecycleValid && m_ExternalPublisher->Valid( ) && m_Map->GetValid( ) && !m_DB->HasError( ) && !m_DBLocal->HasError( ) )
 +			CONSOLE_Print( "[GHOST] offline initialization complete" );
 +		else
 +			CONSOLE_Print( "[GHOST] offline initialization failed" );
@@ -2086,32 +2777,141 @@ index c723c77..b8fa947 100644
  }
  
  CGHost :: ~CGHost( )
-@@ -711,6 +972,7 @@ CGHost :: ~CGHost( )
+@@ -707,10 +1346,15 @@ CGHost :: ~CGHost( )
+ 
+ 	delete m_CurrentGame;
+ 	delete m_AdminGame;
++	delete m_NativeStartupCatalog;
+ 
          for( vector<CBaseGame *> :: iterator i = m_Games.begin( ); i != m_Games.end( ); ++i )
  		delete *i;
  
 +	delete m_ExternalPublisher;
++#ifndef WIN32
++	if( m_LifecycleDirFD >= 0 ) close( m_LifecycleDirFD );
++#endif
  	delete m_DB;
  	delete m_DBLocal;
  
-@@ -730,6 +992,7 @@ CGHost :: ~CGHost( )
+@@ -725,11 +1369,57 @@ CGHost :: ~CGHost( )
+ 	delete m_Map;
+ 	delete m_AdminMap;
+ 	delete m_AutoHostMap;
++	delete m_NativePendingMap;
++	delete m_NativePendingPreset;
+ 	delete m_SaveGame;
+ }
  
++// Used only around synchronous game construction on the event-loop thread.
++static NativeNextPreset NativeReadGameplayDefaults( CGHost *host )
++{
++    NativeNextPreset s;
++    s.MaxPlayers = host->m_MaxPlayers;
++    s.DefaultAutoStartPlayers = host->m_DefaultAutoStartPlayers;
++    s.VoteEnabled = host->m_VoteEnabled;
++    s.VoteRequiredPercent = host->m_VoteRequiredPercent;
++    s.VoteMinPlayers = host->m_VoteMinPlayers;
++    s.VoteTimeout = host->m_VoteTimeout;
++    s.VoteCooldown = host->m_VoteCooldown;
++    s.LobbyRefreshEnabled = host->m_LobbyRefreshEnabled;
++    s.LobbyRefreshInterval = host->m_LobbyRefreshInterval;
++    s.LobbyAISupported = host->m_LobbyAISupported;
++    s.LobbyAITarget = host->m_LobbyAITarget;
++    s.LobbyAISkill = host->m_LobbyAISkill;
++    s.LobbyMinHumans = host->m_LobbyMinHumans;
++    s.AutoStartEnabled = host->m_AutoStartEnabled;
++    s.CountDownSeconds = host->m_CountDownSeconds;
++    return s;
++}
++static void NativeWriteGameplayDefaults( CGHost *host, const NativeNextPreset &s )
++{
++    host->m_MaxPlayers = s.MaxPlayers;
++    host->m_DefaultAutoStartPlayers = s.DefaultAutoStartPlayers;
++    host->m_VoteEnabled = s.VoteEnabled;
++    host->m_VoteRequiredPercent = s.VoteRequiredPercent;
++    host->m_VoteMinPlayers = s.VoteMinPlayers;
++    host->m_VoteTimeout = s.VoteTimeout;
++    host->m_VoteCooldown = s.VoteCooldown;
++    host->m_LobbyRefreshEnabled = s.LobbyRefreshEnabled;
++    host->m_LobbyRefreshInterval = s.LobbyRefreshInterval;
++    host->m_LobbyAISupported = s.LobbyAISupported;
++    host->m_LobbyAITarget = s.LobbyAITarget;
++    host->m_LobbyAISkill = s.LobbyAISkill;
++    host->m_LobbyMinHumans = s.LobbyMinHumans;
++    host->m_AutoStartEnabled = s.AutoStartEnabled;
++    host->m_CountDownSeconds = s.CountDownSeconds;
++}
++
  bool CGHost :: Update( long usecBlock )
  {
-+	if( !m_Phase3ConfigValid || !m_ExternalPublisher->Valid( ) ) return true;
++	// A failed journal can also make the lobby unpublish write fail.
++	// Keep servicing existing matches while new games remain latched off.
++	if( !m_Phase3ConfigValid || !m_LifecycleValid ) return true;
++	m_ExternalPublisher->Retry( );
  	// todotodo: do we really want to shutdown if there's a database error? is there any way to recover from this?
  
  	if( m_DB->HasError( ) )
-@@ -1113,7 +1376,7 @@ bool CGHost :: Update( long usecBlock )
+@@ -972,6 +1662,7 @@ bool CGHost :: Update( long usecBlock )
  		{
- 			if( m_AutoHostMap->GetValid( ) )
+ 			CONSOLE_Print( "[GHOST] deleting game [" + (*i)->GetGameName( ) + "]" );
+ 			EventGameDeleted( *i );
++			if( m_NativeCatalogOnly && m_NativeRetiredMatches != (uint64_t)-1 ) ++m_NativeRetiredMatches;
+ 			delete *i;
+ 			i = m_Games.erase( i );
+ 		}
+@@ -1102,26 +1793,45 @@ bool CGHost :: Update( long usecBlock )
+                 ++i;
+ 	}
+ 
++	// Process at most one bounded catalog notification before autohost.
++	// On error PollIPC disables only new games; active matches continue.
++	if( m_NativeStartupCatalog ) m_NativeStartupCatalog->PollIPC( this );
++
+ 	// autohost
+ 
+-	if( !m_AutoHostGameName.empty( ) && m_AutoHostMaximumGames != 0 && m_AutoHostAutoStartPlayers != 0 && GetTime( ) - m_LastAutoHostTime >= 30 )
++	if( ( m_NativePendingPreset || !m_AutoHostGameName.empty( ) ) && m_AutoHostMaximumGames != 0 && ( m_NativePendingPreset || m_AutoHostAutoStartPlayers != 0 ) && GetTime( ) - m_LastAutoHostTime >= 30 )
+ 	{
+ 		// copy all the checks from CGHost :: CreateGame here because we don't want to spam the chat when there's an error
+ 		// instead we fail silently and try again soon
+ 
+-		if( !m_ExitingNice && m_Enabled && !m_CurrentGame && m_Games.size( ) < m_MaxGames && m_Games.size( ) < m_AutoHostMaximumGames )
++		if( !m_ExitingNice && m_Enabled && m_ExternalPublisher->Valid( ) && !m_CurrentGame && ( !m_NativePendingPreset || !m_AutoHostMatchMaking ) && m_Games.size( ) < m_MaxGames && m_Games.size( ) < m_AutoHostMaximumGames )
+ 		{
+-			if( m_AutoHostMap->GetValid( ) )
++			CMap *selectedMap = m_NativePendingMap ? m_NativePendingMap : m_AutoHostMap;
++			if( selectedMap->GetValid( ) )
  			{
 -				string GameName = m_AutoHostGameName + " #" + UTIL_ToString( m_HostCounter );
-+				string GameName = m_AutoHostGameName;
++				string GameName = m_NativePendingPreset ? m_NativePendingPreset->GameName : m_AutoHostGameName;
  
  				if( GameName.size( ) <= 31 )
  				{
-@@ -1173,6 +1436,7 @@ bool CGHost :: Update( long usecBlock )
+-					CreateGame( m_AutoHostMap, GAME_PUBLIC, false, GameName, m_AutoHostOwner, m_AutoHostOwner, m_AutoHostServer, false );
++					NativeNextPreset previous = NativeReadGameplayDefaults( this );
++					uint32_t startPlayers = m_NativePendingPreset ? m_NativePendingPreset->DefaultAutoStartPlayers : m_AutoHostAutoStartPlayers;
++					if( m_NativePendingPreset ) NativeWriteGameplayDefaults( this, *m_NativePendingPreset );
++					m_NativeCatalogAdmission = m_NativeCatalogOnly;
++					CreateGame( selectedMap, GAME_PUBLIC, false, GameName, m_AutoHostOwner, m_AutoHostOwner, m_AutoHostServer, false );
++					m_NativeCatalogAdmission = false;
++					NativeWriteGameplayDefaults( this, previous );
+ 
+ 					if( m_CurrentGame )
+ 					{
+-						m_CurrentGame->SetAutoStartPlayers( m_AutoHostAutoStartPlayers );
++						m_CurrentGame->SetAutoStartPlayers( startPlayers );
++						if( m_NativePendingPreset ) m_CurrentGame->SetNativePresetAutoHost( );
++						if( !m_NativePendingCatalogID.empty( ) )
++						{
++							m_CurrentGame->AdoptNativeCatalogProof( m_NativePendingCatalogID, m_NativePendingCatalogDigest, m_NativePendingCatalogIndex );
++							if( m_NativeCatalogOnly && m_NativeAdmissionCatalog ) m_NativeAdmissionCatalog->FinishAdmission( this );
++						}
++						delete m_NativePendingMap; m_NativePendingMap = NULL;
++						delete m_NativePendingPreset; m_NativePendingPreset = NULL;
+ 
+ 						if( m_AutoHostMatchMaking )
+ 						{
+@@ -1173,6 +1883,7 @@ bool CGHost :: Update( long usecBlock )
  		m_LastAutoHostTime = GetTime( );
  	}
  
@@ -2119,7 +2919,34 @@ index c723c77..b8fa947 100644
  	return m_Exiting || AdminExit || BNETExit;
  }
  
-@@ -1367,6 +1631,32 @@ void CGHost :: SetConfigs( CConfig *CFG )
+@@ -1321,6 +2032,7 @@ void CGHost :: ReloadConfigs( )
+ 
+ void CGHost :: SetConfigs( CConfig *CFG )
+ {
++    if( m_NativeCatalogOnly ) return; // Process-wide catalog limits are fixed until restart.
+ 	// this doesn't set EVERY config value since that would potentially require reconfiguring the battle.net connections
+ 	// it just set the easily reloadable values
+ 
+@@ -1330,7 +2042,17 @@ void CGHost :: SetConfigs( CConfig *CFG )
+ 	m_Warcraft3Path = UTIL_AddPathSeperator( CFG->GetString( "bot_war3path", "C:\\Program Files\\Warcraft III\\" ) );
+ 	m_BindAddress = CFG->GetString( "bot_bindaddress", string( ) );
+ 	m_ReconnectWaitTime = CFG->GetInt( "bot_reconnectwaittime", 3 );
+-	m_MaxGames = CFG->GetInt( "bot_maxgames", 5 );
++	// Fail closed to the legacy single-game default for malformed or out-of-range values.
++	string MaxGamesValue = CFG->GetString( "bot_maxgames", "1" );
++	string::size_type MaxGamesEnd = MaxGamesValue.find_last_not_of( " \t" );
++	if( MaxGamesEnd != string::npos ) MaxGamesValue.erase( MaxGamesEnd + 1 );
++	if( MaxGamesValue.size( ) == 1 && MaxGamesValue[0] >= '1' && MaxGamesValue[0] <= '5' )
++		m_MaxGames = MaxGamesValue[0] - '0';
++	else
++	{
++		CONSOLE_Print( "[GHOST] invalid bot_maxgames; using 1 (allowed: 1..5)" );
++		m_MaxGames = 1;
++	}
+ 	string BotCommandTrigger = CFG->GetString( "bot_commandtrigger", "!" );
+ 
+ 	if( BotCommandTrigger.empty( ) )
+@@ -1367,6 +2089,32 @@ void CGHost :: SetConfigs( CConfig *CFG )
  	m_BanMethod = CFG->GetInt( "bot_banmethod", 1 );
  	m_IPBlackListFile = CFG->GetString( "bot_ipblacklistfile", "ipblacklist.txt" );
  	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 10 );
@@ -2141,7 +2968,7 @@ index c723c77..b8fa947 100644
 +	m_VoteMinPlayers = NativeConfigUInt( CFG, "bot_vote_min_players", 2, m_LobbyAISupported && m_LobbyAITarget >= 2 && m_LobbyMinHumans == 1 ? 1 : 2, 12, m_Phase3ConfigValid );
 +	if( m_VoteMinPlayers > m_MaxPlayers ) m_Phase3ConfigValid = false;
 +	m_VoteTimeout = NativeConfigUInt( CFG, "bot_vote_timeout", 60, 1, 600, m_Phase3ConfigValid );
-+	m_VoteCooldown = NativeConfigUInt( CFG, "bot_vote_cooldown", 30, 1, 3600, m_Phase3ConfigValid );
++	m_VoteCooldown = NativeConfigUInt( CFG, "bot_vote_cooldown", 30, 0, 3600, m_Phase3ConfigValid );
 +	m_LobbyRefreshEnabled = NativeConfigBool( CFG, "bot_lobby_refresh_enabled", true, m_Phase3ConfigValid );
 +	m_LobbyRefreshInterval = NativeConfigUInt( CFG, "bot_lobby_refresh_interval", 10, 10, 86400, m_Phase3ConfigValid );
 +	if( NativeTrim( CFG->GetString( "bot_lobby_refresh_mode", "slot_toggle" ) ) != "slot_toggle" ) m_Phase3ConfigValid = false;
@@ -2152,7 +2979,7 @@ index c723c77..b8fa947 100644
  	m_Latency = CFG->GetInt( "bot_latency", 100 );
  	m_SyncLimit = CFG->GetInt( "bot_synclimit", 50 );
  	m_VoteKickAllowed = CFG->GetInt( "bot_votekickallowed", 1 ) == 0 ? false : true;
-@@ -1392,7 +1682,7 @@ void CGHost :: ExtractScripts( )
+@@ -1392,7 +2140,7 @@ void CGHost :: ExtractScripts( )
  	string PatchMPQFileName = m_Warcraft3Path + "War3Patch.mpq";
  	HANDLE PatchMPQ;
  
@@ -2161,7 +2988,7 @@ index c723c77..b8fa947 100644
  	{
  		CONSOLE_Print( "[GHOST] loading MPQ file [" + PatchMPQFileName + "]" );
  		HANDLE SubFile;
-@@ -1408,7 +1698,7 @@ void CGHost :: ExtractScripts( )
+@@ -1408,7 +2156,7 @@ void CGHost :: ExtractScripts( )
  				char *SubFileData = new char[FileLength];
  				DWORD BytesRead = 0;
  
@@ -2170,7 +2997,7 @@ index c723c77..b8fa947 100644
  				{
  					CONSOLE_Print( "[GHOST] extracting Scripts\\common.j from MPQ file to [" + m_MapCFGPath + "common.j]" );
  					UTIL_FileWrite( m_MapCFGPath + "common.j", (unsigned char *)SubFileData, BytesRead );
-@@ -1435,7 +1725,7 @@ void CGHost :: ExtractScripts( )
+@@ -1435,7 +2183,7 @@ void CGHost :: ExtractScripts( )
  				char *SubFileData = new char[FileLength];
  				DWORD BytesRead = 0;
  
@@ -2179,17 +3006,564 @@ index c723c77..b8fa947 100644
  				{
  					CONSOLE_Print( "[GHOST] extracting Scripts\\blizzard.j from MPQ file to [" + m_MapCFGPath + "blizzard.j]" );
  					UTIL_FileWrite( m_MapCFGPath + "blizzard.j", (unsigned char *)SubFileData, BytesRead );
-@@ -1655,6 +1945,8 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
+@@ -1524,9 +2272,523 @@ void CGHost :: LoadIPToCountryData( )
+ 	}
+ }
+ 
++CNativeStartupCatalog :: ~CNativeStartupCatalog( )
++{
++    if( m_Owner && m_Owner->m_NativeAdmissionCatalog==this ) m_Owner->m_NativeAdmissionCatalog=NULL;
++#ifndef WIN32
++    if(m_IPCDirectoryFD>=0) close(m_IPCDirectoryFD);
++#endif
++    for( size_t i=0; i<m_Entries.size(); ++i ) delete m_Entries[i].Map;
++}
++
++string CNativeStartupCatalog :: MapPath( size_t index ) const
++{
++    return index<m_Entries.size() ? m_Entries[index].Map->GetMapPath() : string();
++}
++
++// Event-loop-only staging is permitted only after a durable unique claim.
++int CNativeStartupCatalog :: Stage( CGHost *host, const string &requestID, size_t index )
++{
++    if( !m_DurableContext || m_IPCBlocked || host!=m_Owner || requestID.size()!=32 ||
++        requestID.find_first_not_of("0123456789abcdef")!=string::npos || index>=m_Entries.size() ||
++        host->m_NativePendingMap || host->m_NativePendingPreset || !host->m_Map || !host->m_AdminMap ||
++        host->m_MaxGames!=m_MaxGames || host->m_Map->GetMapData()->size()!=m_DefaultSize ||
++        host->m_AdminMap->GetMapData()->size()!=m_AdminSize ) return 0;
++    uint64_t headroom=0, required=0;
++    if(!NativePreloadCgroupHeadroom(headroom) ||
++       !NativePreloadAdmissionBudget(m_InputSizes,m_DefaultSize,m_AdminSize,m_MaxGames,0,headroom,required)) return 0;
++    try
++    {
++        string pendingID=requestID, pendingDigest=m_ManifestDigest; // Allocate before changing the pending transaction.
++        host->m_NativeCatalogStaging=true;
++        bool ok=host->ApplyNativeNextPreset(m_Entries[index].Map,m_Entries[index].Settings);
++        host->m_NativeCatalogStaging=false;
++        if(ok) { host->m_NativePendingCatalogID.swap(pendingID); host->m_NativePendingCatalogDigest.swap(pendingDigest); host->m_NativePendingCatalogIndex=(uint32_t)index; }
++        return ok ? 1 : 0;
++    }
++    catch(...) { host->m_NativeCatalogStaging=false; return 0; }
++}
++
++#ifndef WIN32
++static uint64_t NativeCatalogLE( const string &data, size_t offset, size_t size )
++{
++    uint64_t value=0;
++    for(size_t i=0;i<size;++i) value|=(uint64_t)(unsigned char)data[offset+i]<<(8*i);
++    return value;
++}
++
++static bool NativeCatalogRead( int fd, string &data )
++{
++    struct stat st;
++    if(fstat(fd,&st) || st.st_size<30 || st.st_size>262144) return false;
++    data.resize((size_t)st.st_size); size_t offset=0;
++    while(offset<data.size())
++    {
++        ssize_t n=pread(fd,&data[offset],data.size()-offset,(off_t)offset);
++        if(n<0 && errno==EINTR) continue;
++        if(n<=0) return false;
++        offset+=n;
++    }
++    return true;
++}
++#endif
++
++CNativeStartupCatalog *NativeBuildStartupCatalog( CGHost *host, int manifestFD )
++{
++#ifndef WIN32
++    // This preparatory API must never run alongside or after a game.
++    if(!host || !host->m_Map || !host->m_AdminMap || host->m_CurrentGame || host->m_AdminGame ||
++       !host->m_Games.empty() || host->m_NativePendingMap || host->m_NativePendingPreset ||
++       host->m_HostCounter!=1 || !host->m_Map->GetValid()) return NULL;
++    int stable=fcntl(manifestFD,F_DUPFD_CLOEXEC,3);
++    if(stable<0) return NULL;
++    CNativeStartupCatalog *result=NULL; vector<int> inputs;
++    try
++    {
++        uint64_t headroom=0, required=0, defaultSize=host->m_Map->GetMapData()->size();
++        uint64_t adminSize=host->m_AdminMap->GetMapData()->size();
++        if(!NativePreloadCgroupHeadroom(headroom) ||
++           !NativePreloadManifestEnvelope(stable,host->m_MaxGames,defaultSize,0,headroom,required))
++        { close(stable); return NULL; }
++        string data;
++        if(!NativeCatalogRead(stable,data)) { close(stable); return NULL; }
++        size_t count=(size_t)NativeCatalogLE(data,8,2), occurrences=(size_t)NativeCatalogLE(data,10,2), cursor=30;
++        struct Descriptor { int fd; string id, digest, name, cfg; uint32_t values[15]; };
++        vector<Descriptor> entries; vector<uint64_t> sizes;
++        static const char hex[]="0123456789abcdef";
++        for(size_t i=0;i<count;++i)
++        {
++            Descriptor e; int original=(int)NativeCatalogLE(data,cursor,4);
++            uint64_t size=NativeCatalogLE(data,cursor+4,8);
++            for(size_t j=0;j<32;++j) { unsigned char c=data[cursor+12+j]; e.digest+=hex[c>>4]; e.digest+=hex[c&15]; }
++            size_t idlen=NativeCatalogLE(data,cursor+44,1), namelen=NativeCatalogLE(data,cursor+45,1), cfglen=NativeCatalogLE(data,cursor+46,4);
++            for(size_t j=0;j<15;++j) e.values[j]=(uint32_t)NativeCatalogLE(data,cursor+50+4*j,4);
++            cursor+=110; e.id=data.substr(cursor,idlen); cursor+=idlen; e.name=data.substr(cursor,namelen); cursor+=namelen;
++            e.cfg=data.substr(cursor,cfglen); cursor+=cfglen;
++            e.fd=fcntl(original,F_DUPFD_CLOEXEC,3);
++            if(e.fd<0) throw runtime_error("catalog fd");
++            try { inputs.push_back(e.fd); } catch(...) { close(e.fd); throw; }
++            entries.push_back(e); sizes.push_back(size);
++        }
++        if(!NativePreloadCgroupHeadroom(headroom) ||
++           !NativePreloadAdmissionBudget(sizes,defaultSize,adminSize,host->m_MaxGames,0,headroom,required))
++            throw runtime_error("catalog budget");
++        result=new CNativeStartupCatalog();
++        result->m_Owner=host; result->m_DefaultSize=defaultSize; result->m_AdminSize=adminSize;
++        result->m_MaxGames=host->m_MaxGames; result->m_InputSizes=sizes;
++        for(size_t i=0;i<entries.size();++i)
++        {
++            const Descriptor &e=entries[i]; CConfig cfg; size_t pos=0;
++            while(pos<e.cfg.size())
++            {
++                size_t end=e.cfg.find('\n',pos), split=e.cfg.find(" = ",pos);
++                cfg.Set(e.cfg.substr(pos,split-pos),e.cfg.substr(split+3,end-split-3)); pos=end+1;
++            }
++            NativeNextPreset s={}; s.GameName=e.name;
++            s.MaxPlayers=e.values[0]; s.AutoStartEnabled=e.values[1]; s.DefaultAutoStartPlayers=e.values[2];
++            s.CountDownSeconds=e.values[3]; s.VoteEnabled=e.values[4]; s.VoteRequiredPercent=e.values[5];
++            s.VoteMinPlayers=e.values[6]; s.VoteTimeout=e.values[7]; s.VoteCooldown=e.values[8];
++            s.LobbyRefreshEnabled=e.values[9]; s.LobbyRefreshInterval=e.values[10]; s.LobbyAISupported=e.values[11];
++            s.LobbyAITarget=e.values[12]; s.LobbyAISkill=e.values[13]; s.LobbyMinHumans=e.values[14];
++            CMap *map=new CMap(host,&cfg,"sealed-startup",e.fd,e.digest);
++            if(!host->ValidateNativeNextPreset(map,s)) { delete map; throw runtime_error("catalog map"); }
++            try { CNativeStartupCatalog::Entry entry={e.id,map,s}; result->m_Entries.push_back(entry); }
++            catch(...) { delete map; throw; }
++        }
++        for(size_t i=0;i<occurrences;++i) result->m_Cycle.push_back((unsigned char)data[cursor+i]);
++    }
++    catch(...) { delete result; result=NULL; }
++    for(size_t i=0;i<inputs.size();++i) close(inputs[i]);
++    close(stable); return result;
++#else
++    return NULL;
++#endif
++}
++
++CNativeStartupCatalog *NativeBuildBoundStartupCatalog( CGHost *host, int manifestFD, const string &digest )
++{
++#ifndef WIN32
++    if(!host || host->m_NativeAdmissionCatalog || !host->m_LifecycleValid || host->m_LifecycleGeneration.size()!=32 ||
++       host->m_LifecycleGeneration.find_first_not_of("0123456789abcdef")!=string::npos) return NULL;
++    int fd=fcntl(manifestFD,F_DUPFD_CLOEXEC,3);
++    if(fd<0) return NULL;
++    CNativeStartupCatalog *catalog=NULL;
++    try
++    {
++        if(NativePreloadManifestDigestMatches(fd,digest)) catalog=NativeBuildStartupCatalog(host,fd);
++        if(catalog)
++        {
++            catalog->m_ManifestDigest=digest; catalog->m_SessionGeneration=host->m_LifecycleGeneration;
++            host->m_NativeAdmissionCatalog=catalog;
++            host->m_NativeCatalogOnly=true; host->m_AutoHostGameName.clear();
++        }
++    }
++    catch(...) { delete catalog; catalog=NULL; }
++    close(fd); return catalog;
++#else
++    return NULL;
++#endif
++}
++
++#ifndef WIN32
++// Returns -1 for invalid/error, 0 absent, 1 verified; sync before accepting.
++static int NativeIPCRead( int dir, const string &name, string &out )
++{
++    int fd=openat(dir,name.c_str(),O_RDONLY|O_NONBLOCK|O_NOFOLLOW|O_CLOEXEC);
++    if(fd<0) return errno==ENOENT ? 0 : -1;
++    struct stat a,b,named;
++    bool ok=!fstat(fd,&a) && S_ISREG(a.st_mode) && a.st_uid==geteuid() && (a.st_mode&07777)==0600 &&
++        a.st_nlink==1 && a.st_size>0 && a.st_size<=512;
++    out.clear(); char bytes[512];
++    while(ok)
++    {
++        ssize_t n=read(fd,bytes,sizeof bytes);
++        if(n<0 && errno==EINTR) continue;
++        if(n<0) { ok=false; break; }
++        if(n==0) break;
++        try { out.append(bytes,n); } catch(...) { close(fd); return -1; }
++        if(out.size()>512) ok=false;
++    }
++    if(ok && fsync(fd)) ok=false;
++    if(ok && (fstat(fd,&b) || fstatat(dir,name.c_str(),&named,AT_SYMLINK_NOFOLLOW) ||
++        a.st_dev!=b.st_dev || a.st_ino!=b.st_ino || a.st_size!=b.st_size || a.st_mode!=b.st_mode ||
++        a.st_uid!=b.st_uid || a.st_nlink!=b.st_nlink || a.st_mtim.tv_sec!=b.st_mtim.tv_sec ||
++        a.st_mtim.tv_nsec!=b.st_mtim.tv_nsec || a.st_ctim.tv_sec!=b.st_ctim.tv_sec || a.st_ctim.tv_nsec!=b.st_ctim.tv_nsec ||
++        b.st_dev!=named.st_dev || b.st_ino!=named.st_ino || b.st_nlink!=named.st_nlink ||
++        b.st_mode!=named.st_mode || b.st_uid!=named.st_uid || b.st_size!=named.st_size || out.size()!=(size_t)a.st_size)) ok=false;
++    close(fd); return ok ? 1 : -1;
++}
++
++static bool NativeIPCStable( const string &directory, int held )
++{
++    int current=NativeStatusDirectory(directory); struct stat a,b;
++    bool ok=current>=0 && !fstat(held,&a) && !fstat(current,&b) && a.st_dev==b.st_dev && a.st_ino==b.st_ino;
++    if(current>=0) close(current);
++    return ok;
++}
++
++static bool NativeIPCWrite( const string &directory, int dir, const string &name, const string &payload )
++{
++    string id;
++    if(!NativeRandomID(id)) return false;
++    string temporary=".preload-"+id+".tmp";
++    int fd=openat(dir,temporary.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
++    if(fd<0) return false;
++    bool ok=!fchmod(fd,0600); size_t offset=0;
++    while(ok && offset<payload.size())
++    {
++        ssize_t n=write(fd,payload.data()+offset,payload.size()-offset);
++        if(n<0 && errno==EINTR) continue;
++        if(n<=0) { ok=false; break; }
++        offset+=n;
++    }
++    if(ok && fsync(fd)) ok=false;
++    if(close(fd)) ok=false;
++    if(ok && !NativeIPCStable(directory,dir)) ok=false;
++    bool renamed=false;
++    if(ok) { if(syscall(SYS_renameat2,dir,temporary.c_str(),dir,name.c_str(),RENAME_NOREPLACE)) ok=false; else renamed=true; }
++    if(ok && fsync(dir)) ok=false;
++    if(ok && !NativeIPCStable(directory,dir)) ok=false;
++    string observed;
++    if(ok && (NativeIPCRead(dir,name,observed)!=1 || observed!=payload)) ok=false;
++    if(!renamed) unlinkat(dir,temporary.c_str(),0);
++    return ok;
++}
++#endif
++
++bool CNativeStartupCatalog :: DefaultMapMatches( CGHost *host, const string &digest ) const
++{
++#ifndef WIN32
++    if(!host || host!=m_Owner || !host->m_Map || m_Cycle.empty() || m_Cycle[0]>=m_Entries.size()) return false;
++    CMap *first=m_Entries[m_Cycle[0]].Map;
++    return first && NativeMapSHA256Matches(*host->m_Map->GetMapData(),digest) &&
++        NativeMapSHA256Matches(*first->GetMapData(),digest);
++#else
++    return false;
++#endif
++}
++
++bool CNativeStartupCatalog :: IPCIdentity( uint64_t &device, uint64_t &inode ) const
++{
++#ifndef WIN32
++    struct stat st;
++    if(m_IPCBlocked || m_IPCDirectoryFD<0 || fstat(m_IPCDirectoryFD,&st) || !S_ISDIR(st.st_mode) || !NativeIPCStable(m_IPCDirectory,m_IPCDirectoryFD)) return false;
++    device=(uint64_t)st.st_dev; inode=(uint64_t)st.st_ino; return inode!=0;
++#else
++    return false;
++#endif
++}
++
++bool CNativeStartupCatalog :: AttachIPC( CGHost *host, const string &directory )
++{
++#ifndef WIN32
++    if(m_IPCBlocked || m_IPCDirectoryFD>=0 || !host || host!=m_Owner || m_ManifestDigest.size()!=64 ||
++       m_SessionGeneration.size()!=32 || host->m_LifecycleGeneration!=m_SessionGeneration || !host->m_LifecycleValid) return false;
++    int fd=NativeStatusDirectory(directory);
++    if(fd<0) return false;
++    try
++    {
++        if(!NativeIPCStable(directory,fd)) { close(fd); return false; }
++        m_IPCDirectory=directory; m_IPCDirectoryFD=fd; return true;
++    }
++    catch(...) { close(fd); return false; }
++#else
++    return false;
++#endif
++}
++
++bool CNativeStartupCatalog :: HandleRequest( CGHost *host, const string &directory, const string &requestID )
++{
++#ifndef WIN32
++    if(m_IPCBlocked || m_IPCDirectoryFD<0 || directory!=m_IPCDirectory || !host || host!=m_Owner || m_ManifestDigest.size()!=64 || m_SessionGeneration.size()!=32 ||
++       host->m_LifecycleGeneration!=m_SessionGeneration || !host->m_LifecycleValid || requestID.size()!=32 ||
++       requestID.find_first_not_of("0123456789abcdef")!=string::npos) return false;
++    int dir=-1; bool stagedByThis=false;
++    try
++    {
++    dir=NativeStatusDirectory(directory);
++    if(dir<0) { if(!m_IPCBlocked) host->CountNativeRotationError( ); m_IPCBlocked=true; host->m_Enabled=false; return false; }
++    struct stat pinned, opened;
++    bool ok=!fstat(m_IPCDirectoryFD,&pinned) && !fstat(dir,&opened) && pinned.st_dev==opened.st_dev &&
++        pinned.st_ino==opened.st_ino && NativeIPCStable(directory,m_IPCDirectoryFD) && NativeIPCStable(directory,dir);
++    string payload;
++    string request="request-"+requestID+".ready", claim="claim-"+requestID+".ready", ack="ack-"+requestID+".ready";
++    int read=ok?NativeIPCRead(dir,request,payload):-1;
++    if(read==0) { close(dir); return true; }
++    if(read!=1 || fsync(dir) || !NativeIPCStable(directory,dir)) ok=false;
++    string prefix="version=1\nsession_generation="+m_SessionGeneration+"\nmanifest_sha256="+m_ManifestDigest+
++        "\nrequest_id="+requestID+"\nindex=";
++    unsigned index=0;
++    if(ok)
++    {
++        if(payload.compare(0,prefix.size(),prefix) || payload.size()<=prefix.size()+1 || payload[payload.size()-1]!='\n') ok=false;
++        else
++        {
++            string number=payload.substr(prefix.size(),payload.size()-prefix.size()-1);
++            if(number.empty() || number.size()>2 || (number.size()>1 && number[0]=='0')) ok=false;
++            for(size_t i=0;ok && i<number.size();++i)
++                if(number[i]<'0'||number[i]>'9') ok=false; else index=index*10+number[i]-'0';
++            if(index>=32) ok=false;
++        }
++    }
++    string claimed, recorded; int c=ok?NativeIPCRead(dir,claim,claimed):-1, a=ok?NativeIPCRead(dir,ack,recorded):-1;
++    if(c<0 || a<0 || (c==1 && claimed!=payload) || (a==1 && c!=1)) ok=false;
++    if(ok && a==1)
++    {
++        if(recorded!=payload+"status=staged\n" && recorded!=payload+"status=rejected\n" && recorded!=payload+"status=uncertain\n") ok=false;
++        else if(recorded==payload+"status=uncertain\n") ok=false;
++    }
++    else if(ok && c==1)
++    {
++        // A durable claim without an ACK is ambiguous after a crash; never restage.
++        NativeIPCWrite(directory,dir,ack,payload+"status=uncertain\n"); ok=false;
++    }
++    else if(ok)
++    {
++        if(!NativeIPCWrite(directory,dir,claim,payload)) ok=false;
++        else
++        {
++            m_DurableContext=true;
++            int staged=Stage(host,requestID,index);
++            m_DurableContext=false; stagedByThis=(staged==1);
++            string status=staged==1 ? "staged" : "rejected";
++            string stagedID=staged==1 ? requestID : string();
++            if(!NativeIPCWrite(directory,dir,ack,payload+"status="+status+"\n"))
++            {
++                if(staged==1) { delete host->m_NativePendingMap; host->m_NativePendingMap=NULL;
++                    delete host->m_NativePendingPreset; host->m_NativePendingPreset=NULL; host->m_NativePendingCatalogID.clear(); host->m_NativePendingCatalogDigest.clear(); }
++                ok=false;
++            }
++            else if(staged==1) { m_StagedID.swap(stagedID); m_StagedIndex=index; }
++            else host->CountNativeRotationError( );
++        }
++    }
++    close(dir); dir=-1;
++    if(!ok) { if(!m_IPCBlocked) host->CountNativeRotationError( ); m_IPCBlocked=true; host->m_Enabled=false; }
++    return ok;
++    }
++    catch(...)
++    {
++        m_DurableContext=false;
++        if(dir>=0) close(dir);
++        if(stagedByThis) { delete host->m_NativePendingMap; host->m_NativePendingMap=NULL;
++            delete host->m_NativePendingPreset; host->m_NativePendingPreset=NULL; host->m_NativePendingCatalogID.clear(); host->m_NativePendingCatalogDigest.clear(); }
++        if(!m_IPCBlocked) host->CountNativeRotationError( ); m_IPCBlocked=true; host->m_Enabled=false; return false;
++    }
++#else
++    return false;
++#endif
++}
++
++// One bounded mailbox keeps event-loop work independent of historical request
++// count. The immutable request, claim and ACK files are retained separately.
++bool CNativeStartupCatalog :: PollIPC( CGHost *host )
++{
++#ifndef WIN32
++    if(m_IPCBlocked || !host || host!=m_Owner || m_IPCDirectoryFD<0) return false;
++    bool ok=true; string payload, request, ack; struct stat before, after;
++    try
++    {
++        if(!NativeIPCStable(m_IPCDirectory,m_IPCDirectoryFD)) ok=false;
++        int r=ok ? NativeIPCRead(m_IPCDirectoryFD,"next.ready",payload) : -1;
++        if(r==0) return true;
++        if(r!=1 || fstatat(m_IPCDirectoryFD,"next.ready",&before,AT_SYMLINK_NOFOLLOW)) ok=false;
++        string prefix="version=1\nsession_generation="+m_SessionGeneration+"\nmanifest_sha256="+m_ManifestDigest+"\nrequest_id=";
++        string id;
++        if(ok)
++        {
++            if(payload.compare(0,prefix.size(),prefix) || payload.size()<prefix.size()+32+8) ok=false;
++            else { id=payload.substr(prefix.size(),32); if(id.find_first_not_of("0123456789abcdef")!=string::npos) ok=false; }
++        }
++        if(ok && (NativeIPCRead(m_IPCDirectoryFD,"request-"+id+".ready",request)!=1 || request!=payload ||
++                  !NativeIPCStable(m_IPCDirectory,m_IPCDirectoryFD))) ok=false;
++        if(ok && !HandleRequest(host,m_IPCDirectory,id)) ok=false;
++        if(ok && (NativeIPCRead(m_IPCDirectoryFD,"ack-"+id+".ready",ack)!=1 ||
++                  (ack!=payload+"status=staged\n" && ack!=payload+"status=rejected\n") || fsync(m_IPCDirectoryFD))) ok=false;
++        string random, moved;
++        if(ok && (!NativeRandomID(random) || !NativeIPCStable(m_IPCDirectory,m_IPCDirectoryFD))) ok=false;
++        if(ok)
++        {
++            moved=".consumed-"+random+".tmp";
++            if(syscall(SYS_renameat2,m_IPCDirectoryFD,"next.ready",m_IPCDirectoryFD,moved.c_str(),RENAME_NOREPLACE)) ok=false;
++            else if(fstatat(m_IPCDirectoryFD,moved.c_str(),&after,AT_SYMLINK_NOFOLLOW) ||
++                    before.st_dev!=after.st_dev || before.st_ino!=after.st_ino || before.st_size!=after.st_size ||
++                    NativeIPCRead(m_IPCDirectoryFD,moved,request)!=1 || request!=payload ||
++                    !NativeIPCStable(m_IPCDirectory,m_IPCDirectoryFD) || unlinkat(m_IPCDirectoryFD,moved.c_str(),0) ||
++                    fsync(m_IPCDirectoryFD) || !NativeIPCStable(m_IPCDirectory,m_IPCDirectoryFD)) ok=false;
++        }
++    }
++    catch(...) { ok=false; }
++    if(!ok) { if(!m_IPCBlocked) host->CountNativeRotationError( ); m_IPCBlocked=true; host->m_Enabled=false; }
++    return ok;
++#else
++    return false;
++#endif
++}
++
++// This runs only on the host event loop. Staging is durable before this check;
++// full capacity or an occupied lobby waits without changing the request.
++int CNativeStartupCatalog :: CheckAdmission( CGHost *host, CMap *map, const string &gameName ) const
++{
++    if( !host || host!=m_Owner || host->m_NativeAdmissionCatalog!=this ||
++        (host->m_NativeStartupCatalog && host->m_NativeStartupCatalog!=this) ||
++        m_IPCBlocked || !host->m_LifecycleValid ||
++        host->m_LifecycleGeneration!=m_SessionGeneration || m_StagedID.empty() ||
++        m_StagedIndex>=m_Entries.size() || host->m_NativePendingCatalogID!=m_StagedID ||
++        host->m_NativePendingCatalogDigest!=m_ManifestDigest ||
++        host->m_NativePendingCatalogIndex!=m_StagedIndex || !host->m_NativePendingPreset ||
++        !map || map!=host->m_NativePendingMap || gameName!=m_Entries[m_StagedIndex].Settings.GameName ||
++        host->m_NativePendingPreset->GameName!=gameName || host->m_MaxGames!=m_MaxGames ) return -1;
++    const Entry &entry=m_Entries[m_StagedIndex];
++    const NativeNextPreset &actual=*host->m_NativePendingPreset, &expected=entry.Settings;
++    if( !entry.Map || map->GetMapPath()!=entry.Map->GetMapPath() || map->GetMapSize()!=entry.Map->GetMapSize() ||
++        map->GetMapCRC()!=entry.Map->GetMapCRC() || map->GetMapSHA1()!=entry.Map->GetMapSHA1() ||
++        actual.GameName!=expected.GameName || actual.VoteEnabled!=expected.VoteEnabled ||
++        actual.LobbyRefreshEnabled!=expected.LobbyRefreshEnabled || actual.LobbyAISupported!=expected.LobbyAISupported ||
++        actual.AutoStartEnabled!=expected.AutoStartEnabled || actual.MaxPlayers!=expected.MaxPlayers ||
++        actual.DefaultAutoStartPlayers!=expected.DefaultAutoStartPlayers || actual.VoteRequiredPercent!=expected.VoteRequiredPercent ||
++        actual.VoteMinPlayers!=expected.VoteMinPlayers || actual.VoteTimeout!=expected.VoteTimeout ||
++        actual.VoteCooldown!=expected.VoteCooldown || actual.LobbyRefreshInterval!=expected.LobbyRefreshInterval ||
++        actual.LobbyAITarget!=expected.LobbyAITarget || actual.LobbyAISkill!=expected.LobbyAISkill ||
++        actual.LobbyMinHumans!=expected.LobbyMinHumans || actual.CountDownSeconds!=expected.CountDownSeconds ) return -1;
++    if( host->m_CurrentGame || host->m_AutoHostMaximumGames==0 ||
++        host->m_Games.size()>=host->m_MaxGames || host->m_Games.size()>=host->m_AutoHostMaximumGames ) return 0;
++    return 1;
++}
++
++void CNativeStartupCatalog :: FinishAdmission( CGHost *host )
++{
++    if( host==m_Owner ) { m_StagedID.clear(); m_StagedIndex=0; }
++}
++
++// Validate a map and settings without mutating host, pending, or active games.
++bool CGHost :: ValidateNativeNextPreset( CMap *map, const NativeNextPreset &s )
++{
++    if( s.GameName.empty( ) || s.GameName.size( ) > 24 ) return false;
++    for( size_t i = 0; i < s.GameName.size( ); ++i )
++        if( (unsigned char)s.GameName[i] < 32 || s.GameName[i] == '=' || s.GameName[i] == '[' || s.GameName[i] == ']' ) return false;
++    if( !map || map->m_GHost != this || !map->GetValid( ) || m_Exiting || m_ExitingNice ||
++        s.MaxPlayers < 2 || s.MaxPlayers > 12 || s.MaxPlayers > map->GetMapNumPlayers( ) ||
++        s.MaxPlayers > map->GetSlots( ).size( ) || s.DefaultAutoStartPlayers < 2 || s.DefaultAutoStartPlayers > 12 ||
++        ( s.AutoStartEnabled && s.DefaultAutoStartPlayers > s.MaxPlayers ) || s.CountDownSeconds > 60 ||
++        s.VoteRequiredPercent < 1 || s.VoteRequiredPercent > 100 ||
++        s.VoteTimeout < 5 || s.VoteTimeout > 600 || s.VoteCooldown > 600 ||
++        s.LobbyRefreshInterval < 10 || s.LobbyRefreshInterval > 3600 || s.LobbyAISkill > 2 ||
++        s.LobbyMinHumans < 1 || s.LobbyMinHumans > s.MaxPlayers ||
++        s.VoteMinPlayers < 1 || s.VoteMinPlayers > s.MaxPlayers ||
++        ( s.LobbyAISupported ? s.LobbyAITarget < 2 || s.LobbyAITarget > s.MaxPlayers :
++          s.LobbyAITarget != 0 || s.LobbyMinHumans < 2 ) ||
++        ( !s.LobbyAITarget && s.LobbyMinHumans < 2 ) ||
++        ( s.VoteMinPlayers < 2 && !( s.LobbyAISupported && s.LobbyAITarget >= 2 && s.LobbyMinHumans == 1 ) ) )
++        return false;
++
++    // Reject missing local map data even if synthetic metadata is complete.
++    if( !map->GetMapLocalPath( ).empty( ) && map->GetMapData( )->empty( ) ) return false;
++
++    // resolve_preset checks actual open-human capacity, including preset computers.
++    vector<CGameSlot> presetSlots = map->GetSlots( );
++    uint32_t humans = 0, computers = 0;
++    for( size_t i = 0; i < presetSlots.size( ); ++i )
++    {
++        if( presetSlots[i].GetComputer( ) ) ++computers;
++        else if( presetSlots[i].GetSlotStatus( ) == SLOTSTATUS_OPEN ) ++humans;
++    }
++    uint32_t capacity = s.LobbyAISupported ? s.MaxPlayers :
++        s.MaxPlayers > computers ? s.MaxPlayers - computers : 0;
++    uint32_t humanLimit = min( humans, capacity );
++    if( s.VoteMinPlayers > humanLimit ||
++        ( s.AutoStartEnabled && s.DefaultAutoStartPlayers > humanLimit ) ) return false;
++
++    if( m_AutoHostMatchMaking ) return false;
++    if( s.LobbyAISupported && s.LobbyAITarget >= 2 )
++    {
++        vector<CGameSlot> slots = map->GetSlots( );
++        set<unsigned char> colours, teams;
++        uint32_t humanSlots = 0;
++        if( slots.size( ) > 12 ) return false;
++        for( size_t i = 0; i < slots.size( ); ++i )
++        {
++            CGameSlot &slot = slots[i];
++            if( slot.GetTeam( ) >= 12 || slot.GetColour( ) >= 12 ) continue;
++            if( !colours.insert( slot.GetColour( ) ).second ) return false;
++            teams.insert( slot.GetTeam( ) );
++            if( !slot.GetComputer( ) ) ++humanSlots;
++        }
++        if( teams.size( ) < 2 || teams.size( ) > map->GetMapNumTeams( ) ||
++            s.LobbyAITarget > min( humanSlots, s.MaxPlayers ) ) return false;
++    }
++
++    return true;
++}
++
++// Synchronous event-loop transaction. No callbacks are made after the commit starts.
++bool CGHost :: ApplyNativeNextPreset( CMap *map, const NativeNextPreset &s )
++{
++    if( m_NativeCatalogOnly && !m_NativeCatalogStaging ) return false;
++    if( !ValidateNativeNextPreset( map, s ) ) return false;
++
++    // Prepare both values before replacing the pending transaction.
++    CMap *candidate = NULL;
++    NativeNextPreset *settings = NULL;
++    try { candidate = new CMap( *map ); settings = new NativeNextPreset( s ); }
++    catch( const std::bad_alloc & ) { delete candidate; return false; }
++    delete m_NativePendingMap;
++    delete m_NativePendingPreset;
++    m_NativePendingMap = candidate;
++    m_NativePendingPreset = settings;
++    return true;
++}
++
+ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, string gameName, string ownerName, string creatorName, string creatorServer, bool whisper )
+ {
+-	if( !m_Enabled )
++    if( m_NativeCatalogOnly )
++    {
++        if( !m_NativeCatalogAdmission ) return;
++        int admission=m_NativeAdmissionCatalog ? m_NativeAdmissionCatalog->CheckAdmission(this,map,gameName) : -1;
++        if( admission<0 ) { if( m_Enabled ) CountNativeRotationError( ); m_Enabled=false; CONSOLE_Print("[GHOST] catalog admission identity invalid; disabling new games"); }
++        if( admission!=1 ) return;
++    }
++	if( !m_Enabled || m_LifecycleWriteFailed || !m_ExternalPublisher->Valid( ) )
+ 	{
+                 for( vector<CBNET *> :: iterator i = m_BNETs.begin( ); i != m_BNETs.end( ); ++i )
+ 		{
+@@ -1648,6 +2910,13 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
+ 		return;
+ 	}
+ 
++    // Final serialized check immediately before constructing the lobby.
++    if( m_NativeCatalogOnly )
++    {
++        int admission=m_NativeAdmissionCatalog ? m_NativeAdmissionCatalog->CheckAdmission(this,map,gameName) : -1;
++        if( admission<0 ) { if( m_Enabled ) CountNativeRotationError( ); m_Enabled=false; CONSOLE_Print("[GHOST] catalog admission identity invalid; disabling new games"); }
++        if( admission!=1 ) return;
++    }
+ 	CONSOLE_Print( "[GHOST] creating game [" + gameName + "]" );
+ 
+ 	if( saveGame )
+@@ -1655,7 +2924,15 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
  	else
  		m_CurrentGame = new CGame( this, map, NULL, m_HostPort, gameState, gameName, ownerName, creatorName, creatorServer );
  
+-	// todotodo: check if listening failed and report the error to the user
++	// Never queue BNCS creation or publish an object whose listen or setup failed.
++	if( m_CurrentGame->GetExiting( ) )
++	{
++		if( m_NativeCatalogOnly ) CountNativeRotationError( );
++		delete m_CurrentGame;
++		m_CurrentGame = NULL;
++		return;
++	}
 +	m_CurrentGame->UpdateExternalPublication( );
-+
- 	// todotodo: check if listening failed and report the error to the user
  
  	if( m_SaveGame )
+ 	{
 diff --git a/ghost/ghost.h b/ghost/ghost.h
-index c9678d3..36dbd55 100644
+index c9678d3..eb60835 100644
 --- a/ghost/ghost.h
 +++ b/ghost/ghost.h
 @@ -34,6 +34,7 @@ class CGPSProtocol;
@@ -2200,25 +3574,95 @@ index c9678d3..36dbd55 100644
  class CBaseGame;
  class CAdminGame;
  class CGHostDB;
-@@ -43,6 +44,9 @@ class CMap;
+@@ -43,6 +44,62 @@ class CMap;
  class CSaveGame;
  class CConfig;
  
 +uint64_t NativeMonotonicMS( );
 +string NativeJSONQuote( const string &value );
 +
++// Values are copied; caller invokes only on the GHost event-loop thread.
++struct NativeNextPreset
++{
++    string GameName;
++    bool VoteEnabled, LobbyRefreshEnabled, LobbyAISupported, AutoStartEnabled;
++    uint32_t MaxPlayers, DefaultAutoStartPlayers, VoteRequiredPercent, VoteMinPlayers;
++    uint32_t VoteTimeout, VoteCooldown, LobbyRefreshInterval, LobbyAITarget;
++    uint32_t LobbyAISkill, LobbyMinHumans, CountDownSeconds;
++};
++
++class CGHost;
++class CNativeStartupCatalog
++{
++    struct Entry { string ID; CMap *Map; NativeNextPreset Settings; };
++    vector<Entry> m_Entries;
++    vector<unsigned char> m_Cycle;
++    vector<uint64_t> m_InputSizes;
++    CGHost *m_Owner;
++    string m_ManifestDigest, m_SessionGeneration, m_IPCDirectory, m_StagedID;
++    int m_IPCDirectoryFD;
++    bool m_IPCBlocked, m_DurableContext;
++    uint64_t m_DefaultSize, m_AdminSize;
++    uint32_t m_MaxGames, m_StagedIndex;
++    CNativeStartupCatalog( ) : m_Owner(NULL), m_IPCDirectoryFD(-1), m_IPCBlocked(false), m_DurableContext(false), m_DefaultSize(0), m_AdminSize(0), m_MaxGames(0), m_StagedIndex(0) { }
++    CNativeStartupCatalog( const CNativeStartupCatalog & ) = delete;
++    CNativeStartupCatalog &operator=( const CNativeStartupCatalog & ) = delete;
++    friend CNativeStartupCatalog *NativeBuildStartupCatalog( CGHost *, int );
++    friend CNativeStartupCatalog *NativeBuildBoundStartupCatalog( CGHost *, int, const string & );
++public:
++    ~CNativeStartupCatalog( );
++    size_t Count( ) const { return m_Entries.size( ); }
++    size_t CycleCount( ) const { return m_Cycle.size( ); }
++    unsigned CycleIndex( size_t index ) const { return index < m_Cycle.size( ) ? m_Cycle[index] : 255; }
++    string ID( size_t index ) const { return index < m_Entries.size( ) ? m_Entries[index].ID : string( ); }
++    string MapPath( size_t index ) const;
++    const string &Digest( ) const { return m_ManifestDigest; }
++    // Event loop only; permitted exclusively inside a durable request handler.
++    int Stage( CGHost *host, const string &requestID, size_t index );
++    bool AttachIPC( CGHost *host, const string &directory );
++    bool IPCIdentity( uint64_t &device, uint64_t &inode ) const;
++    bool DefaultMapMatches( CGHost *host, const string &digest ) const;
++    // Event-loop request handler; false latches rotation off.
++    bool HandleRequest( CGHost *host, const string &directory, const string &requestID );
++    bool PollIPC( CGHost *host );
++    // Event-loop only: 1 admit, 0 wait for capacity/lobby, -1 identity invalid.
++    int CheckAdmission( CGHost *host, CMap *map, const string &gameName ) const;
++    void FinishAdmission( CGHost *host );
++};
++
++// Caller owns the result and must destroy it before the host. Startup only.
++CNativeStartupCatalog *NativeBuildStartupCatalog( CGHost *host, int manifestFD );
++CNativeStartupCatalog *NativeBuildBoundStartupCatalog( CGHost *host, int manifestFD, const string &digest );
++
  class CGHost
  {
  public:
-@@ -53,6 +57,7 @@ public:
+@@ -53,6 +110,11 @@ public:
  	CCRC32 *m_CRC;							// for calculating CRC's
  	CSHA1 *m_SHA;							// for calculating SHA1's
  	vector<CBNET *> m_BNETs;				// all our battle.net connections (there can be more than one)
 +	CExternalPublisher *m_ExternalPublisher; // optional file intents, never authentication
++	string m_LifecycleDirectory, m_LifecycleGeneration;
++	int m_LifecycleDirFD;
++	unsigned long m_LifecycleDirDevice, m_LifecycleDirInode;
++	bool m_LifecycleValid, m_StartReservationGate, m_LifecycleWriteFailed;
  	CBaseGame *m_CurrentGame;				// this game is still in the lobby state
  	CAdminGame *m_AdminGame;				// this "fake game" allows an admin who knows the password to control the bot from the local network
  	vector<CBaseGame *> m_Games;			// these games are in progress
-@@ -115,6 +120,18 @@ public:
+@@ -63,6 +125,12 @@ public:
+ 	CLanguage *m_Language;					// language
+ 	CMap *m_Map;							// the currently loaded map
+ 	CMap *m_AdminMap;						// the map to use in the admin game
++	bool m_NativeCatalogOnly, m_NativeCatalogStaging, m_NativeCatalogAdmission;
++	CNativeStartupCatalog *m_NativeStartupCatalog, *m_NativeAdmissionCatalog;
++	string m_NativePendingCatalogID, m_NativePendingCatalogDigest;
++	uint32_t m_NativePendingCatalogIndex;
++	CMap *m_NativePendingMap;
++	NativeNextPreset *m_NativePendingPreset;
+ 	CMap *m_AutoHostMap;					// the map to use when autohosting
+ 	CSaveGame *m_SaveGame;					// the save game to use
+ 	vector<PIDPlayer> m_EnforcePlayers;		// vector of pids to force players to use in the next game (used with saved games)
+@@ -115,6 +183,27 @@ public:
  	uint32_t m_BanMethod;					// config value: ban method (ban by name/ip/both)
  	string m_IPBlackListFile;				// config value: IP blacklist file (ipblacklist.txt)
  	uint32_t m_LobbyTimeLimit;				// config value: auto close the game lobby after this many minutes without any reserved players
@@ -2228,21 +3672,54 @@ index c9678d3..36dbd55 100644
 +	uint32_t m_MaxPlayers, m_DefaultAutoStartPlayers, m_VoteRequiredPercent, m_VoteMinPlayers, m_VoteTimeout, m_VoteCooldown, m_LobbyRefreshInterval;
 +	string m_ExternalStatusPath, m_StatusName, m_LastNativeState;
 +	uint64_t m_NativeStartedMS, m_NativeRefreshSequence, m_NativeRefreshCount, m_NativeRefreshSkipped, m_NativeLastRefreshMS, m_NativeRefreshStartedMS;
++	uint64_t m_NativeRetiredMatches, m_NativeRotationErrors;
++	void CountNativeRotationError( ) { if( m_NativeRotationErrors != (uint64_t)-1 ) ++m_NativeRotationErrors; }
 +	uint32_t m_LastNativeStateTicks, m_LastNativeFeedbackTicks;
 +	bool m_NativeOnline, m_NativeFeedbackValid;
 +	uint64_t m_NativeLastAckMS, m_PublicationRefreshCount, m_PublicationRefreshSuccesses, m_PublicationRefreshFailures;
 +	void UpdateNativeFeedback( bool force = false );
++	string NativeStatusPreset( CBaseGame *game ) const;
++	string NativeStatusNextPreset( ) const;
 +	void EmitNativeState( );
++	bool PersistNativeGameStarted( uint32_t hostCounter, string &matchID );
++	bool PersistNativeLobbyClosed( uint32_t hostCounter, const string &requestID, const string &digest, uint32_t catalogIndex );
++	int NativeOpenLifecycleDirectory( );
++	bool NativeStartReserved( uint32_t hostCounter );
++	uint32_t AllocateNativeHostCounter( );
 +	uint32_t m_CountDownSeconds;			// local patch: countdown delay, 0..60 seconds
  	uint32_t m_Latency;						// config value: the latency (by default)
  	uint32_t m_SyncLimit;					// config value: the maximum number of packets a player can fall out of sync before starting the lag screen (by default)
  	bool m_VoteKickAllowed;					// config value: if votekicks are allowed or not
+@@ -162,6 +251,8 @@ public:
+ 	void SetConfigs( CConfig *CFG );
+ 	void ExtractScripts( );
+ 	void LoadIPToCountryData( );
++	bool ValidateNativeNextPreset( CMap *map, const NativeNextPreset &settings );
++	bool ApplyNativeNextPreset( CMap *map, const NativeNextPreset &settings );
+ 	void CreateGame( CMap *map, unsigned char gameState, bool saveGame, string gameName, string ownerName, string creatorName, string creatorServer, bool whisper );
+ };
+ 
 diff --git a/ghost/map.cpp b/ghost/map.cpp
-index 2bc089b..742e522 100644
+index 2bc089b..b73cd14 100644
 --- a/ghost/map.cpp
 +++ b/ghost/map.cpp
-@@ -26,7 +26,7 @@
+@@ -24,13 +24,691 @@
+ #include "sha1.h"
+ #include "config.h"
  #include "map.h"
++#ifndef WIN32
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <errno.h>
++#include <sys/socket.h>
++#include <linux/if_alg.h>
++#include <sys/vfs.h>
++#include <linux/magic.h>
++#include <limits>
++#include <locale.h>
++#include <wctype.h>
++#endif
  
  #define __STORMLIB_SELF__
 -#include <stormlib/StormLib.h>
@@ -2250,51 +3727,946 @@ index 2bc089b..742e522 100644
  
  #define ROTL(x,n) ((x)<<(n))|((x)>>(32-(n)))	// this won't work with signed types
  #define ROTR(x,n) ((x)>>(n))|((x)<<(32-(n)))	// this won't work with signed types
-@@ -246,7 +246,7 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 
++// Fixed ceilings for one load. These bound input buffers, not process RSS.
++static const uint64_t NATIVE_MAP_FILE_MAX = 128ULL * 1024 * 1024;
++static const uint64_t NATIVE_MAP_MEMBER_MAX = 16ULL * 1024 * 1024;
++static const uint64_t NATIVE_MAP_MEMBERS_TOTAL_MAX = 64ULL * 1024 * 1024;
++
++// 0 = not available, -1 = oversized/failed read, 1 = complete bounded read.
++static int NativeReadMapFile( const string &path, uint64_t limit, string &out )
++{
++    ifstream file( path.c_str( ), ios::in | ios::binary | ios::ate );
++    if( !file.is_open( ) ) return 0;
++    streamoff length = file.tellg( );
++    if( length < 0 || (uint64_t)length > limit ) return -1;
++    file.seekg( 0, ios::beg );
++    if( !file ) return -1;
++    out.resize( (size_t)length );
++    if( length && !file.read( &out[0], length ) ) { out.clear( ); return -1; }
++    if( file.peek( ) != char_traits<char>::eof( ) || file.bad( ) ) { out.clear( ); return -1; }
++    return 1;
++}
++
++#ifndef WIN32
++// Keep one regular-file inode pinned for both the map bytes and StormLib.
++class NativeMapFile
++{
++    int m_FD;
++    struct stat m_Initial;
++public:
++    NativeMapFile( ) : m_FD( -1 ) { }
++    ~NativeMapFile( ) { if( m_FD >= 0 ) close( m_FD ); }
++    bool ReadOpened( string &data )
++    {
++        if( m_FD < 0 || fstat( m_FD, &m_Initial ) || !S_ISREG( m_Initial.st_mode ) ||
++            m_Initial.st_size <= 0 || (uint64_t)m_Initial.st_size > NATIVE_MAP_FILE_MAX ) return false;
++        data.resize( (size_t)m_Initial.st_size );
++        size_t offset = 0;
++        while( offset < data.size( ) )
++        {
++            ssize_t n = pread( m_FD, &data[offset], data.size( ) - offset, (off_t)offset );
++            if( n < 0 && errno == EINTR ) continue;
++            if( n <= 0 ) { data.clear( ); return false; }
++            offset += n;
++        }
++        if( !Stable( ) ) { data.clear( ); return false; }
++        return true;
++    }
++    bool OpenAndRead( const string &path, string &data )
++    {
++        m_FD = open( path.c_str( ), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK );
++        return ReadOpened( data );
++    }
++    bool OpenSealedAndRead( int sourceFD, string &data )
++    {
++        if( sourceFD < 0 ) return false;
++        m_FD = fcntl( sourceFD, F_DUPFD_CLOEXEC, 3 );
++        if( m_FD < 0 ) return false;
++        int seals = fcntl( m_FD, F_GET_SEALS );
++        const int required = F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL;
++        if( seals < 0 || ( seals & required ) != required ) return false;
++        return ReadOpened( data );
++    }
++    string ArchivePath( ) const { return "/proc/self/fd/" + UTIL_ToString( (uint32_t)m_FD ); }
++    bool Stable( ) const
++    {
++        struct stat now;
++        return m_FD >= 0 && !fstat( m_FD, &now ) && now.st_dev == m_Initial.st_dev &&
++            now.st_ino == m_Initial.st_ino && now.st_size == m_Initial.st_size &&
++            now.st_mtim.tv_sec == m_Initial.st_mtim.tv_sec && now.st_mtim.tv_nsec == m_Initial.st_mtim.tv_nsec &&
++            now.st_ctim.tv_sec == m_Initial.st_ctim.tv_sec && now.st_ctim.tv_nsec == m_Initial.st_ctim.tv_nsec;
++    }
++};
++#endif
++
++#ifndef WIN32
++// Hash bytes in the local Linux kernel, without adding a dynamic crypto library.
++// Failure or missing AF_ALG support is a rejection, never an unchecked load.
++bool NativeMapSHA256Matches( const string &data, const string &expected )
++{
++    if( expected.size( ) != 64 || expected.find_first_not_of( "0123456789abcdef" ) != string::npos ) return false;
++    int algorithm = socket( AF_ALG, SOCK_SEQPACKET | SOCK_CLOEXEC, 0 );
++    if( algorithm < 0 ) return false;
++    struct sockaddr_alg address;
++    memset( &address, 0, sizeof address );
++    address.salg_family = AF_ALG;
++    memcpy( address.salg_type, "hash", 5 );
++    memcpy( address.salg_name, "sha256", 7 );
++    if( bind( algorithm, (struct sockaddr *)&address, sizeof address ) ) { close( algorithm ); return false; }
++    int operation = accept4( algorithm, NULL, NULL, SOCK_CLOEXEC );
++    close( algorithm );
++    if( operation < 0 ) return false;
++    size_t offset = 0;
++    bool ok = true;
++    while( offset < data.size( ) )
++    {
++        size_t length = min( (size_t)65536, data.size( ) - offset );
++        ssize_t n = send( operation, data.data( ) + offset, length, MSG_MORE | MSG_NOSIGNAL );
++        if( n < 0 && errno == EINTR ) continue;
++        if( n <= 0 ) { ok = false; break; }
++        offset += n;
++    }
++    if( ok )
++    {
++        ssize_t n;
++        do { n = send( operation, "", 0, MSG_NOSIGNAL ); } while( n < 0 && errno == EINTR );
++        ok = n == 0;
++    }
++    unsigned char digest[32];
++    if( ok )
++    {
++        ssize_t n;
++        do { n = recv( operation, digest, sizeof digest, MSG_WAITALL ); } while( n < 0 && errno == EINTR );
++        ok = n == (ssize_t)sizeof digest;
++    }
++    close( operation );
++    if( !ok ) return false;
++    static const char hex[] = "0123456789abcdef";
++    string actual;
++    for( size_t i = 0; i < sizeof digest; ++i ) { actual += hex[digest[i] >> 4]; actual += hex[digest[i] & 15]; }
++    return actual == expected;
++}
++#endif
++
++// Bounded independent envelope verification. This is deliberately not a
++// catalog loader: config semantics and map construction still need validation.
++#ifndef WIN32
++static bool NativeManifestFD( int fd, uint64_t expectedSize )
++{
++    struct stat st;
++    int seals = fcntl( fd, F_GET_SEALS );
++    const int required = F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL;
++    return fd >= 3 && !fstat( fd, &st ) && S_ISREG( st.st_mode ) && st.st_size > 0 &&
++        (uint64_t)st.st_size == expectedSize && seals >= 0 && ( seals & required ) == required;
++}
++
++static bool NativeManifestHashFD( int fd, uint64_t length, const unsigned char *expected )
++{
++    int algorithm = socket( AF_ALG, SOCK_SEQPACKET | SOCK_CLOEXEC, 0 );
++    if( algorithm < 0 ) return false;
++    struct sockaddr_alg address; memset( &address, 0, sizeof address );
++    address.salg_family = AF_ALG; memcpy( address.salg_type, "hash", 5 ); memcpy( address.salg_name, "sha256", 7 );
++    if( bind( algorithm, (struct sockaddr *)&address, sizeof address ) ) { close( algorithm ); return false; }
++    int operation = accept4( algorithm, NULL, NULL, SOCK_CLOEXEC ); close( algorithm );
++    if( operation < 0 ) return false;
++    char buffer[65536]; uint64_t offset = 0; bool ok = true;
++    while( offset < length )
++    {
++        size_t wanted = (size_t)min( (uint64_t)sizeof buffer, length - offset ); ssize_t n;
++        do { n = pread( fd, buffer, wanted, (off_t)offset ); } while( n < 0 && errno == EINTR );
++        if( n <= 0 ) { ok = false; break; }
++        size_t sent = 0;
++        while( sent < (size_t)n )
++        {
++            ssize_t written = send( operation, buffer + sent, (size_t)n - sent, MSG_MORE | MSG_NOSIGNAL );
++            if( written < 0 && errno == EINTR ) continue;
++            if( written <= 0 ) { ok = false; break; }
++            sent += written;
++        }
++        if( !ok ) break;
++        offset += n;
++    }
++    if( ok ) { ssize_t n; do { n = send( operation, "", 0, MSG_NOSIGNAL ); } while( n < 0 && errno == EINTR ); ok = n == 0; }
++    unsigned char actual[32];
++    if( ok ) { ssize_t n; do { n = recv( operation, actual, sizeof actual, MSG_WAITALL ); } while( n < 0 && errno == EINTR ); ok = n == 32; }
++    close( operation );
++    return ok && !memcmp( actual, expected, 32 );
++}
++
++static uint64_t NativeManifestLE( const string &s, size_t offset, size_t bytes )
++{
++    uint64_t value = 0;
++    for( size_t i = 0; i < bytes; ++i ) value |= (uint64_t)(unsigned char)s[offset+i] << (8*i);
++    return value;
++}
++
++static bool NativeManifestSettings( const string &data, size_t offset )
++{
++    uint32_t v[15];
++    for( size_t i = 0; i < 15; ++i ) v[i] = (uint32_t)NativeManifestLE(data,offset+4*i,4);
++    uint32_t maximum=v[0], threshold=v[2], minimum=v[6], target=v[12], humans=v[14];
++    if( maximum < 2 || maximum > 12 || v[1] > 1 || threshold < 2 || threshold > 12 ||
++        (v[1] && threshold > maximum) || v[3] > 60 || v[4] > 1 || v[5] < 1 || v[5] > 100 ||
++        minimum < 1 || minimum > maximum || v[7] < 5 || v[7] > 600 || v[8] > 600 ||
++        v[9] > 1 || v[10] < 10 || v[10] > 3600 || v[11] > 1 || v[13] > 2 ||
++        humans < 1 || humans > maximum ) return false;
++    if( v[11] ? target < 2 || target > maximum : target != 0 || humans < 2 ) return false;
++    return minimum != 1 || (v[11] && target >= 2 && humans == 1);
++}
++
++static bool NativeManifestNumber( const string &s, unsigned low, unsigned high )
++{
++    if( s.empty( ) || (s.size( ) > 1 && s[0] == '0') ) return false;
++    unsigned value = 0;
++    for( size_t i = 0; i < s.size( ); ++i )
++    {
++        if( s[i] < '0' || s[i] > '9' || value > high / 10 ) return false;
++        value = 10 * value + s[i] - '0';
++        if( value > high ) return false;
++    }
++    return value >= low;
++}
++
++static bool NativeManifestComponent( const string &part )
++{
++    if( part.empty( ) || part.find("..") != string::npos ) return false;
++    for( size_t i=0; i<part.size(); ++i )
++    {
++        char c=part[i];
++        if( !(c>='a'&&c<='z') && !(c>='A'&&c<='Z') && !(c>='0'&&c<='9') &&
++            c!='_' && c!=' ' && c!='(' && c!=')' && c!='+' && c!='.' && c!='-' ) return false;
++    }
++    return true;
++}
++
++static bool NativeManifestMapName( const string &name )
++{
++    if( name.size() < 5 || name.size() > 124 || !NativeManifestComponent(name) ||
++        !( (name[0]>='a'&&name[0]<='z') || (name[0]>='A'&&name[0]<='Z') || (name[0]>='0'&&name[0]<='9') ) ) return false;
++    string suffix=name.substr(name.size()-4);
++    for( size_t i=0;i<suffix.size();++i ) if( suffix[i]>='A' && suffix[i]<='Z' ) suffix[i]+='a'-'A';
++    return suffix == ".w3x" || suffix == ".w3m";
++}
++
++static bool NativeManifestConfig( const string &config )
++{
++    map<string,string> fields; size_t pos=0;
++    while( pos < config.size() )
++    {
++        size_t end=config.find('\n',pos);
++        if( end==string::npos ) return false;
++        string line=config.substr(pos,end-pos); pos=end+1;
++        size_t sep=line.find(" = ");
++        if( sep==string::npos || sep==0 || sep+3==line.size() ) return false;
++        string key=line.substr(0,sep), value=line.substr(sep+3);
++        if( !fields.insert(make_pair(key,value)).second ) return false;
++    }
++    if( !fields.count("map_path") || !fields.count("map_localpath") || !NativeManifestMapName(fields["map_localpath"]) ) return false;
++    string path=fields["map_path"];
++    if( path.empty() || path.size()>53 ) return false;
++    size_t start=0;
++    while( true )
++    {
++        size_t end=path.find('\\',start);
++        string part=path.substr(start,end==string::npos ? string::npos : end-start);
++        if( !NativeManifestComponent(part) ) return false;
++        if( end==string::npos ) { if( !NativeManifestMapName(part) ) return false; break; }
++        start=end+1;
++    }
++    unsigned slotCount=0;
++    for( map<string,string>::const_iterator it=fields.begin(); it!=fields.end(); ++it )
++    {
++        const string &key=it->first, &value=it->second;
++        if( key=="map_path" || key=="map_localpath" ) continue;
++        if( key=="map_speed" ) { if(!NativeManifestNumber(value,1,3)) return false; }
++        else if( key=="map_visibility" || key=="map_observers" ) { if(!NativeManifestNumber(value,1,4)) return false; }
++        else if( key=="map_flags" ) { if(!NativeManifestNumber(value,0,31)) return false; }
++        else if( key=="map_loadingame" ) { if(!NativeManifestNumber(value,0,1)) return false; }
++        else if( key.compare(0,8,"map_slot")==0 )
++        {
++            string number=key.substr(8);
++            if( !NativeManifestNumber(number,1,12) ) return false;
++            ++slotCount; istringstream tokens(value); string token; unsigned n=0;
++            while( tokens >> token ) { if( !NativeManifestNumber(token,0,255) ) return false; ++n; }
++            if( n!=9 ) return false;
++        }
++        else return false;
++    }
++    for( unsigned i=1; i<=slotCount; ++i )
++    {
++        ostringstream key; key << "map_slot" << i;
++        if( !fields.count(key.str()) ) return false;
++    }
++    return true;
++}
++
++static bool NativeManifestName( const string &name )
++{
++    if( name.empty() || name.size()>24 ) return false;
++    locale_t locale=newlocale(LC_CTYPE_MASK,"C.UTF-8",(locale_t)0);
++    if( !locale ) return false;
++    bool valid=true; size_t pos=0; uint32_t first=0,last=0;
++    while( pos<name.size() )
++    {
++        unsigned char c=(unsigned char)name[pos++]; uint32_t cp=0; size_t count=0;
++        if(c<0x80) cp=c;
++        else if(c>=0xc2 && c<=0xdf) { cp=c&31; count=1; }
++        else if(c>=0xe0 && c<=0xef) { cp=c&15; count=2; }
++        else if(c>=0xf0 && c<=0xf4) { cp=c&7; count=3; }
++        else { valid=false; break; }
++        if(count>name.size()-pos) { valid=false; break; }
++        size_t continuation=count;
++        while(count--)
++        {
++            unsigned char d=(unsigned char)name[pos++];
++            if((d&0xc0)!=0x80) { valid=false; break; }
++            cp=(cp<<6)|(d&63);
++        }
++        if(!valid || (continuation==1 && cp<0x80) || (continuation==2 && cp<0x800) ||
++           (continuation==3 && cp<0x10000) || cp>0x10ffff || (cp>=0xd800 && cp<=0xdfff) ||
++           (cp>=0x80 && !(cp>=0x400 && cp<=0x52f)) || !iswprint_l((wint_t)cp,locale) ||
++           cp=='#' || cp=='=' || cp=='[' || cp==']' || cp=='|' || cp=='\\')
++        { valid=false; break; }
++        if(!first) first=cp;
++        last=cp;
++    }
++    if(valid && (iswspace_l((wint_t)first,locale) || iswspace_l((wint_t)last,locale))) valid=false;
++    freelocale(locale);
++    return valid;
++}
++#endif
++
++// Bind the immutable manifest inode to the exact producer digest. This is
++// separate from envelope/schema validation and fails closed on missing AF_ALG.
++bool NativePreloadManifestDigestMatches( int manifestFD, const string &expected )
++{
++#ifndef WIN32
++    struct stat st;
++    if(expected.size()!=64 || expected.find_first_not_of("0123456789abcdef")!=string::npos ||
++       fstat(manifestFD,&st) || st.st_size<30 || st.st_size>262144 ||
++       !NativeManifestFD(manifestFD,(uint64_t)st.st_size)) return false;
++    unsigned char digest[32];
++    for(size_t i=0;i<32;++i)
++    {
++        char a=expected[2*i], b=expected[2*i+1];
++        unsigned x=a<='9'?a-'0':a-'a'+10, y=b<='9'?b-'0':b-'a'+10;
++        digest[i]=(unsigned char)((x<<4)|y);
++    }
++    return NativeManifestHashFD(manifestFD,(uint64_t)st.st_size,digest);
++#else
++    return false;
++#endif
++}
++
++bool NativePreloadManifestEnvelope( int manifestFD, uint32_t expectedGames, uint64_t expectedDefault,
++    uint64_t current, uint64_t limit, uint64_t &required )
++{
++    required = 0;
++#ifndef WIN32
++    struct stat st;
++    if( manifestFD < 3 || fstat( manifestFD, &st ) || st.st_size < 30 || st.st_size > 262144 ||
++        !NativeManifestFD( manifestFD, (uint64_t)st.st_size ) ) return false;
++    string data; data.resize( (size_t)st.st_size ); size_t done = 0;
++    while( done < data.size( ) )
++    {
++        ssize_t n = pread( manifestFD, &data[done], data.size( ) - done, (off_t)done );
++        if( n < 0 && errno == EINTR ) continue;
++        if( n <= 0 ) return false;
++        done += n;
++    }
++    if( data.compare( 0, 8, "W3PRLD01" ) ) return false;
++    uint64_t count = NativeManifestLE(data,8,2), occurrences = NativeManifestLE(data,10,2);
++    uint64_t games = NativeManifestLE(data,12,1), reserved = NativeManifestLE(data,13,1);
++    uint64_t defaultSize = NativeManifestLE(data,14,8), claimed = NativeManifestLE(data,22,8);
++    if( count < 1 || count > 32 || occurrences < 1 || occurrences > 32 || reserved ||
++        games != expectedGames || defaultSize != expectedDefault ) return false;
++    size_t cursor = 30; set<string> ids; set<int> fds; vector<uint64_t> sizes;
++    struct HashCheck { int fd; uint64_t size; string digest; };
++    vector<HashCheck> hashes;
++    for( size_t index = 0; index < count; ++index )
++    {
++        if( data.size( ) - cursor < 110 ) return false;
++        uint64_t fd = NativeManifestLE(data,cursor,4), size = NativeManifestLE(data,cursor+4,8);
++        string digest = data.substr(cursor+12,32);
++        uint64_t idlen = NativeManifestLE(data,cursor+44,1), namelen = NativeManifestLE(data,cursor+45,1), cfglen = NativeManifestLE(data,cursor+46,4);
++        if( !NativeManifestSettings(data,cursor+50) ) return false;
++        cursor += 110; // entry header (50) plus fifteen uint32 settings
++        if( fd > 0x7fffffff || fd < 3 || (int)fd == manifestFD || !fds.insert((int)fd).second ||
++            size < 1 || size > NATIVE_MAP_FILE_MAX || idlen < 1 || idlen > 32 || namelen < 1 || namelen > 24 ||
++            cfglen < 1 || cfglen > 8192 || idlen + namelen + cfglen > data.size( ) - cursor ) return false;
++        string id = data.substr(cursor,idlen);
++        for( size_t i = 0; i < id.size( ); ++i )
++            if( !( id[i] >= 'a' && id[i] <= 'z' ) && !( id[i] >= '0' && id[i] <= '9' ) &&
++                !( i && ( id[i] == '_' || id[i] == '-' ) ) ) return false;
++        if( !ids.insert(id).second || !NativeManifestFD((int)fd,size) ||
++            !NativeManifestName(data.substr(cursor+idlen,namelen)) ||
++            !NativeManifestConfig(data.substr(cursor+idlen+namelen,cfglen)) ) return false;
++        cursor += idlen + namelen + cfglen;
++        sizes.push_back(size);
++        HashCheck check = { (int)fd, size, digest }; hashes.push_back(check);
++    }
++    if( data.size( ) - cursor != occurrences ) return false;
++    for( size_t i = 0; i < occurrences; ++i ) if( (unsigned char)data[cursor+i] >= count ) return false;
++    uint64_t producer = 128ULL * 1024 * 1024, largest = defaultSize;
++    if( !defaultSize || defaultSize > NATIVE_MAP_FILE_MAX ) return false;
++    for( size_t i = 0; i < sizes.size( ); ++i ) { producer += 2*sizes[i]; largest = max(largest,sizes[i]); }
++    producer += 2*defaultSize + largest * (games+3);
++    if( producer != claimed || producer > 512ULL*1024*1024 ||
++        !NativePreloadAdmissionBudget(sizes,defaultSize,0,(uint32_t)games,current,limit,required) ) return false;
++    for( size_t i = 0; i < hashes.size( ); ++i )
++        if( !NativeManifestHashFD(hashes[i].fd,hashes[i].size,(const unsigned char *)hashes[i].digest.data( )) ) return false;
++    return true;
++#else
++    return false;
++#endif
++}
++
++// Inspect all members the native parser can read, regardless of whether optional
++// common.j/blizzard.j are present. Never truncate a member or trust 32-bit size.
++static bool NativeMapMembersWithinLimits( HANDLE archive )
++{
++    static const char *names[] = { "Scripts\\common.j", "Scripts\\blizzard.j",
++        "war3map.j", "scripts\\war3map.j", "war3map.w3e", "war3map.wpm",
++        "war3map.doo", "war3map.w3u", "war3map.w3b", "war3map.w3d",
++        "war3map.w3a", "war3map.w3q", "war3map.w3i" };
++    uint64_t total = 0;
++    bool hasInfo = false, hasScript = false;
++    char buffer[65536];
++    for( size_t i = 0; i < sizeof names / sizeof names[0]; ++i )
++    {
++        HANDLE member;
++        if( !SFileOpenFileEx( archive, names[i], 0, &member ) ) continue;
++        DWORD high = 0;
++        DWORD low = SFileGetFileSize( member, &high );
++        if( high || low == 0xFFFFFFFF || low > NATIVE_MAP_MEMBER_MAX ||
++            total > NATIVE_MAP_MEMBERS_TOTAL_MAX - low )
++        { SFileCloseFile( member ); return false; }
++        uint32_t offset = 0;
++        while( offset < low )
++        {
++            DWORD wanted = min( (uint32_t)sizeof buffer, (uint32_t)( low - offset ) );
++            DWORD got = 0;
++            if( !SFileReadFile( member, buffer, wanted, &got, NULL ) || got != wanted )
++            { SFileCloseFile( member ); return false; }
++            offset += got;
++        }
++        SFileCloseFile( member );
++        if( i == 12 && low ) hasInfo = true;
++        if( ( i == 2 || i == 3 ) && low ) hasScript = true;
++        total += low;
++    }
++    return hasInfo && hasScript;
++}
++
++bool NativePreloadPayloadBudget( const vector<uint64_t> &uniqueMapSizes, uint64_t defaultMapSize, uint32_t maxGames, uint64_t &required )
++{
++    required = 0;
++    if( uniqueMapSizes.empty( ) || uniqueMapSizes.size( ) > 32 || !defaultMapSize || defaultMapSize > NATIVE_MAP_FILE_MAX || maxGames < 1 || maxGames > 5 ) return false;
++    uint64_t total = 128ULL * 1024 * 1024; // conservative explicit temporary load buffers
++    uint64_t largest = defaultMapSize;
++    for( size_t i = 0; i < uniqueMapSizes.size( ); ++i )
++    {
++        uint64_t size = uniqueMapSizes[i];
++        if( !size || size > NATIVE_MAP_FILE_MAX ) return false;
++        total += size;
++        largest = max( largest, size );
++    }
++    // Default + autohost; active games, lobby, and old+new pending snapshots.
++    total += 2 * defaultMapSize + largest * ( maxGames + 3 );
++    required = total;
++    return total <= 512ULL * 1024 * 1024;
++}
++
++#ifndef WIN32
++// The supported layout is a cgroup v2 namespace rooted at the container's
++// cgroup. Never guess an unlimited value or a path outside that namespace.
++static bool NativeReadCgroupCounter( int directory, const char *name, uint64_t &value )
++{
++    int fd = openat( directory, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW );
++    if( fd < 0 ) return false;
++    char buffer[64]; size_t length = 0;
++    while( length < sizeof buffer )
++    {
++        ssize_t n = read( fd, buffer + length, sizeof buffer - length );
++        if( n < 0 && errno == EINTR ) continue;
++        if( n < 0 ) { close( fd ); return false; }
++        if( n == 0 ) break;
++        length += n;
++    }
++    close( fd );
++    if( length < 2 || length == sizeof buffer || buffer[length-1] != '\n' ) return false;
++    value = 0;
++    for( size_t i = 0; i + 1 < length; ++i )
++    {
++        if( buffer[i] < '0' || buffer[i] > '9' ) return false;
++        unsigned digit = buffer[i] - '0';
++        if( value > ( std::numeric_limits<uint64_t>::max( ) - digit ) / 10 ) return false;
++        value = value * 10 + digit;
++    }
++    return true;
++}
++#endif
++
++bool NativePreloadCgroupSnapshot( uint64_t &current, uint64_t &limit )
++{
++    current = limit = 0;
++#ifndef WIN32
++    int proc = open( "/proc/self/cgroup", O_RDONLY | O_CLOEXEC | O_NOFOLLOW );
++    if( proc < 0 ) return false;
++    char membership[16]; size_t used = 0;
++    while( used < sizeof membership )
++    {
++        ssize_t n = read( proc, membership + used, sizeof membership - used );
++        if( n < 0 && errno == EINTR ) continue;
++        if( n < 0 ) { close( proc ); return false; }
++        if( n == 0 ) break;
++        used += n;
++    }
++    close( proc );
++    if( used != 5 || memcmp( membership, "0::/\n", 5 ) ) return false;
++    int directory = open( "/sys/fs/cgroup", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW );
++    if( directory < 0 ) return false;
++    struct statfs info;
++    bool ok = !fstatfs( directory, &info ) && (unsigned long)info.f_type == CGROUP2_SUPER_MAGIC &&
++        NativeReadCgroupCounter( directory, "memory.max", limit ) && limit &&
++        NativeReadCgroupCounter( directory, "memory.current", current ) && current <= limit;
++    close( directory );
++    if( !ok ) current = limit = 0;
++    return ok;
++#else
++    return false;
++#endif
++}
++
++#ifndef WIN32
++// Read a small pseudo-file without following symlinks or accepting truncation.
++static bool NativeCgroupText( int dir, const char *name, size_t cap, string &out )
++{
++    int fd=openat(dir,name,O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
++    if(fd<0) return false;
++    out.clear(); char bytes[4096]; bool ok=true;
++    while(true)
++    {
++        ssize_t n=read(fd,bytes,sizeof bytes);
++        if(n<0 && errno==EINTR) continue;
++        if(n<0) { ok=false; break; }
++        if(n==0) break;
++        if((size_t)n>cap-out.size()) { ok=false; break; }
++        out.append(bytes,(size_t)n);
++    }
++    close(fd); return ok;
++}
++
++static bool NativeCgroupUInt( const string &text, uint64_t &out )
++{
++    if(text.size()<2 || text[text.size()-1]!='\n') return false;
++    out=0;
++    for(size_t i=0;i+1<text.size();++i)
++    {
++        char c=text[i];
++        if(c<'0'||c>'9'||out>(std::numeric_limits<uint64_t>::max()-(c-'0'))/10) return false;
++        out=out*10+c-'0';
++    }
++    return true;
++}
++
++static bool NativeCgroupMembership( string &path )
++{
++    int proc=open("/proc/self",O_RDONLY|O_CLOEXEC|O_DIRECTORY);
++    if(proc<0) return false;
++    string text; bool ok=NativeCgroupText(proc,"cgroup",4096,text); close(proc);
++    if(!ok || text.size()<5 || text.compare(0,4,"0::/") || text[text.size()-1]!='\n' ||
++       text.find('\n')!=text.size()-1) return false;
++    path=text.substr(3,text.size()-4);
++    return true;
++}
++
++static bool NativeCgroupContainsSelf( int dir )
++{
++    string text;
++    if(!NativeCgroupText(dir,"cgroup.procs",1024*1024,text)) return false;
++    ostringstream out; out << getpid(); string expected=out.str();
++    size_t pos=0;
++    while(pos<text.size())
++    {
++        size_t end=text.find('\n',pos);
++        if(end==string::npos) return false;
++        if(text.substr(pos,end-pos)==expected) return true;
++        pos=end+1;
++    }
++    return false;
++}
++#endif
++
++#ifndef WIN32
++// The caller owns root; this walker owns only its duplicate.
++static bool NativeCgroupWalk( int root, const string &membership, uint64_t &headroom )
++{
++    headroom=0;
++    if(membership.empty() || membership[0]!='/') return false;
++    int dir=fcntl(root,F_DUPFD_CLOEXEC,3);
++    if(dir<0) return false;
++    uint64_t minimum=std::numeric_limits<uint64_t>::max(); bool finite=false, ok=true;
++    size_t pos=1;
++    while(pos<membership.size())
++    {
++        size_t end=membership.find('/',pos);
++        string part=membership.substr(pos,end==string::npos?string::npos:end-pos);
++        if(part.empty()||part=="."||part==".."||part.find_first_of("\r\n")!=string::npos) { ok=false; break; }
++        int next=openat(dir,part.c_str(),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
++        if(next<0) { ok=false; break; }
++        close(dir); dir=next;
++        string value;
++        if(!NativeCgroupText(dir,"memory.max",64,value)) { ok=false; break; }
++        if(value!="max\n")
++        {
++            uint64_t maxvalue=0,current=0;
++            if(!NativeCgroupUInt(value,maxvalue) || !maxvalue ||
++               !NativeCgroupText(dir,"memory.current",64,value) || !NativeCgroupUInt(value,current) || current>maxvalue)
++            { ok=false; break; }
++            minimum=min(minimum,maxvalue-current); finite=true;
++        }
++        if(end==string::npos) { pos=membership.size(); break; }
++        pos=end+1;
++    }
++    if(ok && (!finite || !NativeCgroupContainsSelf(dir))) ok=false;
++    close(dir);
++    if(!ok) return false;
++    headroom=minimum; return true;
++}
++
++#ifdef NATIVE_CGROUP_TEST
++// Test-only seam: synthetic files do not establish real cgroup membership.
++bool NativeTestCgroupWalk( const string &root, const string &membership, uint64_t &headroom )
++{
++    int dir=open(root.c_str(),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
++    if(dir<0) { headroom=0; return false; }
++    bool ok=NativeCgroupWalk(dir,membership,headroom); close(dir); return ok;
++}
++#endif
++#endif
++
++// The cgroup2 root inode is 1; namespace-subtree mounts expose a different
++// inode. Check the task is actually in the path before accepting any result.
++// This is a point-in-time admission snapshot, not an RSS guarantee.
++bool NativePreloadCgroupHeadroom( uint64_t &headroom )
++{
++    headroom=0;
++#ifndef WIN32
++    string membership;
++    if(!NativeCgroupMembership(membership)) return false;
++    int dir=open("/sys/fs/cgroup",O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
++    if(dir<0) return false;
++    struct stat st; struct statfs fs;
++    if(fstat(dir,&st) || st.st_ino!=1 || fstatfs(dir,&fs) || (unsigned long)fs.f_type!=CGROUP2_SUPER_MAGIC)
++    { close(dir); return false; }
++    uint64_t value=0; bool ok=NativeCgroupWalk(dir,membership,value); close(dir);
++    string after;
++    if(!ok || !NativeCgroupMembership(after) || after!=membership) return false;
++    headroom=value; return true;
++#else
++    return false;
++#endif
++}
++
++// Conservative admission only; cgroup usage can change after this snapshot.
++// Count sealed inputs and resident catalog data, default/autohost, admin plus
++// admin game, active/current games and old/new pending maps, plus load buffers.
++// Sizes are bounded before arithmetic, so the sums below cannot overflow.
++bool NativePreloadAdmissionBudget( const vector<uint64_t> &sizes, uint64_t defaultSize,
++    uint64_t adminSize, uint32_t maxGames, uint64_t current, uint64_t limit, uint64_t &required )
++{
++    required = 0;
++    if( sizes.empty( ) || sizes.size( ) > 32 || !defaultSize || defaultSize > NATIVE_MAP_FILE_MAX ||
++        adminSize > NATIVE_MAP_FILE_MAX || maxGames < 1 || maxGames > 5 || !limit || current > limit ) return false;
++    uint64_t total = 128ULL * 1024 * 1024;
++    uint64_t largest = defaultSize;
++    for( size_t i = 0; i < sizes.size( ); ++i )
++    {
++        if( !sizes[i] || sizes[i] > NATIVE_MAP_FILE_MAX ) return false;
++        total += 2 * sizes[i];
++        largest = max( largest, sizes[i] );
++    }
++    total += 2 * defaultSize + 2 * adminSize + largest * ( maxGames + 3 );
++    required = total;
++    return total <= 512ULL * 1024 * 1024 && total <= limit - current;
++}
++
+ //
+ // CMap
+ //
+@@ -57,6 +735,18 @@ CMap :: CMap( CGHost *nGHost, CConfig *CFG, string nCFGFile ) : m_GHost( nGHost
+ 	Load( CFG, nCFGFile );
+ }
+ 
++// Only a kernel-sealed input FD is accepted by this constructor.
++CMap :: CMap( CGHost *nGHost, CConfig *CFG, string nCFGFile, int sealedFD ) : m_GHost( nGHost )
++{
++	LoadInternal( CFG, nCFGFile, sealedFD, true, false, string( ) );
++}
++
++// Startup catalogs must bind the sealed input to a validated SHA-256.
++CMap :: CMap( CGHost *nGHost, CConfig *CFG, string nCFGFile, int sealedFD, const string &expectedSHA256 ) : m_GHost( nGHost )
++{
++	LoadInternal( CFG, nCFGFile, sealedFD, true, true, expectedSHA256 );
++}
++
+ CMap :: ~CMap( )
+ {
+ 
+@@ -228,6 +918,12 @@ unsigned char CMap :: GetMapLayoutStyle( )
+ }
+ 
+ void CMap :: Load( CConfig *CFG, string nCFGFile )
++{
++    if( m_GHost->m_NativeCatalogOnly ) return; // No reload outside the pinned catalog.
++	LoadInternal( CFG, nCFGFile, -1, false, false, string( ) );
++}
++
++void CMap :: LoadInternal( CConfig *CFG, string nCFGFile, int sealedFD, bool useSealedFD, bool verifySHA256, const string &expectedSHA256 )
+ {
+ 	m_Valid = true;
+ 	m_CFGFile = nCFGFile;
+@@ -237,16 +933,40 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 	m_MapLocalPath = CFG->GetString( "map_localpath", string( ) );
+ 	m_MapData.clear( );
+ 
++	string MapMPQFileName = m_GHost->m_MapPath + m_MapLocalPath;
++	string ArchiveOpenPath = MapMPQFileName;
++#ifndef WIN32
++	NativeMapFile MapFile;
++#endif
++	if( useSealedFD && m_MapLocalPath.empty( ) ) { m_Valid = false; return; }
+ 	if( !m_MapLocalPath.empty( ) )
+-		m_MapData = UTIL_FileRead( m_GHost->m_MapPath + m_MapLocalPath );
++	{
++#ifndef WIN32
++		bool readOK = useSealedFD ? MapFile.OpenSealedAndRead( sealedFD, m_MapData ) : MapFile.OpenAndRead( MapMPQFileName, m_MapData );
++		if( readOK ) ArchiveOpenPath = MapFile.ArchivePath( );
++#else
++		bool readOK = !useSealedFD && NativeReadMapFile( MapMPQFileName, NATIVE_MAP_FILE_MAX, m_MapData ) == 1;
++#endif
++		if( !readOK || m_MapData.empty( ) )
++		{
++			CONSOLE_Print( "[MAP] local map unavailable or exceeds size limit" );
++			m_Valid = false; return;
++		}
++	}
+ 
+-	// load the map MPQ
++#ifndef WIN32
++	if( verifySHA256 && !NativeMapSHA256Matches( m_MapData, expectedSHA256 ) )
++	{ CONSOLE_Print( "[MAP] sealed map SHA-256 verification failed" ); m_MapData.clear( ); m_Valid = false; return; }
++#else
++	if( verifySHA256 ) { m_MapData.clear( ); m_Valid = false; return; }
++#endif
++
++	// load the map MPQ from the same pinned inode
+ 
+-	string MapMPQFileName = m_GHost->m_MapPath + m_MapLocalPath;
  	HANDLE MapMPQ;
  	bool MapMPQReady = false;
  
 -	if( SFileOpenArchive( MapMPQFileName.c_str( ), 0, MPQ_OPEN_FORCE_MPQ_V1, &MapMPQ ) )
-+	if( SFileOpenArchive( MapMPQFileName.c_str( ), 0, MPQ_OPEN_FORCE_MPQ_V1 | MPQ_OPEN_READ_ONLY, &MapMPQ ) )
++	if( SFileOpenArchive( ArchiveOpenPath.c_str( ), 0, MPQ_OPEN_FORCE_MPQ_V1 | MPQ_OPEN_READ_ONLY, &MapMPQ ) )
  	{
  		CONSOLE_Print( "[MAP] loading MPQ file [" + MapMPQFileName + "]" );
  		MapMPQReady = true;
-@@ -313,7 +313,7 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -254,6 +974,15 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 	else
+ 		CONSOLE_Print( "[MAP] warning - unable to load MPQ file [" + MapMPQFileName + "]" );
+ 
++	if( !m_MapLocalPath.empty( ) && ( !MapMPQReady || !NativeMapMembersWithinLimits( MapMPQ ) ) )
++	{
++		CONSOLE_Print( "[MAP] invalid archive or MPQ member size limit exceeded" );
++		if( MapMPQReady ) SFileCloseArchive( MapMPQ );
++		m_MapData.clear( ); m_Valid = false; return;
++	}
++
++	uint64_t NativeMemberBytesRead = 0;
++
+ 	// try to calculate map_size, map_info, map_crc, map_sha1
+ 
+ 	BYTEARRAY MapSize;
+@@ -278,13 +1007,17 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 		// calculate map_crc (this is not the CRC) and map_sha1
+ 		// a big thank you to Strilanc for figuring the map_crc algorithm out
+ 
+-		string CommonJ = UTIL_FileRead( m_GHost->m_MapCFGPath + "common.j" );
++		string CommonJ;
++		if( NativeReadMapFile( m_GHost->m_MapCFGPath + "common.j", NATIVE_MAP_MEMBER_MAX, CommonJ ) < 0 )
++		{ if( MapMPQReady ) SFileCloseArchive( MapMPQ ); m_MapData.clear( ); m_Valid = false; return; }
+ 
+ 		if( CommonJ.empty( ) )
+ 			CONSOLE_Print( "[MAP] unable to calculate map_crc/sha1 - unable to read file [" + m_GHost->m_MapCFGPath + "common.j]" );
+ 		else
+ 		{
+-			string BlizzardJ = UTIL_FileRead( m_GHost->m_MapCFGPath + "blizzard.j" );
++			string BlizzardJ;
++			if( NativeReadMapFile( m_GHost->m_MapCFGPath + "blizzard.j", NATIVE_MAP_MEMBER_MAX, BlizzardJ ) < 0 )
++			{ if( MapMPQReady ) SFileCloseArchive( MapMPQ ); m_MapData.clear( ); m_Valid = false; return; }
+ 
+ 			if( BlizzardJ.empty( ) )
+ 				CONSOLE_Print( "[MAP] unable to calculate map_crc/sha1 - unable to read file [" + m_GHost->m_MapCFGPath + "blizzard.j]" );
+@@ -306,14 +1039,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 
+ 					if( SFileOpenFileEx( MapMPQ, "Scripts\\common.j", 0, &SubFile ) )
+ 					{
+-						uint32_t FileLength = SFileGetFileSize( SubFile, NULL );
++						DWORD NativeSizeHigh = 0;
++                        uint32_t FileLength = SFileGetFileSize( SubFile, &NativeSizeHigh );
++                        if( NativeSizeHigh || FileLength == 0xFFFFFFFF || FileLength > NATIVE_MAP_MEMBER_MAX ||
++                            NativeMemberBytesRead > NATIVE_MAP_MEMBERS_TOTAL_MAX - FileLength )
++                        { m_Valid = false; FileLength = 0; }
++                        else NativeMemberBytesRead += FileLength;
+ 
+ 						if( FileLength > 0 && FileLength != 0xFFFFFFFF )
+ 						{
  							char *SubFileData = new char[FileLength];
  							DWORD BytesRead = 0;
  
 -							if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead ) )
-+							if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) )
++							bool NativeMemberRead = SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) && BytesRead == FileLength;
++                            if( !NativeMemberRead ) m_Valid = false;
++                            if( NativeMemberRead )
  							{
  								CONSOLE_Print( "[MAP] overriding default common.j with map copy while calculating map_crc/sha1" );
  								OverrodeCommonJ = true;
-@@ -349,7 +349,7 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -342,14 +1082,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 
+ 					if( SFileOpenFileEx( MapMPQ, "Scripts\\blizzard.j", 0, &SubFile ) )
+ 					{
+-						uint32_t FileLength = SFileGetFileSize( SubFile, NULL );
++						DWORD NativeSizeHigh = 0;
++                        uint32_t FileLength = SFileGetFileSize( SubFile, &NativeSizeHigh );
++                        if( NativeSizeHigh || FileLength == 0xFFFFFFFF || FileLength > NATIVE_MAP_MEMBER_MAX ||
++                            NativeMemberBytesRead > NATIVE_MAP_MEMBERS_TOTAL_MAX - FileLength )
++                        { m_Valid = false; FileLength = 0; }
++                        else NativeMemberBytesRead += FileLength;
+ 
+ 						if( FileLength > 0 && FileLength != 0xFFFFFFFF )
+ 						{
  							char *SubFileData = new char[FileLength];
  							DWORD BytesRead = 0;
  
 -							if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead ) )
-+							if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) )
++							bool NativeMemberRead = SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) && BytesRead == FileLength;
++                            if( !NativeMemberRead ) m_Valid = false;
++                            if( NativeMemberRead )
  							{
  								CONSOLE_Print( "[MAP] overriding default blizzard.j with map copy while calculating map_crc/sha1" );
  								OverrodeBlizzardJ = true;
-@@ -407,7 +407,7 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -400,14 +1147,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 
+ 						if( SFileOpenFileEx( MapMPQ, (*i).c_str( ), 0, &SubFile ) )
+ 						{
+-							uint32_t FileLength = SFileGetFileSize( SubFile, NULL );
++							DWORD NativeSizeHigh = 0;
++                        uint32_t FileLength = SFileGetFileSize( SubFile, &NativeSizeHigh );
++                        if( NativeSizeHigh || FileLength == 0xFFFFFFFF || FileLength > NATIVE_MAP_MEMBER_MAX ||
++                            NativeMemberBytesRead > NATIVE_MAP_MEMBERS_TOTAL_MAX - FileLength )
++                        { m_Valid = false; FileLength = 0; }
++                        else NativeMemberBytesRead += FileLength;
+ 
+ 							if( FileLength > 0 && FileLength != 0xFFFFFFFF )
+ 							{
  								char *SubFileData = new char[FileLength];
  								DWORD BytesRead = 0;
  
 -								if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead ) )
-+								if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) )
++								bool NativeMemberRead = SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) && BytesRead == FileLength;
++                            if( !NativeMemberRead ) m_Valid = false;
++                            if( NativeMemberRead )
  								{
  									if( *i == "war3map.j" || *i == "scripts\\war3map.j" )
  										FoundScript = true;
-@@ -474,7 +474,7 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -467,14 +1221,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 
+ 			if( SFileOpenFileEx( MapMPQ, "war3map.w3i", 0, &SubFile ) )
+ 			{
+-				uint32_t FileLength = SFileGetFileSize( SubFile, NULL );
++				DWORD NativeSizeHigh = 0;
++                        uint32_t FileLength = SFileGetFileSize( SubFile, &NativeSizeHigh );
++                        if( NativeSizeHigh || FileLength == 0xFFFFFFFF || FileLength > NATIVE_MAP_MEMBER_MAX ||
++                            NativeMemberBytesRead > NATIVE_MAP_MEMBERS_TOTAL_MAX - FileLength )
++                        { m_Valid = false; FileLength = 0; }
++                        else NativeMemberBytesRead += FileLength;
+ 
+ 				if( FileLength > 0 && FileLength != 0xFFFFFFFF )
+ 				{
  					char *SubFileData = new char[FileLength];
  					DWORD BytesRead = 0;
  
 -					if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead ) )
-+					if( SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) )
++					bool NativeMemberRead = SFileReadFile( SubFile, SubFileData, FileLength, &BytesRead, NULL ) && BytesRead == FileLength;
++                            if( !NativeMemberRead ) m_Valid = false;
++                            if( NativeMemberRead )
  					{
  						istringstream ISS( string( SubFileData, BytesRead ) );
  
+@@ -696,6 +1457,10 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+ 
+ 	if( MapMPQReady )
+ 		SFileCloseArchive( MapMPQ );
++#ifndef WIN32
++	if( !m_MapLocalPath.empty( ) && !MapFile.Stable( ) )
++	{ CONSOLE_Print( "[MAP] local map changed while loading" ); m_MapData.clear( ); m_Valid = false; return; }
++#endif
+ 
+ 	m_MapPath = CFG->GetString( "map_path", string( ) );
+ 
+diff --git a/ghost/map.h b/ghost/map.h
+index 48acc3f..28a7c2a 100644
+--- a/ghost/map.h
++++ b/ghost/map.h
+@@ -85,6 +85,29 @@
+ 
+ #include "gameslot.h"
+ 
++// Conservative map-payload accounting for a future deduplicated preload cache.
++// Includes cache bytes, worst-case game/default/pending copies, and bounded
++// explicit load buffers. This is not a limit on total process RSS.
++bool NativePreloadPayloadBudget( const vector<uint64_t> &uniqueMapSizes, uint64_t defaultMapSize, uint32_t maxGames, uint64_t &required );
++bool NativePreloadManifestDigestMatches( int manifestFD, const string &expected );
++#ifndef WIN32
++bool NativeMapSHA256Matches( const string &data, const string &expected );
++#endif
++// Envelope verification only, not map/config validation or catalog activation.
++bool NativePreloadManifestEnvelope( int manifestFD, uint32_t expectedGames, uint64_t expectedDefault,
++    uint64_t memoryCurrent, uint64_t memoryLimit, uint64_t &required );
++#ifdef NATIVE_CGROUP_TEST
++bool NativeTestCgroupWalk( const string &root, const string &membership, uint64_t &headroom );
++#endif
++// Minimum available headroom across all visible cgroup v2 ancestors.
++bool NativePreloadCgroupHeadroom( uint64_t &headroom );
++// Fail closed unless cgroup v2 exposes a finite limit at the namespace root.
++bool NativePreloadCgroupSnapshot( uint64_t &current, uint64_t &limit );
++// Admission estimate, not an RSS guarantee. The caller must obtain the actual
++// effective container limit/current values and enforce the copy policy.
++bool NativePreloadAdmissionBudget( const vector<uint64_t> &uniqueMapSizes, uint64_t defaultMapSize,
++    uint64_t adminMapSize, uint32_t maxGames, uint64_t memoryCurrent, uint64_t memoryLimit, uint64_t &required );
++
+ //
+ // CMap
+ //
+@@ -128,6 +151,8 @@ private:
+ public:
+ 	CMap( CGHost *nGHost );
+ 	CMap( CGHost *nGHost, CConfig *CFG, string nCFGFile );
++	CMap( CGHost *nGHost, CConfig *CFG, string nCFGFile, int sealedFD );
++	CMap( CGHost *nGHost, CConfig *CFG, string nCFGFile, int sealedFD, const string &expectedSHA256 );
+ 	~CMap( );
+ 
+ 	bool GetValid( )						{ return m_Valid; }
+@@ -160,6 +185,7 @@ public:
+ 	vector<CGameSlot> GetSlots( )			{ return m_Slots; }
+ 
+ 	void Load( CConfig *CFG, string nCFGFile );
++	void LoadInternal( CConfig *CFG, string nCFGFile, int sealedFD, bool useSealedFD, bool verifySHA256, const string &expectedSHA256 );
+ 	void CheckValid( );
+ 	uint32_t XORRotateLeft( unsigned char *data, uint32_t length );
+ };
 diff --git a/ghost/socket.cpp b/ghost/socket.cpp
 index 9198e6b..e8f181e 100644
 --- a/ghost/socket.cpp

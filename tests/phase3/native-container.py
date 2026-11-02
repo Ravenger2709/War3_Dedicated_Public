@@ -22,9 +22,35 @@ STORM_REVISION = '3846f0b8e2c47320c6b499492496f3e3f2e76821'
 FILES = ['scripts/build-ghost.sh', 'scripts/ghost-check-source.py',
          'tests/offline/test_ghost_source_guard.py', 'tests/phase3/native-build.sh',
          'tests/phase3/native-driver.cpp', 'tests/phase3/native-test.py',
-         'tests/bridge/native-publication-driver.cpp', 'tests/bridge/native-publication-test.py',
+         'tests/phase3/native-vote-reminder-test.py',
+         'tests/phase3/native-multimatch-test.py', 'tests/phase3/native-lifecycle-test.py',
+         'tests/phase3/native-reservation-gate-test.py', 'tests/phase3/native-fenced-close-test.py', 'tests/phase3/native-fence-crash.c',
+         'tests/bridge/native-publication-driver.cpp', 'tests/bridge/native-publication-test.py', 'tests/bridge/test_publication_file_race.py',
          'third_party/ghost.lock.json', 'patches/ghostplusplus-modern-linux.patch',
-         'src/hostbot/NOTICE.md', 'src/hostbot/mpq-map-info.cpp']
+         'src/hostbot/NOTICE.md', 'src/hostbot/mpq-map-info.cpp',
+         'src/bridge/__init__.py', 'src/bridge/bncs.py', 'src/bridge/star_relay.py',
+         'src/runtime/__init__.py', 'src/runtime/files.py', 'src/runtime/lifecycle.py',
+         'src/runtime/cycle_state.py', 'src/runtime/cycle_coordinator.py', 'src/runtime/reservation_marker.py',
+         'src/runtime/process_ownership.py',
+         'tests/phase3/native-next-preset-test.py', 'tests/phase3/native-map-bounds-test.py',
+         'tests/phase3/native-sealed-map-test.py', 'tests/phase3/native-preset-fence-test.py',
+         'tests/phase3/test_map_presets.py', 'amp/map_discovery.py',
+         'tests/phase4/test_preload_catalog.py', 'tests/phase4/native-manual-preload-test.py',
+         'tests/phase4/native-preload-ipc-test.py', 'tests/phase4/native-startup-ipc-test.py',
+         'tests/phase4/native-status-cycle-test.py',
+         'tests/phase4/native-controller-cycle-e2e-test.py', 'tests/phase4/test_native_match_telemetry.py',
+         'tests/phase4/native-controller-countdown-e2e-test.py',
+         'tests/phase4/native-controller-capacity3-test.py',
+         'tests/phase4/native-runtime-backend-e2e-test.py',
+         'tests/phase4/native-controlled-restart-test.py',
+         'tests/phase4/native-startup-catalog-test.py', 'tests/phase4/native-manifest-envelope-test.py',
+         'tests/phase4/native-catalog-close-recovery-test.py',
+         'src/connector/__init__.py']
+# Lifecycle and sealed-map suites import the real controller and runtime modules.
+# Stage public Python sources only; no runtime state or vendor artifacts.
+FILES += [str(path.relative_to(ROOT)) for directory in ('src/runtime','src/supervisor','src/bridge','src/connector')
+          for path in sorted((ROOT/directory).glob('*.py'))
+          if str(path.relative_to(ROOT)) not in FILES]
 
 
 def main():
@@ -34,6 +60,7 @@ def main():
     parser.add_argument('--builder', default=BUILDER, help='local test builder image containing CMake and a compiler')
     parser.add_argument('--deps', type=Path, required=True)
     parser.add_argument('--sanitizers', choices=['address,undefined'], default=None)
+    parser.add_argument('--full-cgroup', action='store_true', help='use host cgroup namespace for offline admission tests')
     args = parser.parse_args()
     source, storm_source, deps = args.source.resolve(), args.storm_source.resolve(), args.deps.resolve()
     if subprocess.check_output(['git', '-C', str(storm_source), 'rev-parse', 'HEAD'], text=True).strip() != STORM_REVISION:
@@ -65,9 +92,10 @@ def main():
     cmd=['docker','--host','unix:///var/run/docker.sock','run','--rm','--pull=never','--network=none',
          '--read-only','--cap-drop=ALL','--security-opt=no-new-privileges:true',
          '--user',f'{os.getuid()}:{os.getgid()}','--cpus=2','--memory=3g','--pids-limit=128','--ulimit','core=0:0',
-         '--tmpfs','/tmp:rw,nosuid,nodev,size=128m',
+         '--tmpfs','/tmp:rw,nosuid,nodev,size=512m',
          '--mount',f'type=bind,src={stage},dst=/repo',
          '--mount',f'type=bind,src={deps},dst=/deps,readonly','--workdir','/repo','--entrypoint','/bin/bash']
+    if args.full_cgroup: cmd += ['--cgroupns=host']
     if args.sanitizers: cmd += ['-e',f'GHOST_SANITIZERS={args.sanitizers}']
     cmd += [args.builder,'tests/phase3/native-build.sh']
     started = time.monotonic()

@@ -29,7 +29,7 @@ def frame(kind, body=b''):
 
 class Peer:
     def __init__(self, native, name, ready=True, lan=False, accepted=True, key_override=None,
-                 counter_override=None, game_keepalive=False, pong_count=3):
+                 counter_override=None, game_keepalive=False, pong_count=3, server_port=16113):
         self.native = native
         self.name = name
         self.ready = ready
@@ -41,7 +41,7 @@ class Peer:
         self.pid = None
         self.closed = False
         self.disconnected = False
-        self.sock = socket.create_connection(('127.0.0.1', 16113), timeout=2)
+        self.sock = socket.create_connection(('127.0.0.1', server_port), timeout=2)
         self.sock.settimeout(.1)
         intent = native.snapshot()
         counter = (intent['host_counter'] if counter_override is None else counter_override) | (0 if lan else 0xf0000000)
@@ -157,7 +157,7 @@ class Native(base.Native):
         def spawn(argv, **kw):
             # Preserve raw log bytes for inspection. Structured events are
             # independently reconstructed and decoded with strict UTF-8 below.
-            kw.update(encoding='utf-8', errors='surrogateescape')
+            kw.update(encoding='utf-8', errors='surrogateescape', pass_fds=getattr(self, 'passed_fds', ()))
             return popen([str(ROOT / 'build/native-driver'), *argv[1:]], **kw)
         base.subprocess.Popen = spawn
         try:
@@ -232,6 +232,34 @@ class GameplayTests(unittest.TestCase):
         child = Native(Path(self.temp.name) / f'n{len(self.children)}', extra, slots, map_players, **kw)
         self.children.append(child)
         return child
+
+    def test_gameplay_snapshots_are_independent_of_host_and_each_other(self):
+        n = self.native({'bot_maxplayers': '10', 'bot_autostartplayers': '7',
+                         'bot_autostart_enabled': 'true', 'bot_countdownseconds': '5',
+                         'bot_vote_enabled': 'true', 'bot_vote_required_percent': '60',
+                         'bot_vote_min_players': '2', 'bot_vote_timeout': '60',
+                         'bot_vote_cooldown': '30', 'bot_lobby_refresh_enabled': 'true',
+                         'bot_lobby_refresh_interval': '120', 'bot_lobby_ai_supported': 'false',
+                         'bot_lobby_ai_target': '0', 'bot_lobby_ai_skill': '1',
+                         'bot_lobby_min_humans': '2'})
+        n.start().create()
+        n.proc.stdin.write('snapshots\n'); n.proc.stdin.flush()
+        line = n.marker('TEST SNAPSHOTS ')
+        n.marker('TEST COMMAND snapshots')
+        a_before, a_after, b_before, b_after = json.loads(line[len('TEST SNAPSHOTS '):])
+        self.assertEqual(a_before, [1, 10, 7, 1, 60, 2, 60, 30, 1, 120, 0, 0, 1, 2, 1, 5, 10, 7, 0])
+        self.assertEqual(b_before, [1, 8, 4, 0, 80, 1, 90, 45, 0, 20, 1, 4, 2, 1, 0, 12, 8, 0, 1])
+        self.assertEqual(a_after, a_before)
+        self.assertEqual(b_after, b_before)
+        # Exercise the first lobby after the host defaults were changed twice.
+        # Its cap remains 10 and its 60% quorum for four humans remains three.
+        peers = self.players(n, 4)
+        state = wait(lambda: (s if (s := n.state())['players'] == 4 else None))
+        self.assertEqual((state['max_players'], state['autostart_players'], state['votes_required']), (10, 7, 3))
+        peers[0].chat('!vote')
+        state = wait(lambda: (s if (s := n.state())['votes'] == 1 else None))
+        self.assertTrue(state['vote_active'])
+        self.assertEqual(state['votes_required'], 3)
 
     def players(self, native, count):
         return [native.peer(f'P{i}') for i in range(count)]
@@ -1544,12 +1572,12 @@ class GameplayTests(unittest.TestCase):
             wait(lambda: 'Vote passed. Complete the readiness checks above, then type !vote again.' in a.chats())
             self.assertTrue(any('Players not yet pinged 3 times:' in chat for chat in a.chats()))
             n.command('auto')
-            wait(lambda: 'Auto-start requires 6 human players (5 more needed). Voting requires at least 1 human player (0 more needed). Type !vote when ready.' in a.chats())
+            wait(lambda: 'Auto-start requires 6 human players (5 more needed).' in a.chats())
             self.assertEqual(n.state()['phase'], 'LOBBY')
             b = n.peer('Second')
             self.ai_capture(n, a, b, players=2, ai_owned=4)
             start = len(a.chats()); n.command('auto'); self.ai_ping(n, a)
-            self.assertIn('Auto-start requires 6 human players (4 more needed). Voting requires at least 1 human player (0 more needed). Type !vote when ready.', a.chats()[start:])
+            self.assertIn('Auto-start requires 6 human players (4 more needed).', a.chats()[start:])
             a.pong_count = 3; self.ai_ping(n, a, b)
             n.command('agecooldown')
             a.chat('!vote'); b.chat('!vote')
@@ -1567,9 +1595,7 @@ class GameplayTests(unittest.TestCase):
                 self.ai_capture(n, *ps, players=humans, ai_owned=max(0, 4-humans),
                                 computer_players=max(0, 4-humans))
                 a = ps[0]; start = len(a.chats()); n.command('auto')
-                notice = (f'Auto-start requires 6 human players ({6-humans} more needed). '
-                          f'Voting requires at least 4 human players ({max(0, 4-humans)} more needed). '
-                          'Type !vote when ready.')
+                notice = f'Auto-start requires 6 human players ({6-humans} more needed).'
                 wait(lambda: notice in a.chats()[start:])
                 self.assertEqual(n.state()['phase'], 'LOBBY')
                 if humans < 4:
@@ -1616,10 +1642,12 @@ class GameplayTests(unittest.TestCase):
                     if label == 'auto_disabled':
                         self.assertFalse(any('Auto-start requires' in chat for chat in a.chats()[start:]))
                     else:
-                        suffix = requirement + ' Type !vote when ready.' if voting else 'Voting is disabled.'
-                        notice = f'Auto-start requires {autostart} human players ({autostart-1} more needed). ' + suffix
+                        notice = f'Auto-start requires {autostart} human players ({autostart-1} more needed).'
                         wait(lambda: notice in a.chats()[start:])
-                        if not voting: self.assertNotIn('!vote', notice)
+                        notices = [chat for chat in a.chats()[start:] if chat.startswith('Auto-start requires ')]
+                        self.assertTrue(all(chat == notice for chat in notices))
+                        self.assertNotIn('!vote', notice)
+                        self.assertNotIn('Voting', notice)
                     if not voting or minimum > 1:
                         start = len(a.chats()); a.chat('!vote')
                         wait(lambda: (requirement if voting else 'Voting is disabled.') in a.chats()[start:])

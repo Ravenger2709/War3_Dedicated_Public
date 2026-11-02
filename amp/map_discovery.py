@@ -178,13 +178,8 @@ def discover(instance, document, spec, docker, env, owner, analyzer=analyze, rev
     if revisions is not None:
         revisions[maps] = ('directory', snapshot)
     names = snapshot[1]
-    folded = {name.casefold() for name in names}
-    kept = [x for x in document['presets'] if x.get('id') == 'manual'
-            or not isinstance(x.get('map_filename'), str)
-            or x['map_filename'].casefold() in folded]
-    if not any(entry.get('enabled') for entry in kept) and len(kept) < len(document['presets']):
-        kept.append({'id': 'manual', 'enabled': True})
-    result = {**document, 'presets': kept}
+    # Preserve operator entries even when their map is temporarily absent.
+    result = {**document, 'presets': list(document['presets'])}
     records = list(document.get('capabilities', []))
     revisions = {} if revisions is None else revisions
     ids = {x['id'] for x in result['presets']}

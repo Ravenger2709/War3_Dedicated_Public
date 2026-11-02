@@ -165,26 +165,81 @@ def stop_container(instance, spec, marker, *, remove=False):
     return meta
 
 
-def prepare_start(instance, spec):
+@contextmanager
+def selected_preset_update(instance, preset):
+    """Explicitly reconcile legacy and cycle selections under the start transaction."""
+    transaction = None
+    def apply():
+        nonlocal transaction
+        if preset is None:
+            return
+        path = instance / "data/config/amp-settings.json"
+        snapshot = production._preset_snapshot(path, private=True, limit=2 * 1024 * 1024)
+        if snapshot[0] is None:
+            raise ValueError("missing settings")
+        raw = json.loads(snapshot[0], object_pairs_hook=account.unique)
+        if not isinstance(raw, dict):
+            raise ValueError("settings object required")
+        # Check the existing cycle separately so an explicit choice can resolve a
+        # conflict, but cannot discard a staged multi-entry or malformed cycle.
+        current = dict(raw)
+        if "map_cycle" in current:
+            current.pop("map_preset", None)
+        normalized = production.settings(current)
+        if len(normalized["map_cycle"]) != 1:
+            raise production.SettingsError("MAP_CYCLE_OVERRIDE_CONFLICT")
+        candidate = dict(raw)
+        candidate.pop("map_preset", None)
+        candidate["map_cycle"] = [preset]
+        candidate["max_concurrent_matches"] = normalized["max_concurrent_matches"]
+        production.settings(candidate)
+        transaction = production._PresetTransaction(instance, snapshot, path=path, limit=2 * 1024 * 1024,
+                                                     history_name="preset-metadata-history")
+        transaction.preserve_original = True
+        transaction.install(candidate)
+        return transaction
+    try:
+        yield apply
+        if transaction is not None:
+            transaction.check()
+    except BaseException:
+        if transaction is not None and not transaction.conflicted:
+            try:
+                transaction.rollback()
+            except (OSError, ValueError):
+                transaction.conflict()
+        raise
+    finally:
+        if transaction is not None:
+            transaction.close()
+
+
+def prepare_start(instance, spec, *, map_preset=None):
     # A checkout upgrade must not compile new settings for an older accepted
     # runtime. Reuse the bootstrap's source-bound schema check on every start.
     bootstrap.supervisor_source(private_object(instance / "acceptance.json"))
     # Shared helper performs offline profile generation, stopped/image checks and
     # rollback. All its contexts/locks must close before the runtime is launched.
-    with account.profile_update(instance, spec):
-        with production.preset_update(instance, discovery_spec=spec) as check:
-            with production.preset_manifest_update(instance, check):
-                if not check.selected_removed:
-                    validated = production.validate_preset_selection(instance)
-                    production.preflight(instance, spec)
-                    production.merge_settings(instance / "data/config/supervisor.json", instance / "data/config/amp-settings.json",
-                                              validated=validated)
-                    bootstrap.validate_startup_config(instance / "data/config/supervisor.json")
-        if check.selected_removed:
-            raise production.SettingsError("PRESET_ACTIVE_MAP_MISSING")
+    with production.supervisor_update(instance) as config_writer, \
+            selected_preset_update(instance, map_preset) as apply_selection:
+        with account.profile_update(instance, spec):
+            selection_transaction = apply_selection()
+            with production.preset_update(instance, discovery_spec=spec, active_transaction=selection_transaction) as check:
+                with production.preset_manifest_update(instance, check):
+                    if not check.selected_removed:
+                        validated = production.validate_preset_selection(instance)
+                        production.preflight(instance, spec)
+                        production.validate_cycle_candidate(instance, spec, validated)
+                        kwargs = {"validated": validated, "writer": config_writer}
+                        production.merge_settings(instance / "data/config/supervisor.json", instance / "data/config/amp-settings.json", **kwargs)
+                        bootstrap.validate_startup_config(instance / "data/config/supervisor.json")
+                        if selection_transaction is not None:
+                            selection_transaction.check()
+            if check.selected_removed:
+                raise production.SettingsError("PRESET_ACTIVE_MAP_MISSING")
 
 
-def start_container(instance, spec, marker, *, foreground=False, restart_policy=None):
+def start_container(instance, spec, marker, *, foreground=False, restart_policy=None, map_preset=None):
     meta = owned_container(instance, spec, marker)
     policy = restart_policy if restart_policy is not None else (
         meta["HostConfig"]["RestartPolicy"]["Name"] if meta else "no")
@@ -193,7 +248,7 @@ def start_container(instance, spec, marker, *, foreground=False, restart_policy=
         if meta["State"].get("Running") or meta["State"].get("Restarting") or meta["State"].get("Paused"):
             raise StandaloneError("Container is already active; use status or restart.")
         remove_stopped(instance, spec, marker, meta)
-    prepare_start(instance, spec)
+    prepare_start(instance, spec, map_preset=map_preset)
     if foreground:
         return command
     identifier = docker(command[len(production.DOCKER):], timeout=60).decode().strip()
@@ -251,6 +306,8 @@ def parser():
             sub.add_argument("--noninteractive", action="store_true")
         if action in ("start", "restart"):
             sub.add_argument("--foreground", action="store_true", help="attach STDIO until shutdown")
+            sub.add_argument("--preset", "--map-preset", dest="map_preset",
+                             help="select one preset; refuses to replace an existing multi-entry cycle")
             sub.add_argument("--restart-policy", choices=("no", "unless-stopped"), default=None,
                              help="Docker restart policy; initial default no, existing policy preserved")
         if action == "stop":
@@ -266,6 +323,8 @@ def main(argv=None):
     args = cli.parse_args(argv)
     if args.action in ("start", "restart") and args.foreground and args.restart_policy == "unless-stopped":
         cli.error("--foreground requires --restart-policy no")
+    if args.action in ("start", "restart") and args.map_preset is not None and not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", args.map_preset):
+        cli.error("invalid preset ID")
     if args.action == "logs" and not 1 <= args.tail <= 10000:
         cli.error("--tail must be between 1 and 10000")
     command = None
@@ -308,7 +367,7 @@ def main(argv=None):
                     # Validate foreground/policy before stopping a running service.
                     run_command(instance, spec, marker, foreground=args.foreground, restart_policy=policy or "no")
                     stop_container(instance, spec, marker)
-                command = start_container(instance, spec, marker, foreground=args.foreground, restart_policy=policy)
+                command = start_container(instance, spec, marker, foreground=args.foreground, restart_policy=policy, map_preset=args.map_preset)
         if command is not None:
             os.execvpe(command[0], command, production.environment())
     except StandaloneError as error:
