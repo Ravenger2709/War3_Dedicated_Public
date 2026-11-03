@@ -101,7 +101,8 @@ class CompileCycleTests(unittest.TestCase):
         self.doc['capabilities'] = []
         self.save()
         before = self.snapshot()
-        with patch('src.runtime.presets.analyze_map', return_value=self.analysis):
+        unsupported={**self.analysis, 'ai_evidence': {'level':'none','features':[]}}
+        with patch('src.runtime.presets.analyze_map', return_value=unsupported):
             with self.assertRaisesRegex(ValueError, 'AI_EVIDENCE'):
                 compile_cycle(['two', 'one'], self.source, self.game)
         self.assertEqual(self.snapshot(), before)

@@ -319,7 +319,7 @@ class StandaloneTests(unittest.TestCase):
             war3.prepare_start(instance, spec)
             doc = war3.production.read_json(presets)
             chosen = next(p['id'] for p in doc['presets'] if p['id'] != 'manual')
-            self.assertEqual(len(doc['capabilities']), 1)
+            self.assertNotIn('capabilities', doc)
             data['map_preset'] = chosen
             war3.production.private_json(settings_path, data)
             war3.prepare_start(instance, spec)
@@ -338,7 +338,7 @@ class StandaloneTests(unittest.TestCase):
             map_file.write_bytes(b'map fixture' * 10)
             war3.prepare_start(instance, spec)
             self.assertEqual(len(war3.production.read_json(presets)['presets']), 2)
-            self.assertEqual(len(war3.production.read_json(presets)['capabilities']), 1)
+            self.assertNotIn('capabilities', war3.production.read_json(presets))
 
     def test_prepare_start_removes_last_selected_and_refreshes_manual_selector(self):
         from contextlib import nullcontext

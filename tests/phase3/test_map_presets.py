@@ -55,6 +55,14 @@ class ApprovalSelectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'AI_EVIDENCE'):
             matching_ai_approval({'capability': 'other'}, {'reviewed': self.record}, self.analysis)
 
+    def test_readable_presets_derive_controller_evidence_from_current_map(self):
+        result = matching_ai_approval({}, {}, self.analysis)
+        self.assertIn('computer_control', result['features'])
+        for script in (PLAIN_SCRIPT, b'function main takes nothing returns nothing\ncall StartMeleeAI(Player(0), "unused.ai")\nendfunction\n'):
+            changed = {**self.analysis, 'ai_evidence': script_evidence(script)}
+            with self.assertRaisesRegex(ValueError, 'AI_EVIDENCE'):
+                matching_ai_approval({}, {}, changed)
+
     def test_mismatches_and_ambiguity_fail_closed(self):
         for field in ('map_sha256', 'script_sha256'):
             changed = copy.deepcopy(self.record)
@@ -309,7 +317,8 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(presets['footman-ultimate-ai']['start']['autostart_players'], 4)
         self.assertEqual(presets['footman-ultimate-ai']['vote']['min_players'], 2)
         self.assertEqual(presets['footman-ultimate-ai']['ai']['target'], 4)
-        self.assertFalse(caps['footman-v11-static']['runtime_tested'])
+        self.assertEqual(caps, {})
+        self.assertNotIn('capability', presets['footman-ultimate-ai']['ai'])
         schema = json.loads((ROOT / 'config/presets.schema.json').read_text())
         self.assertFalse(schema['additionalProperties'])
 
@@ -424,6 +433,20 @@ class MPQTests(unittest.TestCase):
 
     def resolve(self):
         return resolve_preset(self.source, gameplay_config({'map_preset': 'test-map'}))
+
+    def test_clean_ai_preset_compiles_current_mpq_without_proof_metadata(self):
+        self.approve(self.mpq())
+        self.doc.pop('capabilities')
+        self.doc['presets'][1]['ai'].pop('capability')
+        self.save()
+        game, native, _ = self.resolve()
+        self.assertEqual(native['bot_lobby_ai_supported'], '1')
+        self.assertEqual(native['bot_lobby_ai_target'], '6')
+        self.assertEqual(game['vote_min_players'], 1)
+        (self.root/'maps/test.w3x').unlink()
+        self.mpq(script=PLAIN_SCRIPT)
+        with self.assertRaisesRegex(ValueError, 'AI_EVIDENCE'):
+            self.resolve()
 
     def test_real_mpq_script_fallback_wts_and_hashes(self):
         p = self.mpq(members={'war3map.w3i': info_fixture(title=b'TRIGSTR_1'),

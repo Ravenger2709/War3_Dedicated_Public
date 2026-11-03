@@ -44,6 +44,31 @@ def automatic_approval(analysis, records):
     raise ValueError('AI approval ID collision')
 
 
+def operator_presets(document):
+    """Return readable operator settings; keep unusual legacy approvals intact.
+
+    Automatic/controller-backed approvals are recomputed over actual map bytes.
+    Explicit starter-only legacy approvals still need their original records.
+    """
+    value = json.loads(json.dumps(document))
+    records = value.get('capabilities', [])
+    if any('computer_control' not in record.get('features', []) for record in records):
+        return value
+    value.pop('capabilities', None)
+    order = ('id', 'enabled', 'map_filename', 'lobby_name', 'max_players', 'start', 'vote', 'ai')
+    nested = {'start': ('autostart_enabled', 'autostart_players', 'countdown_seconds'),
+              'vote': ('enabled', 'min_players', 'required_percent', 'timeout', 'cooldown'),
+              'ai': ('enabled', 'target', 'skill')}
+    entries = []
+    for entry in value['presets']:
+        entry.get('ai', {}).pop('capability', None)
+        for group, keys in nested.items():
+            if group in entry:
+                entry[group] = {k: entry[group][k] for k in (*keys, *entry[group]) if k in entry[group]}
+        entries.append({k: entry[k] for k in (*order, *entry) if k in entry})
+    return {'version': value['version'], 'presets': entries}
+
+
 def digest(path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:
@@ -187,38 +212,17 @@ def discover(instance, document, spec, docker, env, owner, analyzer=analyze, rev
     paths = [maps / name for name in sorted(names, key=lambda name: (name.casefold(), name))]
     known_hashes = set()
     skipped = 0
-    existing_examined = 0
     new_examined = 0
-    existing_limit_reported = False
     exact_existing = {x.get('map_filename') for x in result['presets'] if isinstance(x.get('map_filename'), str)}
     for path in paths:
         if path.name in exact_existing and MAP_NAME.fullmatch(path.name) and '..' not in path.name:
             try:
                 sha, revision = digest(path)
                 known_hashes.add(sha)
-                # Exact whole-map hashes bind the script too; runtime rechecks
-                # the extracted script hash before ever enabling computers.
-                if any(r['map_sha256'] == sha for r in records):
-                    continue
-                if existing_examined >= 32:
-                    if not existing_limit_reported:
-                        print('Map discovery: existing map scan limit reached.')
-                        existing_limit_reported = True
-                    continue
-                existing_examined += 1
-                data = analyzer(path, host_instance / 'data/maps' / path.name, spec['image_id'], docker, env, owner)
-                if (digest(path) != (sha, revision) or not isinstance(data, dict)
-                        or data.get('map_sha256') != sha or not isinstance(data.get('script_sha256'), str)
-                        or not HASH.fullmatch(data['script_sha256'])):
-                    raise ValueError('map changed or analysis mismatch')
-                record = automatic_approval(data, records)
-                if record:
-                    candidate = {**result, 'capabilities': [*records, record]}
-                    if len((json.dumps(candidate, indent=2, sort_keys=True) + '\n').encode()) > 65536:
-                        raise ValueError('preset file size limit reached')
-                    records.append(record)
-                    result['capabilities'] = records[:]
-                    revisions[path] = (sha, revision)
+                # Existing presets retain their settings. Runtime analyzes only
+                # selected maps; do not launch one analyzer per old map merely
+                # to recreate metadata that operators no longer store.
+                revisions[path] = (sha, revision)
             except (OSError, ValueError, TypeError, subprocess.SubprocessError, UnicodeError):
                 skipped += 1
     for path in paths:

@@ -1166,7 +1166,7 @@ class PresetEditorTests(unittest.TestCase):
         self.update()
         self.edit(changed)
         self.update()
-        self.assertEqual(production.read_json(self.root / production.PRESETS), changed)
+        self.assertEqual(production.read_json(self.root / production.PRESETS), production.map_discovery.operator_presets(changed))
 
     def test_matching_both_sources_is_safe_to_adopt(self):
         production.private_json(self.root / production.PRESETS, self.desired)

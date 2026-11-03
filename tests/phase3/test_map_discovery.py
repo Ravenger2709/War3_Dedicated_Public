@@ -63,12 +63,11 @@ class DiscoveryTests(unittest.TestCase):
     def test_bootstrap_initial_unapproved_map_has_complete_disabled_ai(self):
         info = {**analysis(self.map), 'ai_evidence': {'level': 'candidate', 'features': ['computer_control']}}
         doc = bootstrap.initial_preset(info, info['map_sha256'])
-        self.assertEqual(len(doc['capabilities']), 1)
-        self.assertFalse(doc['capabilities'][0]['runtime_tested'])
+        self.assertNotIn('capabilities', doc)
         self.assertEqual(doc['presets'][0]['ai'], {'enabled': False, 'target': 4, 'skill': 1})
 
     def test_bootstrap_curated_record_and_gameplay_are_preserved(self):
-        curated = Path(__file__).resolve().parents[2] / 'config/presets.example.json'
+        curated = Path(__file__).resolve().parents[2] / 'src/runtime/curated_map_presets.json'
         source = json.loads(curated.read_text())
         preset = next(x for x in source['presets'] if x['id'] == 'footman-ultimate-ai')
         record = next(x for x in source['capabilities'] if x['id'] == preset['ai']['capability'])
@@ -77,8 +76,9 @@ class DiscoveryTests(unittest.TestCase):
                 'ai_evidence': {'level': 'candidate', 'features': record['features']},
                 'slots': [[0, 255, 0, 0, 0, i, 32, 1, 100] for i in range(12)], 'human_capacity': 12}
         doc = bootstrap.initial_preset(info, info['map_sha256'], curated)
-        self.assertEqual(doc['capabilities'], [record])
-        self.assertEqual(doc['presets'][0], {**preset, 'map_filename': 'selected.w3x'})
+        self.assertNotIn('capabilities', doc)
+        self.assertNotIn('capability', doc['presets'][0]['ai'])
+        self.assertEqual(doc['presets'][0], {**preset, 'ai': {k:v for k,v in preset['ai'].items() if k!='capability'}, 'map_filename': 'selected.w3x'})
 
     def test_discovery_creates_static_hash_bound_evidence_without_enabling_ai(self):
         def candidate(path, *_):
@@ -94,7 +94,7 @@ class DiscoveryTests(unittest.TestCase):
         self.map.write_bytes(b'new map bytes' * 10)
         changed = map_discovery.discover(self.root, result, SPEC, [], {}, OWNER, candidate)[0]
         self.assertEqual(changed['presets'], result['presets'])
-        self.assertEqual(len(changed['capabilities']), 2)
+        self.assertEqual(len(changed['capabilities']), 1)  # Existing maps are analyzed by runtime, not rescanned here.
         self.assertEqual(changed['capabilities'][0], record)
         self.assertNotEqual(hashlib.sha256(self.map.read_bytes()).hexdigest(), record['map_sha256'])
 
@@ -138,7 +138,7 @@ class DiscoveryTests(unittest.TestCase):
         data = {**analysis(self.map), 'ai_evidence': {'level': 'candidate', 'features': ['ai_start']}}
         self.assertIsNone(map_discovery.automatic_approval(data, []))
         doc = bootstrap.initial_preset(data, data['map_sha256'])
-        self.assertEqual(doc['capabilities'], [])
+        self.assertNotIn('capabilities', doc)
         self.assertFalse(doc['presets'][0]['ai']['enabled'])
 
     def test_existing_scan_budget_does_not_starve_new_maps(self):
@@ -173,6 +173,9 @@ class DiscoveryTests(unittest.TestCase):
                 entry = {'id': 'existing', 'enabled': True, 'map_filename': self.map.name,
                          'ai': {'enabled': False, 'target': 4, 'skill': 1}}
                 doc = {'version': 1, 'presets': [{'id': 'manual', 'enabled': True}] + ([entry] if existing else [])}
+                if existing:
+                    info = {**analysis(self.map), 'ai_evidence': {'level': 'candidate', 'features': ['computer_control']}}
+                    doc['capabilities'] = [map_discovery.automatic_approval(info, [])]
                 production.private_json(path, doc)
                 production.private_json(self.root / production.PRESET_BASELINE, {'version': 1, 'editor': None, 'file': doc})
                 discover = map_discovery.discover
@@ -188,7 +191,7 @@ class DiscoveryTests(unittest.TestCase):
                 retained = list((self.root / 'control/preset-deletion-history').glob('*/displaced.json'))
                 self.assertTrue(any(item.read_bytes() == b'{"late_edit": true}' for item in retained))
                 result = production.read_json(path)
-                self.assertEqual(len(result['capabilities']), 1)
+                self.assertNotIn('capabilities', result)
                 self.assertEqual(len(result['presets']), 2)
                 # Operator reviewed and removed this synthetic history before the next case.
                 shutil.rmtree(self.root / 'control/preset-deletion-history')
@@ -272,7 +275,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(skipped, 0)
         self.assertEqual(result['presets'], [entry])
         self.assertEqual(original['capabilities'], [])
-        self.assertEqual(len(result['capabilities']), 1)
+        self.assertEqual(result['capabilities'], [])
         self.assertEqual(map_discovery.discover(self.root, result, SPEC, [], {}, OWNER, candidate)[0], result)
 
     def test_missing_or_changed_existing_file_never_gets_record(self):
@@ -281,7 +284,8 @@ class DiscoveryTests(unittest.TestCase):
             value = {**analysis(path), 'ai_evidence': {'level': 'candidate', 'features': ['ai_start']}}
             path.write_bytes(b'replaced' * 20)
             return value
-        self.assertEqual(map_discovery.discover(self.root, doc, SPEC, [], {}, OWNER, changing), (doc, 1))
+        self.assertEqual(map_discovery.discover(self.root, doc, SPEC, [], {}, OWNER, changing), (doc, 0))
+        # Existing maps never call the analyzer; runtime resolves their current bytes.
         self.map.unlink()
         self.assertEqual(map_discovery.discover(self.root, doc, SPEC, [], {}, OWNER, changing),
                          (doc, 0))

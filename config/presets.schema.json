@@ -136,7 +136,9 @@
                   },
                   "capability": {
                     "type": "string",
-                    "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+                    "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+                    "deprecated": true,
+                    "description": "Legacy explicit approval ID; omit in ordinary presets."
                   }
                 },
                 "required": []
@@ -203,7 +205,9 @@
           "review",
           "runtime_tested"
         ]
-      }
+      },
+      "deprecated": true,
+      "description": "Legacy compatibility only. Normal presets omit these records; current map scripts are analyzed directly."
     }
   },
   "required": [

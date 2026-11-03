@@ -243,6 +243,21 @@ def preset_manifest_update(instance, check_revision=None):
     if check_revision:
         check_revision()
     options = preset_options(instance)
+    template = None
+    staged = _preset_snapshot(instance / PRESET_MANIFEST, limit=2 * 1024 * 1024)[0]
+    if staged is not None:
+        candidate = _preset_json(staged)
+        if isinstance(candidate, list) and all(isinstance(f, dict) for f in candidate):
+            owned = [f for f in candidate if f.get('Category') == 'War3_Dedicated:sports_esports']
+            names = [f.get('ParamFieldName') for f in owned]
+            if (len(names) == len(set(names)) and 'map_preset' not in names
+                    and {'map_cycle', 'preset_definitions', 'username', 'password', 'host_name'}.issubset(names)
+                    and next(f for f in owned if f['ParamFieldName']=='map_cycle').get('InputType')=='Textarea'):
+                template = json.loads(json.dumps(owned))
+                raw_settings = _preset_snapshot(instance / 'data/config/amp-settings.json', private=True, limit=2 * 1024 * 1024)[0]
+                if raw_settings is not None:
+                    cycle_default = settings(_preset_json(raw_settings))['map_cycle']
+                    next(f for f in template if f['ParamFieldName']=='map_cycle')['DefaultValue'] = json.dumps(cycle_default)
     for target in targets:
         snapshot = _preset_snapshot(target, limit=2 * 1024 * 1024)
         if snapshot[0] is None:
@@ -250,10 +265,17 @@ def preset_manifest_update(instance, check_revision=None):
         manifest = _preset_json(snapshot[0])
         if not isinstance(manifest, list) or any(not isinstance(f, dict) for f in manifest):
             raise ValueError("preset selector manifest rejected")
+        original_manifest = manifest
+        if template is not None:
+            if not any(f.get('Category')=='War3_Dedicated:sports_esports' for f in manifest):
+                raise ValueError('preset manifest belongs to another application')
+            manifest = [f for f in manifest if f.get('Category') != 'War3_Dedicated:sports_esports'] + template
         fields = [f for f in manifest if f.get("ParamFieldName") == "map_preset"]
         if not fields:
             cycle = [f for f in manifest if f.get("ParamFieldName") == "map_cycle"]
             if len(cycle) == 1 and cycle[0].get("Category") == "War3_Dedicated:sports_esports" and cycle[0].get("InputType") == "Textarea":
+                if manifest != original_manifest:
+                    prepared.append((target, snapshot, manifest))
                 continue
         if len(fields) != 1 or fields[0].get("Category") != "War3_Dedicated:sports_esports":
             raise ValueError("preset selector must belong to this War3_Dedicated manifest")
@@ -568,11 +590,13 @@ def preset_update(instance, discovery_spec=None, active_transaction=None):
             _preset_document(state[key])
     editor_document = _preset_document(_preset_json(text)) if text else None
     desired = editor_document
-    # The AMP editor may omit the technical AI approvals. Preserve the records
-    # from the current file; runtime still verifies each map and script hash.
-    if (desired is not None and "capabilities" not in desired and current is not None
-            and "capabilities" in current):
-        desired = {**desired, "capabilities": current["capabilities"]}
+    # Starter-only legacy approvals cannot be inferred automatically; preserve
+    # those when an old editor omits technical fields. Controller-backed records
+    # are recomputed and disappear from normal operator JSON.
+    if desired is not None and 'capabilities' not in desired and current is not None:
+        records = current.get('capabilities', [])
+        if any('computer_control' not in record.get('features', []) for record in records):
+            desired = {**desired, 'capabilities': records}
     # An unchanged UI editor must never erase later File Manager edits.
     unchanged = editor_document is not None and editor_document == state["editor"]
     if not unchanged and desired is not None and current != state["file"] and desired != current:
@@ -617,6 +641,13 @@ def preset_update(instance, discovery_spec=None, active_transaction=None):
                 changed = True
             if skipped:
                 print(f"Map discovery: skipped {skipped} invalid or changing map(s).")
+        # Keep generated analysis out of the operator file. Runtime derives the
+        # same controller evidence from its selected/sealed map on every start.
+        selected = desired if desired is not None else current
+        if selected is not None:
+            readable = map_discovery.operator_presets(selected)
+            if readable != selected:
+                desired, changed = readable, True
         if changed:
             # Every replacement can race a File Manager writer holding the old
             # inode, not only replacements caused by a deletion.
@@ -999,7 +1030,7 @@ def main(argv=None):
         return 0
     if args.action == "apply-presets":
         apply_presets(instance, spec)
-        print("Preset JSON and selector applied; selection unchanged. Restart the AMP instance, reconnect to the panel, choose an enabled preset from your JSON, then Start. Bot start not performed.")
+        print("Preset definitions applied. Set enabled preset IDs in Lobby rotation, then Start/Restart the game instance. Bot start not performed.")
         return 0
     if args.action == "rollback":
         accepted = read_json(args.gate)

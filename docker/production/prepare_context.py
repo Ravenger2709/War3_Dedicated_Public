@@ -13,6 +13,7 @@ FILES = (
     "config/star-vendor-files.json",
     "config/supervisor-iccup.example.json",
     "config/presets.example.json", "config/presets.schema.json",
+    "src/runtime/curated_map_presets.json",
     "docker/Dockerfile", "scripts/build-ghost.sh", "scripts/ghost-check-source.py",
     "third_party/ghost.lock.json", "patches/ghostplusplus-modern-linux.patch",
 )

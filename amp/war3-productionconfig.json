@@ -210,8 +210,8 @@
     "Subcategory": "Lobby:groups:30"
   },
   {
-    "DisplayName": "Map Cycle JSON array",
-    "Description": "Ordered JSON array of enabled preset IDs; repeat IDs to repeat maps. Every cycle entry must pass map and AI validation in the accepted runtime image before launch. Applied on next AMP Start/Restart.",
+    "DisplayName": "Lobby rotation (preset IDs JSON)",
+    "Description": "JSON list of preset IDs in lobby order, for example [\"footman-ultimate-ai\", \"custom-hero-footies-ai-v41b\"]. After a match starts, the next lobby uses the next ID; the list repeats. One ID repeats one map. Save and restart the instance to apply.",
     "Category": "War3_Dedicated:sports_esports",
     "FieldName": "map_cycle",
     "ParamFieldName": "map_cycle",
@@ -266,7 +266,7 @@
   },
   {
     "DisplayName": "Preset definitions JSON",
-    "Description": "Edit presets JSON. AI approval records can be omitted here and remain in data/config/presets.json. Preset IDs use lowercase letters, digits, hyphens and underscores. AI skill: 0 Easy, 1 Normal, 2 Insane. Stop before applying changes, then enter enabled preset IDs in Map Cycle. Blank uses data/config/presets.json. Conflicting edits reject changes.",
+    "Description": "Game settings for each map. IDs from this JSON go into Lobby rotation. AI: enabled true/false, target computer count, skill 0 Easy / 1 Normal / 2 Insane. No capability IDs, review notes or hashes are needed; the runtime checks the selected map. Blank uses data/config/presets.json. Apply while stopped, then start the instance.",
     "Category": "War3_Dedicated:sports_esports",
     "Subcategory": "Map presets:map:20",
     "FieldName": "preset_definitions",

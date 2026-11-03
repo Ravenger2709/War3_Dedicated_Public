@@ -59,6 +59,26 @@ class PreparedCatalogTests(unittest.TestCase):
             self.assertEqual(len(result.pinned.pass_fds()), 2)
         with self.assertRaisesRegex(ValueError, 'CLOSED'): result.pinned.pass_fds()
 
+    def test_clean_ai_preset_is_validated_from_sealed_map_not_later_path(self):
+        self.a.unlink()
+        self.a=self.builder.mpq(script=fixture.AI_SCRIPT,
+            info=fixture.info_fixture(statuses=[1]*4,title=b'AI map'),name='a.w3x')
+        self.doc.pop('capabilities')
+        self.doc['presets'][0]['ai']={'enabled':True,'target':4,'skill':2}
+        self.preset_path.write_text(json.dumps(self.doc))
+        expected=hashlib.sha256(self.a.read_bytes()).hexdigest()
+        original=subject._analyze_pinned
+        def replaced(entry,library):
+            self.a.write_bytes(b'replaced after sealing')
+            return original(entry,library)
+        with patch.object(subject,'_analyze_pinned',side_effect=replaced):
+            with self.prepare(('one','one')) as result:
+                self.assertEqual(result.cycle_indices,(0,0))
+                self.assertEqual(result.entries[0].map_sha256,expected)
+                self.assertEqual(result.entries[0].ai['bot_lobby_ai_supported'],'1')
+                self.assertEqual(result.entries[0].ai['bot_lobby_ai_target'],'4')
+                self.assertEqual(result.entries[0].ai['bot_lobby_ai_skill'],'2')
+
     def test_source_replaced_after_pinning_does_not_change_validation(self):
         expected = hashlib.sha256(self.a.read_bytes()).hexdigest()
         original = subject._analyze_pinned

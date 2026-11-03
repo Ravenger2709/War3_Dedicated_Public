@@ -147,7 +147,7 @@ else:
         self.assertEqual(list(self.root.glob(".war3-bootstrap-*")), [])
 
     def pin_curated(self):
-        example = json.loads((REPO / "config/presets.example.json").read_text())
+        example = json.loads((REPO / "src/runtime/curated_map_presets.json").read_text())
         self.analysis["slots"] = [[0, 255, 0, 0, i // 3, i, 32, 1, 100] for i in range(12)]
         self.analysis["human_capacity"] = 12
         self.analysis["ai_evidence"] = {"level": "candidate", "features": ["ai_start", "computer_control"]}
@@ -562,8 +562,8 @@ else:
             self.setup()
         expected = next(p for p in presets["presets"] if p["id"] == "footman-ultimate-ai")
         expected = {**expected, "map_filename": "selected.w3x"}
-        self.assertEqual(self.generated(), {"version": 1, "presets": [expected],
-                                           "capabilities": presets["capabilities"]})
+        self.assertEqual(self.generated(), production.map_discovery.operator_presets({"version": 1, "presets": [expected],
+                                           "capabilities": presets["capabilities"]}))
         self.assertEqual(production.read_json(self.destination / "control/account-input.json"), {})
         self.assertTrue((self.destination / "control/account_setup.py").is_file())
 
@@ -574,8 +574,8 @@ else:
         self.setup()
         document = self.generated()
         self.assertEqual(len(document["presets"]), 1)
-        self.assertEqual(document["capabilities"], example["capabilities"])
-        self.assertFalse(document["capabilities"][0]["runtime_tested"])
+        self.assertNotIn("capabilities", document)
+        self.assertNotIn("capability", document["presets"][0]["ai"])
         self.assertTrue(document["presets"][0]["ai"]["enabled"])
         self.assertEqual(production.read_json(self.destination / "acceptance.json"), self.accepted)
         config = boot.validate_startup_config(self.destination / "data/config/supervisor.json")
@@ -618,15 +618,13 @@ else:
             self.destination = self.root / ("unknown-" + mismatch)
             with self.subTest(mismatch=mismatch):
                 self.setup()
-                records = self.generated()["capabilities"]
+                records = self.generated().get("capabilities", [])
                 if mismatch == "features":
                     self.assertEqual(records, [])
                     entry = self.generated()["presets"][0]
                     self.assertFalse(entry["ai"]["enabled"])
                     continue
-                self.assertEqual(len(records), 1)
-                self.assertEqual(records[0]["review"], "automatic static evidence; no runtime validation")
-                self.assertFalse(records[0]["runtime_tested"])
+                self.assertEqual(records, [])
                 entry = self.generated()["presets"][0]
                 self.assertEqual(entry["id"], "selected-map")
                 self.assertEqual(entry["lobby_name"], self.analysis["lobby_name"])

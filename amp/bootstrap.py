@@ -451,7 +451,7 @@ def initial_preset(analysis, expected_sha, curated_path=None):
             or start.get("autostart_enabled", True) and start.get("autostart_players", 6) > human_budget
             or ai_enabled and entry["ai"].get("target", 6) > maximum):
         raise ValueError("initial preset exceeds analyzed map capacity")
-    return {"version": 1, "presets": [entry], "capabilities": [record] if record else []}
+    return production.map_discovery.operator_presets({"version": 1, "presets": [entry], "capabilities": [record] if record else []})
 
 
 def setup(instance_dir, star_dir, game_dir, map_file, *, redist=None, image=None,
@@ -484,7 +484,10 @@ def setup(instance_dir, star_dir, game_dir, map_file, *, redist=None, image=None
         if target == "vendor/redist/vc_redist.x86.exe" and actual["sha256"] != REDIST_SHA256:
             raise ValueError("VC2015 x86 installer hash mismatch")
         validated.append((source, target, actual))
-    presets_path = ROOT / "config/presets.example.json"
+    presets_path = ROOT / "src/runtime/curated_map_presets.json"
+    if not presets_path.exists():
+        presets_path = ROOT / "config/presets.example.json"
+    presets_key = presets_path.relative_to(ROOT).as_posix()
     presets = read_object(presets_path) if presets_path.exists() or presets_path.is_symlink() else None
     with tempfile.TemporaryDirectory(prefix=".war3-bootstrap-", dir=destination.parent) as directory:
         stage = Path(directory)
@@ -501,7 +504,7 @@ def setup(instance_dir, star_dir, game_dir, map_file, *, redist=None, image=None
         for source, target, expected in validated:
             private_copy(source, app / target, expected)
         curated_path = None
-        if presets is not None and accepted["source_sha256"].get("config/presets.example.json") == presets[1]:
+        if presets is not None and accepted["source_sha256"].get(presets_key) == presets[1]:
             curated_path = stage / "approved-presets.json"
             production.private_json(curated_path, presets[0])
         analysis = analyze_selected_map(accepted["image_id"], app / "data/maps/selected.w3x")

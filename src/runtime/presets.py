@@ -1,7 +1,8 @@
 """Strict operator presets and conservative classic MPQ capability evidence.
 
 Detection is static evidence, never a claim that arbitrary JASS will run correctly.
-Only an explicit, hash-bound curated approval can compile AI native settings.
+Operator AI opt-in is checked against the selected map script, including sealed inputs.
+Legacy hash-bound approval records remain supported for compatibility.
 """
 import hashlib
 import json
@@ -335,6 +336,16 @@ def matching_ai_approval(ai, capabilities, analysis):
     if (len(candidates) == 1
             and set(candidates[0]['features']).issubset(analysis['ai_evidence']['features'])):
         return candidates[0]
+    # The analyzer already operates on the selected (or sealed) map bytes.
+    # Requiring operators to copy that analysis into JSON adds no evidence.
+    # Preserve explicit legacy records and ambiguity checks; clean presets use
+    # the same computer-controller rule as automatic map discovery.
+    evidence = analysis.get('ai_evidence', {})
+    features = evidence.get('features', []) if isinstance(evidence, dict) else []
+    if ('capability' not in ai and not capabilities and isinstance(features, list)
+            and features and all(isinstance(f, str) and f in FEATURES for f in features)
+            and len(set(features)) == len(features) and 'computer_control' in features):
+        return {'id': 'current-map-analysis', 'features': list(features)}
     raise AIEvidenceError('PRESET_AI_EVIDENCE_REJECTED')
 
 
