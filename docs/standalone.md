@@ -181,6 +181,14 @@ explicitly while stopped to replace it, or omit `--preset` to start the full
 existing cycle. Unknown-crash recovery remains fail-closed: preserve unresolved
 cycle state for reconciliation rather than clearing it to force a restart.
 
+After a clean stop, changing `map_cycle` uses the runtime's existing durable
+`change_cycle` operation before launch. The new list starts at its first entry;
+SQLite event/close history and replay fences remain intact. The helper requires
+an exclusive managed-session lease, a fresh unused journal, no launch claim or
+IPC directory for that journal, and no pending reservation. Uncertain exits
+remain blocked. This works with both AMP and the standalone CLI; it does not
+require rebuilding the native runtime.
+
 Every preset replacement, including additions,
 AI records and rollbacks, retains the displaced inode under the historical name
 `control/preset-deletion-history` so a concurrent File Manager writer can

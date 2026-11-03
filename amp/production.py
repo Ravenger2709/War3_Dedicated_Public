@@ -71,6 +71,7 @@ class SettingsError(ValueError):
             "PRESET_SELECTION_CHANGED": "The selected preset changed during map discovery. Retry start.",
             "PRESET_EDIT_CONFLICT": "Settings rejected: preset editor and File Manager both changed; clear the editor and apply to adopt the file first.",
             "PRESET_EXTERNAL_CONFLICT": "Preset file changed during apply. Keep stopped and inspect control/preset-conflict and any control/war3-preset-* recovery directory before retrying; external edits were preserved.",
+            "CYCLE_CHANGE_BLOCKED": "Map rotation cannot change while a launch or reservation is unresolved. Stop cleanly and inspect the retained cycle journal; no history was cleared.",
             "RUNTIME_STILL_RUNNING": "A War3 container already exists. Stop the instance before applying presets or starting it; if AMP shows stopped, inspect the existing container before removing it.",
         }.get(code, "Settings rejected; verify preset input and private files.")
 
@@ -970,6 +971,77 @@ def validate_cycle_candidate(instance, spec, validated):
                        stderr=subprocess.DEVNULL, check=False, timeout=10)
 
 
+_CYCLE_AMEND_SCRIPT = '''import json,os,sys
+from pathlib import Path
+from src.runtime.session_lease import SessionLease
+from src.runtime.cycle_state import CycleState,_cycle
+from src.runtime.files import private_json
+
+def amend(root,cycle):
+    cycle=_cycle(cycle)
+    lease=SessionLease(root,enabled=True)
+    try:
+        cursor=CycleState.__new__(CycleState)
+        try:
+            cursor.__init__(lease.cursor,cycle,lease=lease)
+            return False
+        except ValueError as error:
+            if error.args!=('MAP_CYCLE_CHANGED_REQUIRES_RECONCILIATION',):raise
+        # Only the fresh, unused journal left by a verified orderly handoff may
+        # authorize a config change. Never erase claims, pending work or history.
+        names=os.listdir(lease.fd)
+        if ('native-launch-'+lease.journal.name+'.json' in names
+                or 'ipc-'+lease.journal.name in names or os.listdir(lease.journal_fd)):
+            raise ValueError('CYCLE_CHANGE_UNRESOLVED_LAUNCH')
+        old=cursor._load_db() if cursor.db_path.exists() or cursor.db_path.is_symlink() else private_json(cursor.path)
+        cursor._validate(old)
+        if cursor.db_path.exists() and old['version']!=3:
+            raise ValueError('MAP_CYCLE_DATABASE_REJECTED')
+        if old['pending'] is not None:raise ValueError('CYCLE_CHANGE_PENDING')
+        cursor.cycle=old['cycle']
+        cursor.state=old
+        cursor.change_cycle(cycle)
+        lease.check()
+        return True
+    finally:lease.close()
+
+if __name__=='__main__':
+    amend(Path('/data/state/cycle'),json.load(sys.stdin))
+'''
+
+
+def reconfigure_cycle_stopped(instance, spec, validated):
+    """Amend a stopped, cleanly handed-off cursor without resetting history."""
+    root = instance / "data/state/cycle"
+    if root.is_symlink():
+        raise SettingsError("CYCLE_CHANGE_BLOCKED")
+    if not root.exists():
+        return  # First startup provisions its own managed session.
+    image_preflight(instance, spec)
+    host = Path(spec.get("host_instance_dir", str(Path(instance).absolute())))
+    if (not host.is_absolute() or ".." in host.parts
+            or any(ord(c) < 32 or ord(c) == 127 or c == "," for c in str(host))):
+        raise ValueError("invalid cycle amendment bind path")
+    name = "war3-cycle-amend-" + uuid.uuid4().hex
+    args = [*DOCKER, "run", "--rm", "--pull=never", "--name", name,
+            "--interactive", "--restart=no", "--network", "none", "--read-only",
+            "--user", account.generator_owner(spec), "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges:true", "--pids-limit", "32",
+            "--memory", "128m", "--memory-swap", "128m", "--cpus", "1",
+            "--ulimit", "core=0", "--log-driver", "none", "--no-healthcheck",
+            "--workdir", "/opt/war3", "--env", "PYTHONDONTWRITEBYTECODE=1",
+            "--mount", f"type=bind,src={host / 'data/state/cycle'},dst=/data/state/cycle",
+            "--entrypoint", "python3", spec["image_id"], "-B", "-c", _CYCLE_AMEND_SCRIPT]
+    try:
+        subprocess.run(args, input=json.dumps(validated["map_cycle"]).encode(), env=environment(),
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        raise SettingsError("CYCLE_CHANGE_BLOCKED") from None
+    finally:
+        subprocess.run([*DOCKER, "rm", "--force", name], env=environment(), stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=10)
+
+
 def prepare(instance, image_id, acceptance, supervisor_config, native_config, map_config):
     accepted = read_json(acceptance)
     gate(accepted, image_id)
@@ -1083,6 +1155,7 @@ def main(argv=None):
                                        validated=validated, writer=config_writer)
             if check_revision.selected_removed:
                 raise SettingsError("PRESET_ACTIVE_MAP_MISSING")
+    reconfigure_cycle_stopped(instance, spec, validated)
     # No shell, no detached container, no TTY. exec preserves stdin and AMP's SIGTERM chain.
     os.execvpe(DOCKER[0], command(instance, spec), environment())
 

@@ -237,6 +237,7 @@ def prepare_start(instance, spec, *, map_preset=None):
                             selection_transaction.check()
             if check.selected_removed:
                 raise production.SettingsError("PRESET_ACTIVE_MAP_MISSING")
+    production.reconfigure_cycle_stopped(instance, spec, validated)
 
 
 def start_container(instance, spec, marker, *, foreground=False, restart_policy=None, map_preset=None):
