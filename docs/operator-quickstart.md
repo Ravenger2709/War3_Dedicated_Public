@@ -159,23 +159,17 @@ filename editing is needed, including when the release has no presets example.
 Maps without two human slots need an explicit supported AI preset; setup rejects
 an unsupported one rather than preparing an unusable lobby.
 
-The exact Footman map can instead get `footman-ultimate-ai`: the source preset
-example must match its gate hash, and the whole-map SHA, script SHA and detected
-features must match the curated proof. Its AI and vote settings, review and
-`runtime_tested` value remain intact. Other maps with detected `computer_control` get a
-hash-bound static record, with AI still disabled and no runtime validation claim.
-Setup refreshes the staged selector manifest; after installing or
-refreshing the AMP template, verify **Map preset** shows that generated ID.
-For later maps, edit the JSON, add the matching files and apply/refresh the
-selector through the supplied AMP actions. The gameplay display name defaults
-to `War3HostBot`; runtime validation remains authoritative.
+The exact Footman map can instead get `footman-ultimate-ai`: the internal
+curated source fixture must match its gate hash, and the actual map/script
+must match that fixture. Its gameplay settings are copied into the readable
+preset without technical approval records. Other maps start with AI disabled;
+enabling it requires controller support detected in the actual map script.
 
-Use AMP **Start**, **Stop**, **Restart** for routine operations. Account and map
-changes apply through the integrated helpers on Start/Restart. The runtime
-publishes TCP 6113 only; ensure your existing network permits your intended
-clients. Setup does not configure routers, contact a remote host or test login.
-An accepted release and successful setup do not prove a new operator's account,
-WAN connectivity or multiplayer gameplay.
+After installing the AMP template, verify **Lobby rotation (preset IDs JSON)**
+contains the generated ID. Add later map IDs to that JSON array in the desired
+order; there is no separate single-map selector. See [map presets](map-presets.md)
+for the shared AMP/standalone format. The lobby display name defaults to
+`War3HostBot`; runtime validation remains authoritative.
 
 ## Maintainer: export a release identity
 

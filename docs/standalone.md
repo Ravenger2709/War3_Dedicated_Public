@@ -168,7 +168,7 @@ With a matching cycle-aware accepted image, startup validates every multi-cycle
 entry through that image's full-cycle validator before merging settings or
 launching the runtime. This offline Python container mounts only config/maps
 read-only, has no network or profile access, and uses bounded resources. Missing
-maps, invalid capacities, missing AI approvals or an older image without the
+maps, invalid capacities, unsupported AI settings or an older image without the
 validator block the whole cycle. Single-entry startup retains its existing image
 validation. The ordinary-config/catalog runtime integration is a separate
 dependency; source-only tests in the existing `war3-dedicated:v0.4.1` image do

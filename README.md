@@ -34,7 +34,7 @@ See [AMP one-time setup](docs/operator-quickstart.md#required-third-party-files-
 | `docker/production/` | Multi-stage source-only runtime image packaging, without licensed assets |
 | `scripts/war3.py` | Standalone Docker management: setup, account, start, stop, restart, status, logs |
 | `amp/war3-production*` | Optional AMP Generic template and instance settings |
-| `config/presets.example.json` | Example map preset including start/vote thresholds and optional AI approval |
+| `config/presets.example.json` | Readable map presets with start/vote thresholds and computer settings |
 
 No external database server is required; runtime state uses local SQLite. Wine and its dependencies run inside Docker, not on the host. AMP is **optional** and has its own Docker control image.
 

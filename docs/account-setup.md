@@ -219,53 +219,39 @@ The AMP JSON AutoMap and private AppSettings behavior follow the
 The account input uses the documented
 [password field type](https://github.com/CubeCoders/AMPTemplates/blob/main/terrariaconfig.json).
 
-## Preset editor and dropdown
+## Preset editor and lobby rotation
 
-**War3_Dedicated → Map presets** contains an enum selector and a multiline
-**Preset definitions JSON** editor, using the stock `Textarea` input type seen
-in the [official MongoDB template](https://github.com/CubeCoders/AMPTemplates/blob/main/mongodbconfig.json).
-Initial choices are `manual` and `footman-ultimate-ai` (Footman Ultimate AI).
-The editor contains the complete version 1 document accepted by the main map
-feature: `version`, the `presets` list, and optional `capabilities`. Every entry
-needs a unique lowercase `id` and boolean `enabled`. With a presets document
-present, the selector lists exactly its enabled IDs; it adds no implicit
-`manual` choice. If explicitly supplied, `manual` must be enabled and contain
-only `id` and `enabled`. Custom-only documents list only their created IDs.
-Documents with no enabled presets reject apply/Start instead of generating an
-empty selector. Only a missing presets file gets the bootstrap `manual` fallback.
-The helper checks bounded JSON, duplicate keys, the document
-envelope and discovery fields. Runtime owns the remaining preset schema,
-map evidence, AI approval, and gameplay validation; this helper runs no map code.
+**War3_Dedicated → Map presets** contains two textareas:
 
-AMP maps the textarea into `control/preset-editor.json`, initially:
+- **Preset definitions JSON**: a version 1 object with `version` and `presets`.
+- **Lobby rotation (preset IDs JSON)**: an ordered JSON array such as
+  `["footman-ultimate-ai", "another-map", "footman-ultimate-ai"]`.
 
-```json
-{"version": 1, "preset_definitions": ""}
-```
+The old **Map preset** dropdown is replaced by the rotation field. Repeat IDs
+are allowed; one ID repeatedly hosts one map. Every ID must identify an enabled
+preset. With a presets file present, `manual` must be explicitly included and
+enabled if the operator wants to use it. Missing, disabled and removed entries
+reject Start instead of silently selecting a different map.
 
-The wrapper deliberately stores text as a JSON string. On apply/Start the helper
-parses that text and writes an actual JSON **object** into
-`data/config/presets.json`, never a JSON string containing the file body. The
-editor key never goes into gameplay settings or supervisor configuration.
-No direct template expansion, remote option URL, command discovery metadata,
-additional HTTP server, or account credentials are needed.
+Ordinary definitions contain map/lobby names, start/vote settings and
+`ai.enabled`, `ai.target`, `ai.skill`. They require no review notes, capability
+IDs or manually maintained hashes. The runtime checks the selected map's actual
+script; see [map presets](map-presets.md) for the format and AI limits.
 
-The editor placeholder shows a custom preset with
-`"start":{"autostart_enabled":true,"autostart_players":6,"countdown_seconds":5}`.
-This is a hint, not a saved default: the input stays blank until deliberately
-filled or seeded from the actual installed public presets by main's integration.
-Applying definitions leaves `amp-settings.json.map_preset` unchanged. After
-restarting AMP, explicitly select one of the enabled IDs before Start, especially
-when the previous selection (including the initial `manual`) is absent from the
-new document. Apply remains allowed with that stale selection so definitions
-can be installed before choosing a new ID. The `run` path then checks selection
-against the enabled IDs after applying the preset transaction and before
-settings merge or runtime launch. A missing, disabled, or removed selection,
-including `manual` absent from an existing document, rejects Start with the
-fixed message **Select an enabled preset**. Only a missing presets file allows
-the legacy `manual` fallback. Start merges the same validated settings snapshot;
-input edits made during preflight take effect on a later Start. The helper never
-silently switches the selected map, and this check requires no AMP API.
+AMP stores editor text in `control/preset-editor.json`. On apply/Start, the
+helper parses it and writes a normally formatted object to
+`data/config/presets.json`; an empty editor uses that File Manager file instead.
+Short settings groups remain on one line. The editor text is never placed in
+gameplay settings. Conflicting saves from AMP and File Manager are retained and
+reported.
+
+Apply definitions while the game is stopped. Enter the desired IDs in
+**Lobby rotation**, then Start/Restart the game instance. Applying definitions
+preserves the rotation; fix a removed ID before starting. A running match is
+not changed by editing either field. Startup validates the entire cycle before
+launching it. A one-time old-template migration reloads the War3 management
+instance so AMP discovers the replacement field; ordinary edits use the same
+existing field afterwards.
 
 `prepare()` installs an empty editor input, its private baseline, and
 `control/preset-configmanifest.json` for source-only preparation. Bootstrap can
