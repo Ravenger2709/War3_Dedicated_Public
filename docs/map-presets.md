@@ -140,3 +140,27 @@ hints, default 20 seconds. Vote hints follow auto-start notices by about 3.5
 seconds; help follows separately. Counts are recalculated when sent. Command
 replies remain immediate; this interval does not change empty-slot refresh.
 See [kick voting](kick-voting.md) and [message interval](lobby-message-interval.md).
+
+## Modern W3I inspection and classic-client compatibility
+
+The metadata reader supports W3I 18, 25 and 33. Inspect a map without
+reading or executing its JASS/Lua script:
+
+```sh
+python3 -m src.runtime.presets --info-only /path/to/map.w3x
+```
+
+W3I 33 includes the saved game version, script language, additional camera
+settings and enemy-priority fields for players. Inspection supports modern
+player colours up to 23, while classic hosting remains limited to 12 slots.
+Modern results include `classic_compatible: false`. They are rejected by both
+normal and sealed-input preset compilation for the current Warcraft III 1.26a
+runtime. Reading a new header does not supply newer client native functions or
+convert the map to an older game version. The normal script extraction limits
+and AI approval requirements remain unchanged.
+
+Format reference: [WC3MapSpecification, W3I 0–33](https://github.com/ChiefOfGxBxL/WC3MapSpecification/blob/master/Info/0-33.md).
+Sunken City v2.5.2a is a modern-map example: its own header records Warcraft
+2.0.4.23745, and its script uses newer `Blz` UI/gameplay APIs. Its author's
+[release page](https://www.hiveworkshop.com/threads/sunken-city-v2-5-2a.168086/)
+recommends Warcraft III 2.00. Use a compatible legacy release for iCCup 1.26a.

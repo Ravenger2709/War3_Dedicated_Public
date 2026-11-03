@@ -13,7 +13,7 @@ import struct
 
 from .config import bounded_int, gameplay_config
 from .files import no_symlinks
-from .mpq import checked_map, extract_map
+from .mpq import checked_map, extract_map, extract_map_info
 
 ID = re.compile(r'[a-z0-9][a-z0-9_-]{0,31}')
 HASH = re.compile(r'[0-9a-f]{64}')
@@ -197,28 +197,38 @@ class Cursor:
 def map_info(data):
     cur = Cursor(data)
     version = cur.uint()
-    if version not in (18, 25):
+    if version not in (18, 25, 33):
         raise ValueError('MAP_FORMAT_UNSUPPORTED')
     cur.skip(8)
+    # W3I 33 is inspectable; it is not a Warcraft III 1.26 hosting format.
+    modern = version == 33
+    game_version = [cur.uint() for _ in range(4)] if modern else None
     title = cur.strings(4)[0]
     cur.skip(48)
     width, height, flags = cur.uint(), cur.uint(), cur.uint()
     if not 1 <= width <= 512 or not 1 <= height <= 512:
         raise ValueError('MAP_DIMENSIONS_REJECTED')
     cur.skip(5)
-    if version == 25:
+    if version >= 25:
         cur.string()
     cur.strings(3)
     cur.skip(4)
-    if version == 25:
+    if version >= 25:
         cur.string()
     cur.strings(3)
-    if version == 25:
+    if version >= 25:
         cur.skip(24)
         cur.string()
         cur.skip(5)
+    language = None
+    if modern:
+        language, graphics, game_data = cur.uint(), cur.uint(), cur.uint()
+        if language not in (0, 1) or graphics not in (1, 2, 3) or game_data not in (0, 1):
+            raise ValueError('MAP_INFO_MODERN_SETTINGS_REJECTED')
+        cur.skip(12)  # Default, maximum and minimum camera zoom (W3I 32/33).
     count = cur.uint()
-    if not 1 <= count <= 12:
+    player_limit = 24 if modern else 12
+    if not 1 <= count <= player_limit:
         raise ValueError('MAP_PLAYER_COUNT_REJECTED')
     slots, colours = [], set()
     for _ in range(count):
@@ -226,14 +236,16 @@ def map_info(data):
         cur.skip(4)
         cur.string()
         cur.skip(16)
-        if colour >= 12 or colour in colours or status not in (0, 1, 2, 3, 4) or race > 4:
+        if modern:
+            cur.skip(8)  # Enemy priorities added in W3I 31.
+        if colour >= player_limit or colour in colours or status not in (0, 1, 2, 3, 4) or race > 4:
             raise ValueError('MAP_PLAYER_REJECTED')
         colours.add(colour)
         if status in (1, 2):
             slots.append([0, 255, 0 if status == 1 else 2, int(status == 2), 0,
                           colour, {1: 1, 2: 2, 3: 8, 4: 4}.get(race, 32), 1, 100])
     teams = cur.uint()
-    if not slots or not 0 <= teams <= 12:
+    if not slots or not 0 <= teams <= player_limit:
         raise ValueError('MAP_TEAMS_REJECTED')
     assigned = 0
     for team in range(teams):
@@ -241,7 +253,7 @@ def map_info(data):
         mask = cur.uint()
         cur.string()
         # Classic editors/optimizers may set unused high bits. CMap uses colours 0..11.
-        mask &= 0xfff
+        mask &= (1 << player_limit) - 1
         if mask & assigned:
             raise ValueError('MAP_TEAMS_REJECTED')
         assigned |= mask
@@ -253,8 +265,12 @@ def map_info(data):
             slot[4], slot[6] = team, 32
         if not flags & 32:
             slot[6] |= 64
-    return {'format': version, 'title': title, 'flags': flags, 'slots': slots,
-            'human_capacity': sum(s[2] == 0 and s[3] == 0 for s in slots)}
+    result = {'format': version, 'title': title, 'flags': flags, 'slots': slots,
+              'human_capacity': sum(s[2] == 0 and s[3] == 0 for s in slots)}
+    if modern:
+        result.update(game_version=game_version, script_language=('jass', 'lua')[language],
+                      classic_compatible=False)
+    return result
 
 
 # Strip literals and comments together so comment markers in strings stay inert.
@@ -314,6 +330,8 @@ def analyze_map(path):
             after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
         raise ValueError('MAP_CHANGED_DURING_ANALYSIS')
     info = map_info(members['war3map.w3i'])
+    if info.get('classic_compatible') is False:
+        raise ValueError('MAP_REQUIRES_NEWER_WARCRAFT')
     script = members.get('war3map.j', members.get('scripts\\war3map.j'))
     try:
         evidence = script_evidence(script)
@@ -375,6 +393,8 @@ def _resolve_named_snapshot(source, game, presets, capabilities, *, sealed_analy
         raise ValueError('PRESET_UNAVAILABLE')
     path = no_symlinks(source.parent.parent / 'maps' / entry['map_filename'])
     analysis = analyze_map(path) if sealed_analysis is None else sealed_analysis
+    if analysis.get('classic_compatible') is False or analysis.get('format') == 33:
+        raise ValueError('MAP_REQUIRES_NEWER_WARCRAFT')
     ai = entry.get('ai', {})
     enabled = ai.get('enabled', False)
     native = dict(AI_OFF)
@@ -424,8 +444,15 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Read-only classic MPQ analysis; never executes map code.')
     parser.add_argument('map', type=Path)
+    parser.add_argument('--info-only', action='store_true',
+                        help='Inspect W3I metadata, including v33; does not approve classic hosting.')
     args = parser.parse_args()
     try:
-        print(json.dumps(analyze_map(args.map), ensure_ascii=False, indent=2))
+        if args.info_only:
+            value = map_info(extract_map_info(args.map))
+            value['title'] = value['title'].decode('utf-8', errors='replace')
+        else:
+            value = analyze_map(args.map)
+        print(json.dumps(value, ensure_ascii=False, indent=2))
     except (ValueError, OSError) as error:
         parser.exit(1, str(error) + '\n')

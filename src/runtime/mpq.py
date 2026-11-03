@@ -50,7 +50,7 @@ def storm_api(library=LIBRARY):
     return api
 
 
-def _extract(path, library):
+def _extract(path, library, *, info_only=False):
     api = storm_api(library)
     archive = C.c_void_p()
     if not api['open'](os.fsencode(path), 0, 0x00080100, C.byref(archive)):
@@ -58,6 +58,8 @@ def _extract(path, library):
     out = {}
     try:
         for name, limit in MEMBERS.items():
+            if info_only and name != 'war3map.w3i':
+                continue
             handle = C.c_void_p()
             if not api['file'](archive, name.encode('ascii'), 0, C.byref(handle)):
                 continue
@@ -78,7 +80,7 @@ def _extract(path, library):
                 api['close_file'](handle)
     finally:
         api['close'](archive)
-    if 'war3map.w3i' not in out or not any(k in out for k in ('war3map.j', 'scripts\\war3map.j')):
+    if 'war3map.w3i' not in out or not info_only and not any(k in out for k in ('war3map.j', 'scripts\\war3map.j')):
         raise ValueError('MAP_MEMBER_MISSING')
     if ('war3map.j' in out and 'scripts\\war3map.j' in out
             and out['war3map.j'] != out['scripts\\war3map.j']):
@@ -107,6 +109,20 @@ def extract_map(path, library=LIBRARY):
         return _decode_result(result)
     except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
         raise ValueError('MAP_EXTRACTION_REJECTED') from None
+
+
+def extract_map_info(path, library=LIBRARY):
+    """Inspect bounded W3I independently of large, missing or Lua map scripts."""
+    path = checked_map(path)
+    try:
+        result = subprocess.run([sys.executable, '-m', 'src.runtime.mpq', '--info-only',
+                                 str(path), str(library)], capture_output=True, timeout=10, check=False)
+        value = _decode_result(result)
+        if set(value) != {'war3map.w3i'}:
+            raise ValueError('MAP_INFO_EXTRACTION_REJECTED')
+        return value['war3map.w3i']
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        raise ValueError('MAP_INFO_EXTRACTION_REJECTED') from None
 
 
 def _check_sealed_fd(fd):
@@ -147,6 +163,8 @@ if __name__ == '__main__':
             sealed_fd = int(sys.argv[2])
             _check_sealed_fd(sealed_fd)
             data = _extract('/proc/self/fd/' + str(sealed_fd), sys.argv[3])
+        elif len(sys.argv) == 4 and sys.argv[1] == '--info-only':
+            data = _extract(checked_map(sys.argv[2]), sys.argv[3], info_only=True)
         else:
             data = _extract(checked_map(sys.argv[1]), sys.argv[2])
         print(json.dumps({k: base64.b64encode(v).decode('ascii') for k, v in data.items()}))
