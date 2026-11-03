@@ -219,14 +219,14 @@ while True: time.sleep(1)
         finally:
             os.close(fake_w)
         with self.assertRaises(NativeSessionError):
-            NativeSessionReader(owner, self.lease, '/bin/true')
+            NativeSessionReader(owner, self.lease, str(Path('/bin/true').resolve(strict=True)))
 
     def test_wrong_executable_and_second_session_fail_closed(self):
         p = self.spawn()
         owner = OwnedChild(p)
         self.addCleanup(owner.close)
         with self.assertRaises(NativeSessionError):
-            NativeSessionReader(owner, self.lease, '/bin/true')
+            NativeSessionReader(owner, self.lease, str(Path('/bin/true').resolve(strict=True)))
         with self.assertRaises(NativeSessionError):
             NativeSessionReader(owner, self.lease, os.path.realpath(sys.executable))
         self.assertFalse(list(self.lease.journal.glob('session-*.json')))
