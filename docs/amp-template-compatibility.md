@@ -103,11 +103,10 @@ Goodall; their fixes belong to the AMP implementation owner:
   visible manifest entries while preserving internal defaults/backward parsing;
   keep normal operator autostart settings in the preset JSON.
 
-Field `Actions` for applying/reloading presets is a convenience. Its exact AMP
-2.7 support or introduction version was not established; do not claim it was
-introduced in 2.8. Preserve the stock Update action and Start/Restart workflow.
-Ensure the live serialized UpdateSources contains the local apply-presets stage,
-not an old empty list. Manifest/UI reload is a separate concern from restarting
+Preset settings use ordinary save plus game Start/Restart. The editor has no
+`Core/UpdateApplication` action, because a rejected live preset apply could
+mark a still-running game as Error. The compatibility UpdateSources stage uses
+`apply-presets --defer-if-running` and leaves active games unchanged. Manifest/UI reload is a separate concern from restarting
 the game application; a control-instance restart refreshed the categories in
 the maintainer's installed-build test. A template repository Fetch alone is not
 proof that an existing instance has loaded its new manifests.
