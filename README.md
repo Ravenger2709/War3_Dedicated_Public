@@ -57,6 +57,22 @@ python3 scripts/war3.py stop
 
 Automated tests are in `tests/`; see [source build and validation](docs/build-from-source.md). Development and diagnostics do not require any real credentials. Never use the old legacy/offline container as a production iCCup runtime.
 
+## Map Cycle development candidate
+
+The Phase 4 source adds an ordered `map_cycle`, per-map settings and up to five
+loading/running matches in one GHost process, with one Star/relay session and
+one public lobby. AMP is optional; standalone uses the same settings and runtime.
+The cursor advances on a durable native start, and active connections survive
+the next lobby opening on TCP 6113. See [map presets](docs/map-presets.md).
+
+These changes require a matching accepted runtime image and updated controller;
+the previously released v0.4.1 image does not certify Phase 4. Native/offline
+integration tests have passed, but real parallel Warcraft III clients, live
+iCCup rotation and deployment acceptance remain pending. See the
+[Phase 4 evidence checklist](docs/phase4-acceptance-status.md) before rollout.
+Unknown-crash ownership or unresolved cycle state blocks new hosting until
+reconciliation; it must not be erased to force a restart.
+
 ## Provenance and rights
 
 The native host is based on [GHost++](https://github.com/ghostBot/ghostplusplus), originally by **Trevor Hogan**, with important bundled dependencies credited separately. The compatibility/gameplay modifications are published as a patch against a pinned upstream commit. The design was informed by public [iCCup](https://iccup.com/dota/files.html), [PvPGN](https://github.com/pvpgn/pvpgn-server), [unmclient](https://github.com/mothefuunnick/unmclient), [IrInA-related sources](https://github.com/kirill-782/irinabot-ru-site) and the official [CubeCoders AMPTemplates](https://github.com/CubeCoders/AMPTemplates). Research references are not claims that their proprietary files or code have been incorporated. See [ATTRIBUTION.md](ATTRIBUTION.md) and [src/hostbot/NOTICE.md](src/hostbot/NOTICE.md) for author, license and redistribution details.

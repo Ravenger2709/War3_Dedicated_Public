@@ -213,11 +213,11 @@ else:
         self.assertEqual(production.read_json(app / "acceptance.json"), self.accepted)
         settings = production.read_json(app / "data/config/amp-settings.json")
         self.assertEqual(settings["host_name"], "War3HostBot")
-        self.assertEqual(settings["map_preset"], entry["id"])
+        self.assertEqual(settings["map_cycle"], [entry["id"]])
         self.assertEqual(boot.validate_startup_config(app / "data/config/supervisor.json")["gameplay"]["map_preset"], entry["id"])
         manifest = json.loads((app / production.PRESET_MANIFEST).read_text())
-        selector = next(f for f in manifest if f.get("ParamFieldName") == "map_preset")
-        self.assertEqual(set(selector["EnumValues"]), {entry["id"]})
+        selector = next(f for f in manifest if f.get("ParamFieldName") == "map_cycle")
+        self.assertEqual(selector["InputType"], "Textarea")
         self.assertEqual((app / "data/config/ghost.cfg").read_text(), boot.NATIVE_CONFIG)
         self.assertIn("map_localpath = selected.w3x", (app / "data/config/maps/selected.cfg").read_text())
         for path in (app, *app.rglob("*")):
@@ -714,7 +714,7 @@ runpy.run_path(script, run_name="__main__")
                                 env={**os.environ, "PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.generated()["presets"][0]["id"], "selected-map")
-        self.assertEqual(production.read_json(self.destination / "data/config/amp-settings.json")["map_preset"], "selected-map")
+        self.assertEqual(production.read_json(self.destination / "data/config/amp-settings.json")["map_cycle"], ["selected-map"])
 
     def test_root_or_unsafe_parent_and_missing_local_image_fail_before_prepare(self):
         with patch.object(os, "getuid", return_value=0), self.assertRaises(ValueError):

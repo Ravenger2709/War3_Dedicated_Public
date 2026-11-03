@@ -49,6 +49,10 @@ def load_config(path):
     if "gameplay" in raw or "iccup" in raw:
         from src.runtime.config import gameplay_config
         result["gameplay"]=gameplay_config(raw.get("gameplay",{}))
+        if mode=="iccup":
+            # Internal provenance: a normalized legacy map_preset also has a
+            # one-entry map_cycle. Only an explicitly configured cycle opts in.
+            result['_native_catalog_cycle']='map_cycle' in raw.get('gameplay',{})
     if "iccup" in raw:
         from src.runtime.config import iccup_config
         result["iccup"]=iccup_config(raw["iccup"])

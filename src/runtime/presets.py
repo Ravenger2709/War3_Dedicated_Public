@@ -76,11 +76,18 @@ def load_presets(path):
     info = path.stat()
     if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 65536:
         raise ValueError('PRESET_FILE_REJECTED')
+    with path.open('rb') as stream:
+        data = stream.read(65537)
+    if len(data) != info.st_size:
+        raise ValueError('PRESET_FILE_CHANGED')
+    return parse_presets(data)
+
+
+def parse_presets(data):
+    """Parse one bounded immutable byte snapshot using the normal preset schema."""
+    if not isinstance(data, bytes) or not 0 < len(data) <= 65536:
+        raise ValueError('PRESET_FILE_REJECTED')
     try:
-        with path.open('rb') as stream:
-            data = stream.read(65537)
-        if len(data) != info.st_size:
-            raise ValueError('PRESET_FILE_CHANGED')
         raw = json.loads(data, object_pairs_hook=_pairs,
                          parse_constant=lambda _: (_ for _ in ()).throw(ValueError('PRESET_NUMBER_REJECTED')))
     except (UnicodeError, RecursionError, json.JSONDecodeError):
@@ -339,11 +346,24 @@ def resolve_preset(source, gameplay):
         return game, dict(AI_OFF), None
     source = no_symlinks(source)
     presets, capabilities = load_presets(source.parent / 'presets.json')
+    validated, native, mapcfg, _, _ = _resolve_named_snapshot(source, game, presets, capabilities)
+    return validated, native, mapcfg
+
+
+def _resolve_named_snapshot(source, game, presets, capabilities, *, sealed_analysis=None):
+    """Resolve one named preset against a single parsed preset document.
+
+    `sealed_analysis` is reserved for preload preparation after it validates the
+    sealed map bytes; ordinary callers leave it unset and read the source path.
+    """
+    key = game['map_preset']
+    if key == 'manual':
+        raise ValueError('PRELOAD_MANUAL_UNSUPPORTED')
     entry = presets.get(key)
     if not entry or not entry['enabled']:
         raise ValueError('PRESET_UNAVAILABLE')
     path = no_symlinks(source.parent.parent / 'maps' / entry['map_filename'])
-    analysis = analyze_map(path)
+    analysis = analyze_map(path) if sealed_analysis is None else sealed_analysis
     ai = entry.get('ai', {})
     enabled = ai.get('enabled', False)
     native = dict(AI_OFF)
@@ -383,10 +403,10 @@ def resolve_preset(source, gameplay):
     mapcfg = ('map_path = Maps\\Download\\' + entry['map_filename'] + '\n'
               'map_localpath = ' + entry['map_filename'] + '\n'
               'map_speed = 3\nmap_visibility = 4\nmap_observers = 1\n'
-              'map_flags = 3\nmap_loadInGame = 0\n'
+              'map_flags = 3\nmap_loadingame = 0\n'
               + ''.join('map_slot' + str(i) + ' = ' + ' '.join(map(str, slot)) + '\n'
                         for i, slot in enumerate(slots, 1)))
-    return validated, native, mapcfg
+    return validated, native, mapcfg, path, analysis
 
 
 if __name__ == '__main__':

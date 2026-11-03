@@ -52,7 +52,7 @@ def map_inputs(args):
         raise ValueError('NONMANUAL_PRESET_REQUIRES_EXPLICIT_MAP_AND_PRESETS')
     if args.presets is not None and args.map is None:
         raise ValueError('PRESETS_REQUIRE_EXPLICIT_MAP')
-    game=ROOT/'Warcraft 3 Frozen Throne'
+    game=real_path(args.game_dir)
     selected=real_path(args.map if args.map is not None else game/'maps/download/iCCup DotA 501.w3x')
     info=selected.stat()
     if not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or not 0<info.st_size<=4*1024**3:
@@ -90,6 +90,9 @@ def map_inputs(args):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--image',required=True,type=pinned_image);p.add_argument('--run-dir',required=True,type=Path);p.add_argument('--seconds',type=int,default=60)
+    p.add_argument('--star-dir',required=True,type=real_path,help='exact original Star vendor directory, mounted read-only')
+    p.add_argument('--game-dir',required=True,type=real_path,help='original game directory containing metadata PEs, War3Patch.mpq and the default map')
+    p.add_argument('--redist',required=True,type=real_path,help='explicit vc_redist.x86.exe file, mounted read-only')
     p.add_argument('--online',action='store_true');p.add_argument('--profile',type=Path);p.add_argument('--crash-star',action='store_true');p.add_argument('--cohort-offline',action='store_true')
     p.add_argument('--exercise-rehost',action='store_true',help='explicit online synthetic W3GS solo-AI/rehost regression')
     p.add_argument('--map',type=Path,help='explicit map file; non-manual preset filename must match')
@@ -129,16 +132,16 @@ def main(argv=None):
     worker={k:cfg['iccup'][k] for k in ('vendor','profile','redist','game_metadata','prefix','session','manifest','quit_helper','relay_port')}
     worker.update(version=1,status='/data/state/star-status.json',startup_timeout=180,generation=1)
     write('config/star-worker.json',json.dumps(worker))
-    game=ROOT/'Warcraft 3 Frozen Throne'
+    game=a.game_dir
     # Only regular-file metadata PEs are mounted; no original directory or engine launch.
-    for name in ('war3.exe','game.dll'):shutil.copyfile(game/name,root/'game'/name)
+    for name in ('war3.exe','game.dll'):shutil.copyfile(real_path(game/name),root/'game'/name)
     probe='production_cohort_probe.py' if a.cohort_offline else 'production_online_probe.py' if a.online else 'production_probe.py'
     shutil.copyfile(ROOT/'tests/phase3'/probe,root/'probe.py')
     suffix=re.sub('[^a-z0-9-]','',root.name.lower())[-24:]
     docker=['docker','--host','unix:///var/run/docker.sock'];name=('war3-phase3-online-' if a.online else 'war3-phase3-offline-')+suffix;network='bridge' if a.online else 'none'
     cmd=[*docker,'create','--pull=never','--name',name,'--network',network,'--read-only','--user',f'{os.geteuid()}:{os.getegid()}','--cap-drop','ALL','--security-opt','no-new-privileges:true','--memory','2g','--memory-swap','2g','--cpus','2','--pids-limit','256','--ulimit','core=0:0','--init','--stop-timeout','120','--log-opt','max-size=10m','--log-opt','max-file=3','--tmpfs','/tmp:rw,nosuid,nodev,size=256m,mode=1777','--shm-size','128m']
     mounts=[(root/name,'/data/'+name,name in ('config',)) for name in ('config','state','sqlite','logs','replays','prefix','session')]
-    mounts += [(profile or root/'profile','/vendor/profile',True),(root/'game','/vendor/game',True),(ROOT/'artifacts/phase2/star/updated-input','/vendor/star',True),(ROOT/'artifacts/phase2/star/redist/app/Launcher/vc_redist.x86.exe','/vendor/redist/vc_redist.x86.exe',True),(game/'War3Patch.mpq','/data/warcraft/War3Patch.mpq',True),(selected_map,'/data/maps/'+map_local,True),(root/'probe.py','/probe.py',True)]
+    mounts += [(profile or root/'profile','/vendor/profile',True),(root/'game','/vendor/game',True),(a.star_dir,'/vendor/star',True),(a.redist,'/vendor/redist/vc_redist.x86.exe',True),(real_path(game/'War3Patch.mpq'),'/data/warcraft/War3Patch.mpq',True),(selected_map,'/data/maps/'+map_local,True),(root/'probe.py','/probe.py',True)]
     if a.exercise_rehost:
         shutil.copyfile(ROOT/'tests/phase3/production_lifecycle.py',root/'production_lifecycle.py')
         mounts.append((root/'production_lifecycle.py','/production_lifecycle.py',True))

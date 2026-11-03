@@ -128,6 +128,169 @@ class StandaloneTests(unittest.TestCase):
             code = war3.main([action, "--instance-dir", str(self.instance), *args])
         return code, stdout.getvalue(), stderr.getvalue()
 
+    def test_explicit_preset_reconciles_legacy_edit_on_bootstrap_settings(self):
+        from contextlib import nullcontext
+        path = self.instance / "data/config/amp-settings.json"
+        settings = {**{k: v for k, v in war3.production.DEFAULTS.items() if k != "map_preset"},
+                    "map_cycle": '["manual"]', "max_concurrent_matches": 3, "map_preset": "custom"}
+        war3.production.private_json(path, settings)
+        war3.production.private_json(self.instance / war3.production.PRESETS,
+            {"version": 1, "presets": [{"id": "manual", "enabled": True},
+                {"id": "custom", "enabled": True, "map_filename": "Custom.w3x"}]})
+        spec = war3.production.deployment(self.instance)
+        (self.instance / "data/maps/Custom.w3x").write_bytes(b"synthetic map")
+        def discover(instance, document, *args, **kwargs):
+            return document, 0
+        with patch.object(war3.account, "profile_update", return_value=nullcontext()), \
+             patch.object(war3.bootstrap, "supervisor_source"), \
+             patch.object(war3.production, "preflight"), \
+             patch.object(war3.bootstrap, "validate_startup_config"), \
+             patch.object(war3.production.map_discovery, "discover", side_effect=discover):
+            war3.prepare_start(self.instance, spec)
+            self.assertEqual(war3.production.read_json(path), settings)
+            self.assertEqual(war3.production.read_json(self.instance / "data/config/supervisor.json")["gameplay"]["map_cycle"], ["manual"])
+            war3.prepare_start(self.instance, spec, map_preset="custom")
+            saved = war3.production.read_json(path)
+            self.assertNotIn("map_preset", saved)
+            self.assertEqual(saved["map_cycle"], ["custom"])
+            self.assertEqual(saved["max_concurrent_matches"], 3)
+            self.assertEqual(war3.production.read_json(self.instance / "data/config/supervisor.json")["gameplay"]["map_cycle"], ["custom"])
+            war3.prepare_start(self.instance, spec)
+
+    def test_explicit_selection_rejects_multi_and_rolls_back_invalid_or_failed_start(self):
+        from contextlib import nullcontext
+        path = self.instance / "data/config/amp-settings.json"
+        spec = war3.production.deployment(self.instance)
+        base = {**{k: v for k, v in war3.production.DEFAULTS.items() if k != "map_preset"},
+                "map_cycle": '["manual"]', "max_concurrent_matches": 3}
+        config = self.instance / "data/config/supervisor.json"
+        with patch.object(war3.account, "profile_update", return_value=nullcontext()), \
+             patch.object(war3.bootstrap, "supervisor_source"), \
+             patch.object(war3.production, "preflight", side_effect=ValueError("preflight failed")):
+            for change, choice in (({}, "missing"), ({}, "manual"),
+                                   ({"map_cycle": '["manual", "manual"]'}, "manual"),
+                                   ({"map_cycle": '"[\"manual\"]"'}, "manual")):
+                with self.subTest(change=change, choice=choice):
+                    war3.production.private_json(path, {**base, **change})
+                    before, config_before = path.read_bytes(), config.read_bytes()
+                    with self.assertRaises(ValueError):
+                        war3.prepare_start(self.instance, spec, map_preset=choice)
+                    self.assertEqual(path.read_bytes(), before)
+                    self.assertEqual(config.read_bytes(), config_before)
+
+    def test_multi_cycle_start_keeps_snapshot_and_checks_candidate_before_merge(self):
+        from contextlib import nullcontext
+        path = self.instance / 'data/config/amp-settings.json'
+        value = {**war3.production.DEFAULTS, 'map_cycle': ['manual', 'manual'],
+                 'max_concurrent_matches': 5}
+        war3.production.private_json(path, value)
+        spec = war3.production.deployment(self.instance)
+        events = []
+        def candidate(instance, deployment, validated):
+            events.append('candidate')
+            self.assertEqual(validated['map_cycle'], ['manual', 'manual'])
+            self.assertEqual(deployment, spec)
+            # The already validated selection, not this late edit, must be merged.
+            war3.production.private_json(path, war3.production.DEFAULTS)
+        def merge(*args, **kwargs):
+            events.append('merge')
+            return original_merge(*args, **kwargs)
+        original_merge = war3.production.merge_settings
+        with patch.object(war3.account, 'profile_update', return_value=nullcontext()), \
+             patch.object(war3.bootstrap, 'supervisor_source'), \
+             patch.object(war3.bootstrap, 'validate_startup_config'), \
+             patch.object(war3.production, 'preflight', side_effect=lambda *a: events.append('preflight')), \
+             patch.object(war3.production, 'validate_cycle_candidate', side_effect=candidate), \
+             patch.object(war3.production, 'merge_settings', side_effect=merge):
+            war3.prepare_start(self.instance, spec)
+        self.assertEqual(events, ['preflight', 'candidate', 'merge'])
+        game = war3.production.read_json(self.instance / 'data/config/supervisor.json')['gameplay']
+        self.assertEqual(game['map_cycle'], ['manual', 'manual'])
+        self.assertEqual(game['max_concurrent_matches'], 5)
+
+    def test_multi_cycle_preset_override_has_deliberate_conflict_and_preserves_files(self):
+        path = self.instance / 'data/config/amp-settings.json'
+        war3.production.private_json(path, {**war3.production.DEFAULTS,
+                                            'map_cycle': ['manual', 'manual']})
+        before = path.read_bytes()
+        with war3.selected_preset_update(self.instance, 'manual') as apply:
+            with self.assertRaises(war3.production.SettingsError) as raised:
+                apply()
+        self.assertEqual(raised.exception.args, ('MAP_CYCLE_OVERRIDE_CONFLICT',))
+        self.assertIn('omit --preset', raised.exception.public_message)
+        self.assertEqual(path.read_bytes(), before)
+        for option in ('--preset', '--map-preset'):
+            code, output, error = self.call('start', option, 'manual')
+            self.assertEqual(code, 2)
+            self.assertIn('omit --preset', output + error)
+            self.assertEqual(path.read_bytes(), before)
+            self.assertIsNone(self.docker.meta)
+
+    def test_multi_cycle_candidate_failure_prevents_merge_or_runtime_launch(self):
+        path = self.instance / 'data/config/amp-settings.json'
+        config = self.instance / 'data/config/supervisor.json'
+        war3.production.private_json(path, {**war3.production.DEFAULTS,
+                                            'map_cycle': ['manual', 'manual']})
+        before, selector = config.read_bytes(), path.read_bytes()
+        with patch.object(war3.production, 'validate_cycle_candidate',
+                          side_effect=war3.production.SettingsError('MAP_CYCLE_PREFLIGHT_FAILED')), \
+             patch.object(war3.production, 'merge_settings') as merge:
+            self.assertEqual(self.call('start')[0], 2)
+        merge.assert_not_called()
+        self.assertIsNone(self.docker.meta)
+        self.assertEqual(config.read_bytes(), before)
+        self.assertEqual(path.read_bytes(), selector)
+
+    def test_explicit_selection_rolls_back_both_files_if_final_validation_fails(self):
+        from contextlib import nullcontext
+        settings = self.instance / "data/config/amp-settings.json"
+        config = self.instance / "data/config/supervisor.json"
+        before = (settings.read_bytes(), config.read_bytes())
+        with patch.object(war3.account, "profile_update", return_value=nullcontext()), \
+             patch.object(war3.bootstrap, "supervisor_source"), \
+             patch.object(war3.production, "preflight"), \
+             patch.object(war3.bootstrap, "validate_startup_config", side_effect=ValueError("bad runtime config")):
+            with self.assertRaises(ValueError):
+                war3.prepare_start(self.instance, war3.production.deployment(self.instance), map_preset="manual")
+        self.assertEqual((settings.read_bytes(), config.read_bytes()), before)
+
+    def test_default_start_preserves_supervisor_race_without_explicit_preset(self):
+        from contextlib import nullcontext
+        config = self.instance / "data/config/supervisor.json"
+        external = {"mode": "iccup", "http": {"host": "127.0.0.1", "port": 8080}, "external": 17}
+        exchange = war3.account.exchange
+        def race(left, right):
+            if right == config:
+                war3.production.private_json(config, external)
+            return exchange(left, right)
+        with patch.object(war3.account, "profile_update", return_value=nullcontext()), \
+             patch.object(war3.bootstrap, "supervisor_source"), \
+             patch.object(war3.production, "preflight"), \
+             patch.object(war3.account, "exchange", side_effect=race):
+            with self.assertRaisesRegex(war3.production.SettingsError, "SUPERVISOR_EDIT_CONFLICT"):
+                war3.prepare_start(self.instance, war3.production.deployment(self.instance))
+        recovery = self.instance / war3.production.PRESET_RECOVERY
+        self.assertEqual(war3.production.read_json(recovery / "displaced.json"), external)
+        self.assertTrue((recovery / "attempted.json").exists())
+
+    def test_selection_transaction_preserves_concurrent_settings_edit(self):
+        path = self.instance / "data/config/amp-settings.json"
+        external = {**war3.production.DEFAULTS, "game_name": "External Edit"}
+        with self.assertRaises(war3.production.SettingsError):
+            with war3.selected_preset_update(self.instance, "manual") as apply:
+                apply()
+                war3.production.private_json(path, external)
+        self.assertEqual(war3.production.read_json(path), external)
+        recovery = self.instance / war3.production.PRESET_RECOVERY
+        self.assertTrue((recovery / "previous.json").is_file())
+        self.assertTrue((recovery / "attempted.json").is_file())
+        self.assertEqual(war3.production.read_json(recovery / "external.json"), external)
+
+    def test_start_and_restart_accept_explicit_preset(self):
+        for action in ("start", "restart"):
+            args = war3.parser().parse_args([action, "--map-preset", "custom-map"])
+            self.assertEqual(args.map_preset, "custom-map")
+
     def test_prepare_start_discovers_selects_removes_and_rediscovers_maps(self):
         instance = self.instance
         maps = instance / 'data/maps'
@@ -160,18 +323,18 @@ class StandaloneTests(unittest.TestCase):
             data['map_preset'] = chosen
             war3.production.private_json(settings_path, data)
             war3.prepare_start(instance, spec)
-            self.assertEqual(war3.production.read_json(instance / 'data/config/supervisor.json')['gameplay']['map_preset'], chosen)
+            self.assertEqual(war3.production.read_json(instance / 'data/config/supervisor.json')['gameplay']['map_cycle'], [chosen])
             map_file.unlink()
             settings_before = settings_path.read_bytes()
             with self.assertRaisesRegex(war3.production.SettingsError, 'PRESET_ACTIVE_MAP_MISSING'):
                 war3.prepare_start(instance, spec)
-            self.assertEqual([p['id'] for p in war3.production.read_json(presets)['presets']], ['manual'])
+            self.assertEqual([p['id'] for p in war3.production.read_json(presets)['presets']], ['manual', chosen])
             self.assertEqual(settings_path.read_bytes(), settings_before)
-            self.assertEqual(set(json.loads(manifest.read_text())[0]['EnumValues']), {'manual'})
+            self.assertEqual(set(json.loads(manifest.read_text())[0]['EnumValues']), {'manual', chosen})
             data['map_preset'] = 'manual'
             war3.production.private_json(settings_path, data)
             war3.prepare_start(instance, spec)
-            self.assertEqual([p['id'] for p in war3.production.read_json(presets)['presets']], ['manual'])
+            self.assertEqual([p['id'] for p in war3.production.read_json(presets)['presets']], ['manual', chosen])
             map_file.write_bytes(b'map fixture' * 10)
             war3.prepare_start(instance, spec)
             self.assertEqual(len(war3.production.read_json(presets)['presets']), 2)
@@ -192,8 +355,8 @@ class StandaloneTests(unittest.TestCase):
              patch.object(war3.bootstrap, 'supervisor_source'):
             with self.assertRaisesRegex(war3.production.SettingsError, 'PRESET_ACTIVE_MAP_MISSING'):
                 war3.prepare_start(instance, war3.production.deployment(instance))
-        self.assertEqual(war3.production.read_json(presets)['presets'], [{'id': 'manual', 'enabled': True}])
-        self.assertEqual(set(json.loads(manifest.read_text())[0]['EnumValues']), {'manual'})
+        self.assertEqual(war3.production.read_json(presets)['presets'], [{'id': 'gone', 'enabled': True, 'map_filename': 'gone.w3x'}])
+        self.assertEqual(set(json.loads(manifest.read_text())[0]['EnumValues']), {'gone'})
         self.assertEqual(settings_path.read_bytes(), before)
 
     def started(self, *args):
@@ -428,7 +591,7 @@ class StandaloneTests(unittest.TestCase):
             self.started()
         self.assertEqual(merge.call_args.kwargs["validated"]["map_preset"], "custom")
         merged = war3.production.read_json(self.instance / "data/config/supervisor.json")
-        self.assertEqual(merged["gameplay"]["map_preset"], "custom")
+        self.assertEqual(merged["gameplay"]["map_cycle"], ["custom"])
         self.assertEqual(war3.production.read_json(settings_path)["map_preset"], "manual")
 
     def test_account_delegates_only_to_interactive_helper_and_requires_stopped_state(self):

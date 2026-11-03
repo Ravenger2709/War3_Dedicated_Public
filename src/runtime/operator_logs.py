@@ -148,6 +148,28 @@ class OperatorEvents:
             if fields.get('state') in ('ERROR', 'RECONNECTING'):
                 level = 'ERROR' if fields['state'] == 'ERROR' else 'WARN'
                 message += ' ' + visible(fields.get('reason', '')).replace('_', ' ').capitalize().rstrip('.') + '.'
+        elif kind == 'cycle_monitor':
+            active, maximum = fields.get('active'), fields.get('maximum')
+            if type(active) is not int or type(maximum) is not int:
+                return None  # Missing proof stays explicit in the machine journal/status.
+            parts = []
+            if type(fields.get('lobby')) is dict:
+                title = fields.get('lobby_name') or fields['lobby'].get('preset_id', '')
+                parts.append('lobby ' + visible(title))
+            elif fields.get('lobby_availability') == 'none':
+                parts.append('no open lobby')
+            parts.append(f'active matches {active}/{maximum}')
+            if fields.get('capacity_full') is True:
+                parts.append('capacity full; waiting for a match to finish')
+            finished, errors = fields.get('finished'), fields.get('rotation_errors')
+            if type(finished) is int and finished > 0:
+                parts.append(f'retired matches {finished}')
+            if type(errors) is int and errors > 0:
+                level = 'WARN'
+                parts.append(f'rotation failures {errors}; see diagnostics')
+            message = f"Map cycle {fields['position']}/{fields['total']}: " + '; '.join(parts) + '.'
+        elif kind == 'cycle_control_blocked':
+            level, message = 'ERROR', 'Map cycle needs attention; see diagnostics.'
         elif kind in ('lobby_opened', 'lobby_rehosted'):
             component = 'native'
             message = ('Lobby opened: ' if kind == 'lobby_opened' else 'Lobby rehosted: ') + visible(fields['name'])

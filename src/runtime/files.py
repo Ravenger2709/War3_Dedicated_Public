@@ -24,15 +24,18 @@ def private_directory(path):
 
 def private_bytes(path,limit=65536):
     path=no_symlinks(path)
-    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
-    try:
-        info=os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or stat.S_IMODE(info.st_mode)!=0o600 or info.st_nlink!=1 or info.st_size>limit:
-            raise ValueError('RUNTIME_METADATA_REJECTED')
-        data=os.read(fd,limit+1)
-        if len(data)!=info.st_size:raise ValueError('RUNTIME_METADATA_CHANGED')
-        return data
-    finally:os.close(fd)
+    for attempt in range(3):
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
+        try:
+            info=os.fstat(fd)
+            # Atomic replacement can unlink the opened inode before fstat.
+            if info.st_nlink==0 and attempt<2:continue
+            if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or stat.S_IMODE(info.st_mode)!=0o600 or info.st_nlink!=1 or info.st_size>limit:
+                raise ValueError('RUNTIME_METADATA_REJECTED')
+            data=os.read(fd,limit+1)
+            if len(data)!=info.st_size:raise ValueError('RUNTIME_METADATA_CHANGED')
+            return data
+        finally:os.close(fd)
 
 
 def private_json(path,limit=65536):

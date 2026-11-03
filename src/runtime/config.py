@@ -6,12 +6,12 @@ from pathlib import Path
 
 ADAPTER='original-star-v1'
 GAMEPLAY_DEFAULTS={
-    'map_preset':'manual',
+    'map_preset':'manual','map_cycle':['manual'],'max_concurrent_matches':3,
     'host_name':'War3HostBot','game_name':'War3 Dedicated','game_port':6113,
     'max_players':12,'autostart_enabled':True,'autostart_players':10,'countdown_seconds':5,
     'vote_enabled':True,'vote_required_percent':60,'vote_min_players':2,
     'vote_timeout':60,'vote_cooldown':30,'lobby_refresh_enabled':True,
-    'lobby_refresh_interval':10,'lobby_refresh_mode':'slot_toggle',
+    'lobby_refresh_interval':10,'lobby_refresh_mode':'slot_toggle','lobby_message_interval':20,
     'autohost_enabled':True,'reconnect_enabled':True,
 }
 ICCUP_DEFAULTS={
@@ -39,12 +39,19 @@ def positive(value,lo,hi):
 def gameplay_config(raw):
     if not isinstance(raw,dict) or set(raw)-set(GAMEPLAY_DEFAULTS):raise ValueError('GAMEPLAY_SETTINGS_REJECTED')
     cfg={**GAMEPLAY_DEFAULTS,**raw}
+    cycle=raw['map_cycle'] if 'map_cycle' in raw else [raw.get('map_preset','manual')]
+    if (type(cycle) is not list or not 1<=len(cycle)<=32 or
+        any(type(x) is not str or re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,31}',x) is None for x in cycle)):
+        raise ValueError('MAP_CYCLE_REJECTED')
+    cfg['map_cycle']=list(cycle)
+    cfg['map_preset']=cycle[0]
+    if not bounded_int(cfg['max_concurrent_matches'],1,5):raise ValueError('MAP_CYCLE_MATCH_LIMIT_REJECTED')
     if not isinstance(cfg['map_preset'],str) or re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,31}',cfg['map_preset']) is None:raise ValueError('GAMEPLAY_PRESET_REJECTED')
     for k in ('host_name','game_name'):
         value=cfg[k]
         if not isinstance(value,str) or not 1<=len(value.encode())<=24 or any(ord(c)<32 or c in '=[]' for c in value):raise ValueError('GAMEPLAY_NAME_REJECTED')
     if cfg['game_port']!=6113 or type(cfg['game_port']) is not int:raise ValueError('GAME_PORT_MUST_BE_6113')
-    for key,lo,hi in (('max_players',2,12),('autostart_players',2,12),('countdown_seconds',0,60),('vote_required_percent',1,100),('vote_min_players',2,12),('vote_timeout',5,600),('vote_cooldown',0,600),('lobby_refresh_interval',10,3600)):
+    for key,lo,hi in (('max_players',2,12),('autostart_players',2,12),('countdown_seconds',0,60),('vote_required_percent',1,100),('vote_min_players',2,12),('vote_timeout',5,600),('vote_cooldown',0,600),('lobby_refresh_interval',10,3600),('lobby_message_interval',10,3600)):
         if not bounded_int(cfg[key],lo,hi):raise ValueError('GAMEPLAY_NUMBER_REJECTED')
     for key in ('autostart_enabled','vote_enabled','lobby_refresh_enabled','autohost_enabled','reconnect_enabled'):
         if type(cfg[key]) is not bool:raise ValueError('GAMEPLAY_BOOLEAN_REJECTED')

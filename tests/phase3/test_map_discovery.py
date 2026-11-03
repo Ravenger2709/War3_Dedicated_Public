@@ -284,7 +284,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(map_discovery.discover(self.root, doc, SPEC, [], {}, OWNER, changing), (doc, 1))
         self.map.unlink()
         self.assertEqual(map_discovery.discover(self.root, doc, SPEC, [], {}, OWNER, changing),
-                         ({'version': 1, 'presets': [{'id': 'manual', 'enabled': True}]}, 0))
+                         (doc, 0))
 
     def test_missing_aliases_removed_manual_and_capabilities_preserved_case_conservative(self):
         entries = [{'id': 'manual', 'enabled': True},
@@ -295,7 +295,7 @@ class DiscoveryTests(unittest.TestCase):
         doc = {'version': 1, 'presets': entries, 'capabilities': [{'id': 'untouched', 'map_sha256': 'f' * 64,
                  'script_sha256': 'a' * 64, 'features': ['ai_start']}]}
         result, _ = map_discovery.discover(self.root, doc, SPEC, [], {}, OWNER, self.analyze)
-        self.assertEqual(result['presets'], entries[:3])
+        self.assertEqual(result['presets'], entries)
         self.assertEqual(result['capabilities'], doc['capabilities'])
 
     def test_directory_io_error_or_replacement_never_commits_deletions(self):
@@ -353,14 +353,14 @@ class DiscoveryTests(unittest.TestCase):
             settings_before = settings_path.read_bytes()
             with self.assertRaisesRegex(production.SettingsError, 'PRESET_ACTIVE_MAP_MISSING'):
                 production.main(['run', '--instance-dir', str(self.root)])
-            self.assertEqual([p['id'] for p in production.read_json(path)['presets']], ['manual'])
+            self.assertEqual([p['id'] for p in production.read_json(path)['presets']], ['manual', chosen])
             self.assertEqual(settings_path.read_bytes(), settings_before)
             options = json.loads(manifest.read_text())[0]['EnumValues']
-            self.assertEqual(set(options), {'manual'})
+            self.assertEqual(set(options), {'manual', chosen})
             settings['map_preset'] = 'manual'
             production.private_json(settings_path, settings)
             run()
-            self.assertEqual([p['id'] for p in production.read_json(path)['presets']], ['manual'])
+            self.assertEqual([p['id'] for p in production.read_json(path)['presets']], ['manual', chosen])
             self.map.write_bytes(b'map data' * 10)
             run()
             self.assertEqual(len(production.read_json(path)['presets']), 2)
@@ -382,8 +382,8 @@ class DiscoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(production.SettingsError, 'PRESET_ACTIVE_MAP_MISSING'):
                 production.main(['run', '--instance-dir', str(self.root)])
         execute.assert_not_called()
-        self.assertEqual(production.read_json(path)['presets'], [{'id': 'manual', 'enabled': True}])
-        self.assertEqual(set(json.loads(manifest.read_text())[0]['EnumValues']), {'manual'})
+        self.assertEqual(production.read_json(path)['presets'], [{'id': 'gone', 'enabled': True, 'map_filename': 'gone.w3x'}])
+        self.assertEqual(set(json.loads(manifest.read_text())[0]['EnumValues']), {'gone'})
         self.assertEqual(settings.read_bytes(), before)
 
     def test_manifest_external_edit_during_rollback_is_preserved(self):
@@ -503,62 +503,28 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), original)
         self.assertEqual(production.read_json(settings_path)['map_preset'], 'gone')
 
-    def test_selected_deletion_retains_inode_for_late_file_manager_writer(self):
+    def test_missing_selection_preserves_original_preset_inode(self):
         self.map.unlink()
         path = self.root / production.PRESETS
-        settings_path = self.root / 'data/config/amp-settings.json'
-        doc = {'version': 1, 'presets': [{'id': 'manual', 'enabled': True},
-                                         {'id': 'gone', 'enabled': True, 'map_filename': 'gone.w3x'}]}
+        doc = {'version': 1, 'presets': [{'id': 'gone', 'enabled': True, 'map_filename': 'gone.w3x'}]}
         production.private_json(path, doc)
-        production.private_json(settings_path, {**production.DEFAULTS, 'map_preset': 'gone'})
-        original_settings = settings_path.read_bytes()
-        with path.open('r+b') as writer:
-            with production.preset_update(self.root, SPEC) as check:
-                self.assertTrue(check.selected_removed)
-            writer.seek(0)
-            writer.truncate()
-            writer.write(b'{"late_file_manager_edit": true}')
-            writer.flush()
-        self.assertEqual([p['id'] for p in production.read_json(path)['presets']], ['manual'])
-        self.assertEqual(settings_path.read_bytes(), original_settings)
-        retained = list((self.root / 'control/preset-deletion-history').glob('*/displaced.json'))
-        self.assertEqual(len(retained), 1)
-        self.assertEqual(retained[0].read_bytes(), b'{"late_file_manager_edit": true}')
+        production.private_json(self.root / 'data/config/amp-settings.json', {**production.DEFAULTS, 'map_preset': 'gone'})
+        original = path.stat().st_ino
+        with production.preset_update(self.root, SPEC) as check:
+            self.assertTrue(check.selected_removed)
+        self.assertEqual(path.stat().st_ino, original)
+        self.assertEqual(production.read_json(path), doc)
 
-    @unittest.skipUnless(hasattr(os, 'fork'), 'POSIX crash simulation required')
-    def test_crash_during_preset_exchange_retains_original_and_blocks_next_run(self):
+    def test_missing_map_does_not_exchange_preset_file(self):
         self.map.unlink()
         path = self.root / production.PRESETS
         doc = {'version': 1, 'presets': [{'id': 'manual', 'enabled': True},
                                          {'id': 'gone', 'enabled': True, 'map_filename': 'gone.w3x'}]}
         production.private_json(path, doc)
-        original = path.read_bytes()
-        writer = path.open('r+b')
-        self.addCleanup(writer.close)
-        pid = os.fork()
-        if pid == 0:
-            original_exchange = production.account.exchange
-            def kill_after_exchange(a, b):
-                original_exchange(a, b)
-                os._exit(77)
-            production.account.exchange = kill_after_exchange
+        with patch.object(production.account, 'exchange', side_effect=AssertionError('unexpected exchange')):
             with production.preset_update(self.root, SPEC):
                 pass
-            os._exit(1)
-        _, status = os.waitpid(pid, 0)
-        self.assertEqual(os.waitstatus_to_exitcode(status), 77)
-        self.assertEqual([p['id'] for p in production.read_json(path)['presets']], ['manual'])
-        retained = list((self.root / 'control').glob('war3-preset-*/displaced.json'))
-        self.assertEqual(len(retained), 1)
-        self.assertEqual(retained[0].read_bytes(), original)
-        writer.seek(0)
-        writer.truncate()
-        writer.write(b'{"late_edit_after_crash": true}')
-        writer.flush()
-        self.assertEqual(retained[0].read_bytes(), b'{"late_edit_after_crash": true}')
-        with self.assertRaisesRegex(production.SettingsError, 'PRESET_EXTERNAL_CONFLICT'):
-            with production.preset_update(self.root, SPEC):
-                pass
+        self.assertEqual(production.read_json(path), doc)
 
     def test_bootstrap_selected_map_is_not_generated_as_a_new_preset(self):
         (self.root / 'data/maps/selected.w3x').write_bytes(b'other map' * 10)

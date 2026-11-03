@@ -1,6 +1,7 @@
 """Bounded, read-only StormLib extraction. No engine, JASS VM or map execution."""
 import base64
 import ctypes as C
+import fcntl
 import json
 import os
 import resource
@@ -85,21 +86,52 @@ def _extract(path, library):
     return out
 
 
+def _decode_result(result):
+    if result.returncode or len(result.stdout) > 20 * 1024 * 1024:
+        raise ValueError('MAP_EXTRACTION_REJECTED')
+    obj = json.loads(result.stdout)
+    if not isinstance(obj, dict) or set(obj) - set(MEMBERS):
+        raise ValueError('MAP_EXTRACTION_REJECTED')
+    out = {k: base64.b64decode(v, validate=True) for k, v in obj.items()}
+    if any(not 0 < len(v) <= MEMBERS[k] for k, v in out.items()):
+        raise ValueError('MAP_EXTRACTION_REJECTED')
+    return out
+
+
 def extract_map(path, library=LIBRARY):
     """Isolate native parser crashes/allocations; only fixed members leave child."""
     path = checked_map(path)
     try:
         result = subprocess.run([sys.executable, '-m', 'src.runtime.mpq', str(path), str(library)],
                                 capture_output=True, timeout=10, check=False)
-        if result.returncode or len(result.stdout) > 20 * 1024 * 1024:
-            raise ValueError('MAP_EXTRACTION_REJECTED')
-        obj = json.loads(result.stdout)
-        if not isinstance(obj, dict) or set(obj) - set(MEMBERS):
-            raise ValueError('MAP_EXTRACTION_REJECTED')
-        out = {k: base64.b64decode(v, validate=True) for k, v in obj.items()}
-        if any(not 0 < len(v) <= MEMBERS[k] for k, v in out.items()):
-            raise ValueError('MAP_EXTRACTION_REJECTED')
-        return out
+        return _decode_result(result)
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        raise ValueError('MAP_EXTRACTION_REJECTED') from None
+
+
+def _check_sealed_fd(fd):
+    """Reject mutable, non-regular, unbounded and standard-stream FDs."""
+    if type(fd) is not int or fd < 3:
+        raise ValueError('MAP_SEALED_FD_REJECTED')
+    info = os.fstat(fd)
+    required = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
+    if (not stat.S_ISREG(info.st_mode) or not 32 <= info.st_size <= MAX_MAP_BYTES or
+            fcntl.fcntl(fd, fcntl.F_GET_SEALS) & required != required):
+        raise ValueError('MAP_SEALED_FD_REJECTED')
+    return info
+
+
+def extract_sealed_map(fd, library=LIBRARY):
+    """Extract from the sealed inode in a bounded subprocess, never a source path."""
+    try:
+        before = _check_sealed_fd(fd)
+        result = subprocess.run([sys.executable, '-m', 'src.runtime.mpq', '--sealed-fd',
+                                 str(fd), str(library)], pass_fds=(fd,),
+                                capture_output=True, timeout=10, check=False)
+        after = _check_sealed_fd(fd)
+        if (before.st_dev, before.st_ino, before.st_size) != (after.st_dev, after.st_ino, after.st_size):
+            raise ValueError('MAP_SEALED_FD_REJECTED')
+        return _decode_result(result)
     except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
         raise ValueError('MAP_EXTRACTION_REJECTED') from None
 
@@ -111,7 +143,12 @@ if __name__ == '__main__':
         resource.setrlimit(resource.RLIMIT_AS, (256 * 1024 * 1024,) * 2)
         resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
         resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
-        data = _extract(checked_map(sys.argv[1]), sys.argv[2])
+        if len(sys.argv) == 4 and sys.argv[1] == '--sealed-fd':
+            sealed_fd = int(sys.argv[2])
+            _check_sealed_fd(sealed_fd)
+            data = _extract('/proc/self/fd/' + str(sealed_fd), sys.argv[3])
+        else:
+            data = _extract(checked_map(sys.argv[1]), sys.argv[2])
         print(json.dumps({k: base64.b64encode(v).decode('ascii') for k, v in data.items()}))
     except Exception:
         sys.exit(1)

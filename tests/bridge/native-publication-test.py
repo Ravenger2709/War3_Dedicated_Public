@@ -76,7 +76,14 @@ def wait(predicate, timeout=6):
 
 
 def intent(path):
-    raw = path.read_bytes()
+    for attempt in range(3):
+        with path.open('rb') as source:
+            info = os.fstat(source.fileno())
+            if info.st_nlink == 0 and attempt < 2:
+                continue
+            assert stat.S_IMODE(info.st_mode) == 0o600 and info.st_uid == os.geteuid() and info.st_nlink == 1, (info.st_mode, info.st_uid, info.st_nlink)
+            raw = source.read()
+            break
     assert len(raw) <= 4096
     obj = json.loads(raw)
     assert set(obj) == KEYS
@@ -90,8 +97,6 @@ def intent(path):
     packet = bytes.fromhex(obj['packet_hex'])
     assert packet[0] == 255 and struct.unpack_from('<H', packet, 2)[0] == len(packet)
     assert packet[1] == (0x1c if obj['operation'] == 'publish' else 0x02)
-    info = path.stat()
-    assert stat.S_IMODE(info.st_mode) == 0o600 and info.st_uid == os.geteuid() and info.st_nlink == 1
     return obj
 
 
@@ -356,9 +361,13 @@ class PublicationTests(unittest.TestCase):
         old = child.root / 'old-ipc'
         child.ipc.rename(old)
         child.ipc.mkdir(mode=0o700)
-        self.assertEqual(other.proc.wait(timeout=5), 0)
+        wait(lambda:any('write failed' in line for line in other.lines), timeout=8)
+        self.assertIsNone(other.proc.poll())
         self.assertFalse(child.path.exists())
-        self.assertTrue(any('write failed' in line for line in other.lines))
+        other.command('remove')
+        child.ipc.rmdir();old.rename(child.ipc)
+        wait(lambda:any('external publication recovered' in line for line in other.lines), timeout=8)
+        self.assertEqual(intent(child.path)['operation'], 'unpublish')
 
     def test_target_substitution_fails_closed(self):
         child = self.native().start()
@@ -367,10 +376,15 @@ class PublicationTests(unittest.TestCase):
         outside.write_bytes(b'unchanged')
         child.path.unlink()
         child.path.symlink_to(outside)
-        self.assertEqual(child.proc.wait(timeout=5), 0)
+        wait(lambda:any('write failed' in line for line in child.lines), timeout=8)
+        self.assertIsNone(child.proc.poll())
         self.assertTrue(child.path.is_symlink())
         self.assertEqual(outside.read_bytes(), b'unchanged')
-        self.assertTrue(any('write failed' in line for line in child.lines))
+        child.command('remove')
+        child.path.unlink()
+        wait(lambda:any('external publication recovered' in line for line in child.lines), timeout=8)
+        self.assertEqual(child.snapshot()['operation'], 'unpublish')
+        self.assertEqual(outside.read_bytes(), b'unchanged')
 
     def test_external_join_counter_lan_key_and_no_identity_promotion(self):
         udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

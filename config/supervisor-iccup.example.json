@@ -44,6 +44,7 @@
     "vote_cooldown": 30,
     "lobby_refresh_enabled": true,
     "lobby_refresh_interval": 10,
+    "lobby_message_interval": 20,
     "lobby_refresh_mode": "slot_toggle",
     "autohost_enabled": true,
     "reconnect_enabled": true

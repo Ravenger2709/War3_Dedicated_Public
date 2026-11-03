@@ -234,6 +234,24 @@ class ContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 production.settings({**production.DEFAULTS, key: "synthetic"})
 
+    def test_cycle_migration_validation_and_textarea_normalization(self):
+        legacy = {**production.DEFAULTS, "map_preset": "old-map"}
+        normalized = production.settings(legacy)
+        self.assertEqual(normalized["map_cycle"], ["old-map"])
+        self.assertEqual(normalized["max_concurrent_matches"], 3)
+        for value in ('["manual", "other", "manual"]', ["manual", "other", "manual"]):
+            result = production.settings({**legacy, "map_preset": "manual", "map_cycle": value,
+                                          "max_concurrent_matches": "5"})
+            self.assertEqual(result["map_cycle"], ["manual", "other", "manual"])
+            self.assertEqual(production.settings(result), result)
+        for cycle in (None, '', '"[\"manual\"]"', '[]', '[null]', '["../x"]', ['x'] * 33):
+            with self.subTest(cycle=cycle), self.assertRaises(ValueError):
+                production.settings({**legacy, "map_cycle": cycle})
+        for limit in (0, 6, True, 2.5, "-1"):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                production.settings({**legacy, "max_concurrent_matches": limit})
+        self.assertEqual(production.settings({**legacy, "map_cycle": '["manual"]'})["map_cycle"], ["manual"])
+
     def test_internal_autostart_backcompat_and_disabled_thresholds(self):
         old = {k: v for k, v in production.DEFAULTS.items() if k not in {"autostart_enabled", "map_preset"}}
         self.assertTrue(production.settings(old)["autostart_enabled"])
@@ -666,7 +684,7 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual(self.events, ["stopped", "generate", "stopped", "full-preflight", "exec"])
         config = production.read_json(self.root / "data/config/supervisor.json")
         self.assertEqual(config["gameplay"]["host_name"], "War3HostBot")
-        self.assertEqual(config["gameplay"]["map_preset"], "manual")
+        self.assertEqual(config["gameplay"]["map_cycle"], ["manual"])
         self.assertNotIn("username", config["gameplay"])
 
     def test_run_rejects_missing_manual_disabled_or_unknown_selection_before_merge_or_spawn(self):
@@ -716,8 +734,100 @@ class TransactionTests(unittest.TestCase):
                 patch.object(production.os, "execvpe") as execute:
             self.assertIsNone(production.main(["run", "--instance-dir", str(self.root)]))
         execute.assert_called_once()
-        self.assertEqual(production.read_json(self.root / "data/config/supervisor.json")["gameplay"]["map_preset"], "custom")
+        self.assertEqual(production.read_json(self.root / "data/config/supervisor.json")["gameplay"]["map_cycle"], ["custom"])
         self.assertEqual(production.read_json(self.root / "data/config/amp-settings.json")["map_preset"], "manual")
+
+    def test_cycle_rejection_rolls_back_profile_and_never_changes_runtime_config(self):
+        config_path = self.root / "data/config/supervisor.json"
+        before = config_path.read_bytes()
+        for cycle in ('[]', '["manual", "unknown"]', '["unknown"]'):
+            with self.subTest(cycle=cycle):
+                production.private_json(self.root / "data/config/amp-settings.json",
+                    {**{k: v for k, v in production.DEFAULTS.items() if k != "map_preset"},
+                     "map_cycle": cycle, "max_concurrent_matches": 3})
+                with patch.object(production, "preflight"), patch.object(production.os, "execvpe") as execute:
+                    self.assertEqual(production.cli(["run", "--instance-dir", str(self.root)]), 2)
+                    execute.assert_not_called()
+                self.assertEqual(config_path.read_bytes(), before)
+                self.unchanged()
+
+    def test_multi_cycle_candidate_failure_rolls_back_profile_before_merge_or_exec(self):
+        config = self.root / 'data/config/supervisor.json'
+        before = config.read_bytes()
+        production.private_json(self.root / 'data/config/amp-settings.json',
+                                {**production.DEFAULTS, 'map_cycle': ['manual', 'manual']})
+        with patch.object(production, 'preflight'), \
+             patch.object(production, 'validate_cycle_candidate',
+                          side_effect=production.SettingsError('MAP_CYCLE_PREFLIGHT_FAILED')) as candidate, \
+             patch.object(production, 'merge_settings') as merge, \
+             patch.object(production.os, 'execvpe') as execute, redirect_stdout(io.StringIO()):
+            self.assertEqual(production.cli(['run', '--instance-dir', str(self.root)]), 2)
+        self.assertEqual(candidate.call_args.args[2]['map_cycle'], ['manual', 'manual'])
+        merge.assert_not_called()
+        execute.assert_not_called()
+        self.assertEqual(config.read_bytes(), before)
+        self.unchanged()
+
+    def test_supervisor_external_save_at_exchange_is_retained_and_start_aborts(self):
+        path = self.root / "data/config/supervisor.json"
+        original = path.read_bytes()
+        external = {"mode": "iccup", "http": {"host": "127.0.0.1", "port": 8080},
+                    "external": {"generation": 42}}
+        exchange = account.exchange
+        def race(left, right):
+            if right == path:
+                production.private_json(path, external)
+            return exchange(left, right)
+        with patch.object(production, "preflight"), patch.object(account, "exchange", side_effect=race), \
+             patch.object(production.os, "execvpe") as execute, redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(production.cli(["run", "--instance-dir", str(self.root)]), 2)
+        execute.assert_not_called()
+        self.assertIn("Supervisor config changed", output.getvalue())
+        recovery = self.root / production.PRESET_RECOVERY
+        self.assertEqual((recovery / "previous.json").read_bytes(), original)
+        self.assertEqual(production.read_json(recovery / "displaced.json"), external)
+        self.assertTrue((recovery / "attempted.json").exists())
+        self.unchanged()
+
+    def test_supervisor_retains_inode_for_late_file_manager_writer(self):
+        path = self.root / "data/config/supervisor.json"
+        writer = os.open(path, os.O_WRONLY | os.O_APPEND)
+        try:
+            with patch.object(production, "preflight"), patch.object(production.os, "execvpe"):
+                production.main(["run", "--instance-dir", str(self.root)])
+            os.write(writer, b"\n ")
+            os.fsync(writer)
+            with self.assertRaisesRegex(production.SettingsError, "PRESET_HISTORY_CONFLICT"):
+                production.check_retained_history(self.root)
+            retained = list((self.root / "control/preset-metadata-history").glob("*/displaced.json"))
+            self.assertEqual(len(retained), 1)
+            self.assertEqual(retained[0].stat().st_ino, os.fstat(writer).st_ino)
+            self.assertTrue(retained[0].read_bytes().endswith(b"\n "))
+        finally:
+            os.close(writer)
+
+    def test_legacy_cycle_pre_migration_is_idempotent_and_refuses_ambiguous_values(self):
+        path = self.root / "data/config/amp-settings.json"
+        legacy = {**production.DEFAULTS, "map_preset": "custom", "game_name": "Keep Me"}
+        production.private_json(path, legacy)
+        production.private_json(self.root / production.PRESETS, {"version": 1, "presets": [
+            {"id": "custom", "enabled": True, "map_filename": "custom.w3x"}]})
+        with patch.object(production, "image_preflight") as image_check, \
+                patch.object(production, "stopped") as stopped:
+            self.assertTrue(production.migrate_cycle_stopped(self.root, self.spec))
+        image_check.assert_called_once_with(self.root, self.spec)
+        stopped.assert_called_once_with(self.spec)
+        saved = production.read_json(path)
+        self.assertEqual(saved, {**{k: v for k, v in legacy.items() if k != "map_preset"}, "map_cycle": ["custom"], "max_concurrent_matches": 3})
+        before = path.read_bytes()
+        self.assertFalse(production.migrate_cycle_settings(self.root))
+        self.assertEqual(path.read_bytes(), before)
+        ambiguous = {**legacy, "map_cycle": '["manual"]'}
+        production.private_json(path, ambiguous)
+        before = path.read_bytes()
+        with self.assertRaisesRegex(production.SettingsError, "MAP_CYCLE_MIGRATION_AMBIGUOUS"):
+            production.migrate_cycle_settings(self.root)
+        self.assertEqual(path.read_bytes(), before)
 
     def test_main_merge_failure_rolls_profile_back_and_never_starts_runtime(self):
         production.private_json(self.root / "data/config/amp-settings.json", {**production.DEFAULTS, "password": "synthetic"})
@@ -770,7 +880,13 @@ class PresetEditorTests(unittest.TestCase):
         production.private_json(self.root / production.PRESETS, self.manual)
         production.initialize_preset_editor(self.root)
         self.manifest = self.root.parent / "configmanifest.json"
-        self.manifest.write_bytes((ROOT / "amp/war3-productionconfig.json").read_bytes())
+        # Exercise compatibility with manifests from existing installations.
+        fields = json.loads((ROOT / "amp/war3-productionconfig.json").read_bytes())
+        cycle = next(f for f in fields if f["ParamFieldName"] == "map_cycle")
+        cycle.update({"FieldName": "map_preset", "ParamFieldName": "map_preset",
+                      "InputType": "enum", "EnumValues": {"manual": "Manual"}, "DefaultValue": "manual"})
+        self.initial_manifest = fields
+        production.private_json(self.manifest, fields)
         self.manifest.chmod(0o600)
 
     def edit(self, value):
@@ -784,6 +900,21 @@ class PresetEditorTests(unittest.TestCase):
     def external(self):
         return {"version": 1, "presets": [*self.manual["presets"],
             {"id": "file-manager-new", "enabled": True, "map_filename": "Other.w3x"}]}
+
+    def test_cycle_manifest_is_preserved_and_invalid_cycle_rolls_back_preset_apply(self):
+        self.manifest.write_bytes((ROOT / "amp/war3-productionconfig.json").read_bytes())
+        self.manifest.chmod(0o600)
+        manifest_before = self.manifest.read_bytes()
+        original = (self.root / production.PRESETS).read_bytes()
+        self.edit(self.desired)
+        production.private_json(self.root / "data/config/amp-settings.json",
+            {**{k: v for k, v in production.DEFAULTS.items() if k != "map_preset"},
+             "map_cycle": '["missing"]', "max_concurrent_matches": 3})
+        with self.assertRaises(production.SettingsError):
+            with production.preset_update(self.root) as check, production.preset_manifest_update(self.root, check):
+                production.validate_preset_selection(self.root)
+        self.assertEqual((self.root / production.PRESETS).read_bytes(), original)
+        self.assertEqual(self.manifest.read_bytes(), manifest_before)
 
     def test_applied_file_formats_short_settings_compactly(self):
         document = {"version": 1, "presets": [{"id": "example", "enabled": True,
@@ -980,7 +1111,7 @@ class PresetEditorTests(unittest.TestCase):
         selected = next(f for f in fields if f["ParamFieldName"] == "map_preset")
         self.assertEqual(set(selected["EnumValues"]), {"manual", "synthetic-map"})
         self.assertEqual(selected["EnumValues"]["synthetic-map"], 'Synthetic "Map" (synthetic-map)')
-        original = json.loads((ROOT / "amp/war3-productionconfig.json").read_bytes())
+        original = self.initial_manifest
         self.assertEqual([f for f in fields if f["ParamFieldName"] != "map_preset"],
                          [f for f in original if f["ParamFieldName"] != "map_preset"])
         for name in (production.PRESET_EDITOR, production.PRESET_BASELINE):

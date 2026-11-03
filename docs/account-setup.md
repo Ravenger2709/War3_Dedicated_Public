@@ -176,11 +176,11 @@ of private staging files before a retry.
   The map/runtime change must add `map_preset` to `GAMEPLAY_DEFAULTS` and validate
   selections before this combined feature is deployed. The baseline runtime at
   `475c675` does not yet accept that new gameplay key.
-- UI coverage checks 14 exposed gameplay fields, with 18 internal default settings, and
+- UI coverage checks 14 exposed gameplay fields, with 19 internal default settings, and
   separately checks the two account fields and one preset editor field.
-- Application settings use `Category=War3_Dedicated:sports_esports`. The five sections
+- Application settings use `Category=War3_Dedicated:sports_esports`. The six sections
   are `Account:account_circle:10`, `Map presets:map:20`, `Lobby:groups:30`,
-  `Voting:how_to_vote:40`, and `Refresh:refresh:50`; the category suffix selects
+  `Lobby / Messages:chat:35`, `Voting:how_to_vote:40`, and `Refresh:refresh:50`; the category suffix selects
   the icon while the visible sidebar name remains `War3_Dedicated`.
 - `game_name` is labelled **Manual lobby name**. Manual lobby/player/start/vote
   fields explain that a selected preset can override them; host display name
@@ -205,6 +205,14 @@ of private staging files before a retry.
   and a 3600-second maximum. It applies to every preset through the global
   gameplay fallback; presets gain no refresh-specific schema. Matching helper,
   runtime and native validation/defaults must be integrated together.
+- **Lobby / Messages → Lobby message interval (seconds)** sets the shared cadence
+  for periodic auto-start and `!vote` lobby reminders. The global integer setting
+  `lobby_message_interval` defaults to 20 seconds and accepts 10–3600 seconds,
+  applying to every preset on the next AMP Start/Restart. Existing
+  `data/config/amp-settings.json` files missing the key receive the default during
+  validation without rewriting that file. The gameplay merge always forwards the
+  global value. Runtime maps it to `bot_lobby_message_interval` outside the
+  per-preset preload manifest; preset definitions gain no interval fields.
 
 The AMP JSON AutoMap and private AppSettings behavior follow the
 [official Generic module documentation](https://github.com/CubeCoders/AMP/wiki/Configuring-the-%27Generic%27-AMP-module).

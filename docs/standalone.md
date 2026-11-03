@@ -141,7 +141,8 @@ do not publish them or commit the private application directory.
 
 Stop first. Edit `~/.war3-dedicated/instance/data/config/amp-settings.json` with a normal
 text editor; the historical filename does not require AMP. It contains the
-display name, manual gameplay defaults and `map_preset` selection. Setup selects
+display name, manual gameplay defaults and `map_cycle` selection. Legacy
+`map_preset` is normalized to a one-item cycle when no cycle is present. Setup selects
 `selected-map`, or `footman-ultimate-ai` for the exact curated map. The selected
 preset supplies its title, capacity and start/vote settings. Native validation
 remains authoritative. If you later add a `manual` selection, it must be an
@@ -153,14 +154,34 @@ different selection midway through startup.
 For later map/gameplay changes, edit
 `~/.war3-dedicated/instance/data/config/presets.json`, put each additional licensed map
 under `data/maps/`. On `start` or `restart`, the same discovery as AMP adds a
-basic preset for each new supported map and removes entries whose map files are
+basic preset for each new supported map and preserves entries whose map files are
 absent, after checking a stable maps directory. The built-in `manual` entry and
 AI records are retained. If the selected preset's map is missing, start stops
-with an error after removing that preset; the selection file remains unchanged.
-Select an available preset, then start again. Select the desired ID through
-`map_preset` in the settings JSON. Preserve private ownership and permissions.
-When no preset would remain, discovery creates an enabled `manual` entry but
-does not select it automatically. Every preset replacement, including additions,
+with an error; the preset and selection remain unchanged.
+Select available presets, then start again. Set `map_cycle` to an ordered JSON
+array such as `["selected-map", "other-map", "selected-map"]` and set
+`max_concurrent_matches` to 1–5 (default 3). The cycle contains 1–32 enabled
+existing IDs; duplicates intentionally repeat a map. Preserve private ownership
+and permissions. An explicit cycle takes priority over any retained legacy key.
+
+With a matching cycle-aware accepted image, startup validates every multi-cycle
+entry through that image's full-cycle validator before merging settings or
+launching the runtime. This offline Python container mounts only config/maps
+read-only, has no network or profile access, and uses bounded resources. Missing
+maps, invalid capacities, missing AI approvals or an older image without the
+validator block the whole cycle. Single-entry startup retains its existing image
+validation. The ordinary-config/catalog runtime integration is a separate
+dependency; source-only tests in the existing `war3-dedicated:v0.4.1` image do
+not validate a new release runtime or establish gameplay/iCCup GREEN.
+
+`start --preset ID` and `restart --preset ID` deliberately select a single
+preset only when the existing cycle has one entry. If it has multiple entries,
+the CLI reports a conflict and preserves the selection; edit `map_cycle`
+explicitly while stopped to replace it, or omit `--preset` to start the full
+existing cycle. Unknown-crash recovery remains fail-closed: preserve unresolved
+cycle state for reconciliation rather than clearing it to force a restart.
+
+Every preset replacement, including additions,
 AI records and rollbacks, retains the displaced inode under the historical name
 `control/preset-deletion-history` so a concurrent File Manager writer can
 finish without losing its edits. Selector updates similarly retain

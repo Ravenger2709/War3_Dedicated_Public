@@ -97,6 +97,78 @@ class RuntimeTests(unittest.TestCase):
   self.service=ICCupSupervisor(self.cfg,output=io.StringIO(),backend=self.backend)
   self.service.start();self.wait(lambda:self.service.snapshot()['ready'] and self.service.state=='LOBBY');return self.service
  def control(self,**values):atomic_json(self.root/'control.json',values)
+ def managed_cycle(self, pending=True, event=None):
+  from src.runtime.session_lease import SessionLease
+  from src.runtime.cycle_state import CycleState
+  root=self.root/'cycle-session'
+  lease=SessionLease.create(root,enabled=True)
+  try:
+   state=CycleState(lease.cursor,['one','two'],lease=lease)
+   if pending:state.reserve_external('a'*32,7)
+   if event is not None:
+    path=lease.journal/('start-'+'a'*32+'-'+'b'*32+'.json')
+    path.write_text(event);path.chmod(0o600)
+  finally:lease.close()
+  return root
+ def start_managed_cycle(self,root):
+  self.service=ICCupSupervisor(self.cfg,output=io.StringIO(),backend=self.backend,
+                              cycle_session={'root':str(root),'cycle':['one','two']})
+  self.service.start()
+  return self.service
+ def test_cycle_pending_blocks_native_restart_without_clearing_reservation(self):
+  root=self.managed_cycle()
+  s=self.start_managed_cycle(root)
+  self.wait(lambda:s.snapshot().get('cycle',{}).get('state')=='blocked_pending')
+  self.assertFalse(s.alive('native'));self.assertFalse(s.snapshot()['ready'])
+  time.sleep(.25);self.assertEqual(s.child_generations['native'],0)
+  s.submit('quit');s.thread.join(5);self.assertFalse(s.thread.is_alive());self.service=None
+  from src.runtime.session_lease import SessionLease
+  from src.runtime.cycle_state import CycleState
+  with SessionLease(root,enabled=True) as lease:
+   state=CycleState(lease.cursor,['one','two'],lease=lease)
+   self.assertEqual(state.state['pending']['host_counter'],7);self.assertEqual(state.state['index'],0)
+ def test_cycle_scans_durable_start_and_acks_before_waiting_for_ipc(self):
+  event=json.dumps({'version':1,'event':'game_started','session_generation':'a'*32,
+                    'match_id':'b'*32,'host_counter':7})
+  root=self.managed_cycle(event=event)
+  s=self.start_managed_cycle(root)
+  self.wait(lambda:s.snapshot().get('cycle',{}).get('state')=='waiting_native_ipc')
+  self.assertEqual(s.snapshot()['cycle']['preset_id'],'two')
+  self.assertFalse(s.alive('native'))
+  self.assertEqual(len(list((root/'journal').glob('*.ack'))),1)
+ def test_cycle_closed_event_clears_reservation_without_advancing(self):
+  root=self.managed_cycle()
+  path=root/'journal'/('close-'+'a'*32+'-7.json')
+  path.write_text(json.dumps({'version':1,'event':'lobby_closed',
+                              'session_generation':'a'*32,'host_counter':7}))
+  path.chmod(0o600)
+  s=self.start_managed_cycle(root)
+  self.wait(lambda:s.snapshot().get('cycle',{}).get('state')=='waiting_native_ipc')
+  self.assertEqual(s.snapshot()['cycle']['preset_id'],'one')
+  self.assertFalse(s.snapshot()['cycle']['pending'])
+  self.assertFalse(s.alive('native'));self.assertEqual(len(list((root/'journal').glob('*.ack'))),1)
+ def test_cycle_malformed_event_fails_closed_without_ack(self):
+  root=self.managed_cycle(event='{bad')
+  s=self.start_managed_cycle(root)
+  self.wait(lambda:s.snapshot().get('cycle',{}).get('state')=='storage_error')
+  self.assertFalse(s.alive('native'))
+  self.assertEqual(len(list((root/'journal').glob('*.json'))),1)
+  self.assertFalse(list((root/'journal').glob('*.ack')))
+ def test_cycle_failure_does_not_stop_running_native(self):
+  s=self.start();native=s.children['native'].process.pid
+  class BrokenCycle:
+   def tick(self):raise OSError('injected journal failure')
+   def close(self):pass
+  # Simulate activation while a synthetic native match is already running.
+  s.cycle_session={'root':'/unused','cycle':['one']};s.cycle_control=BrokenCycle()
+  s.cycle_status={'state':'initializing','recovery':'unavailable'};s.cycle_next_scan=0.
+  self.wait(lambda:s.snapshot().get('cycle',{}).get('state')=='storage_error')
+  self.assertTrue(s.alive('native'));self.assertEqual(s.children['native'].process.pid,native)
+  self.assertFalse(s.snapshot()['ready'])
+  os.kill(native,signal.SIGKILL)
+  self.wait(lambda:'native' not in s.children)
+  time.sleep(.3);self.assertEqual(s.child_generations['native'],1)
+
  def test_normal_readiness_and_shutdown_preserve_native_data(self):
   s=self.start();status=s.snapshot()
   self.assertTrue(status['iccup_authenticated']);self.assertTrue(status['player_listener_available'])
@@ -194,6 +266,11 @@ class RuntimeTests(unittest.TestCase):
    with self.assertRaises(ValueError):native_state('[HOSTBOT_STATE] '+json.dumps(body))
  def test_config_limits_and_private_metadata(self):
   self.assertEqual(gameplay_config({})['lobby_refresh_interval'],10)
+  self.assertEqual(gameplay_config({})['lobby_message_interval'],20)
+  for interval in (10,13,20,3600):
+   self.assertEqual(gameplay_config({'lobby_message_interval':interval})['lobby_message_interval'],interval)
+  for interval in (0,9,3601,True,20.0,'20'):
+   with self.assertRaises(ValueError):gameplay_config({'lobby_message_interval':interval})
   for interval in (10,11,120,3600):
    self.assertEqual(gameplay_config({'lobby_refresh_interval':interval})['lobby_refresh_interval'],interval)
   for interval in (0,5,9,3601,True,10.0,'10'):
@@ -209,9 +286,9 @@ class RuntimeTests(unittest.TestCase):
   config=self.root/'config';config.mkdir(mode=0o700);(config/'maps').mkdir(mode=0o700)
   (config/'ghost.cfg').write_text('bnet_server =\nbot_defaultmap = selected.cfg\n')
   self.cfg['iccup']['native_config']=str(config/'ghost.cfg')
-  self.cfg['gameplay']=gameplay_config({'max_players':8,'autostart_players':6,'vote_min_players':3,'vote_required_percent':70,'countdown_seconds':0,'lobby_refresh_interval':180})
+  self.cfg['gameplay']=gameplay_config({'max_players':8,'autostart_players':6,'vote_min_players':3,'vote_required_percent':70,'countdown_seconds':0,'lobby_refresh_interval':180,'lobby_message_interval':45})
   result=prepare_native(self.cfg,'SyntheticUser').read_text()
-  for line in ('bot_vote_min_players = 3','bot_vote_required_percent = 70','bot_countdownseconds = 0','bot_lobby_refresh_interval = 180','bot_maxplayers = 8','autohost_startplayers = 6'):
+  for line in ('bot_vote_min_players = 3','bot_vote_required_percent = 70','bot_countdownseconds = 0','bot_lobby_refresh_interval = 180','bot_lobby_message_interval = 45','bot_maxplayers = 8','autohost_startplayers = 6'):
    self.assertIn(line+'\n',result)
   self.assertIn('bnet_server = \n',result)
  def test_real_backend_owns_profile_and_emits_integer_worker_timeout(self):

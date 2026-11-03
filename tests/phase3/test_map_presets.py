@@ -446,7 +446,7 @@ class MPQTests(unittest.TestCase):
         p = self.mpq()
         self.approve(p)
         before = (self.source.read_bytes(), self.operator.read_bytes(), p.read_bytes())
-        self.cfg['gameplay']['map_preset'] = 'test-map'
+        self.cfg['gameplay']['map_cycle'] = ['test-map']
         effective = prepare_native(self.cfg, 'SyntheticUser')
         text = effective.read_text()
         for key, val in (('bot_lobby_ai_target', '6'), ('bot_lobby_ai_supported', '1'),
@@ -461,7 +461,7 @@ class MPQTests(unittest.TestCase):
         self.assertEqual(generated.read_text().count('0 255 0 0'), 12)
         self.assertEqual(before, (self.source.read_bytes(), self.operator.read_bytes(), p.read_bytes()))
         self.assertNotIn('#', text)
-        self.cfg['gameplay']['map_preset'] = 'manual'
+        self.cfg['gameplay']['map_cycle'] = ['manual']
         text = prepare_native(self.cfg, 'SyntheticUser').read_text()
         for key, value in AI_OFF.items():
             self.assertIn(key + ' = ' + value + '\n', text)
@@ -489,7 +489,7 @@ class MPQTests(unittest.TestCase):
     def test_preset_autostart_flag_is_independent_of_votes_and_manual_fallback(self):
         self.approve(self.mpq())
         entry = self.doc['presets'][1]
-        self.cfg['gameplay']['map_preset'] = 'test-map'
+        self.cfg['gameplay']['map_cycle'] = ['test-map']
         for enabled, vote_enabled in ((False, True), (False, False), (True, False)):
             entry['start']['autostart_enabled'] = enabled
             entry['vote']['enabled'] = vote_enabled
@@ -506,7 +506,7 @@ class MPQTests(unittest.TestCase):
         self.cfg['gameplay']['autostart_enabled'] = False
         # An older preset without the flag defaults true; raw false is manual-only.
         self.assertIn('bot_autostart_enabled = 1\n', prepare_native(self.cfg, 'SyntheticUser').read_text())
-        self.cfg['gameplay']['map_preset'] = 'manual'
+        self.cfg['gameplay']['map_cycle'] = ['manual']
         text = prepare_native(self.cfg, 'SyntheticUser').read_text()
         self.assertIn('bot_autostart_enabled = 0\n', text)
         self.assertIn('bot_autostartplayers = 10\n', text)
@@ -518,7 +518,7 @@ class MPQTests(unittest.TestCase):
         entry['max_players'] = 2
         entry['start'] = {'autostart_enabled': False, 'autostart_players': 10}
         self.save()
-        self.cfg['gameplay']['map_preset'] = 'test-map'
+        self.cfg['gameplay']['map_cycle'] = ['test-map']
         text = prepare_native(self.cfg, 'SyntheticUser').read_text()
         for line in ('bot_autostart_enabled = 0', 'bot_autostartplayers = 10',
                      'autohost_startplayers = 10', 'bot_maxplayers = 2', 'bot_vote_min_players = 2'):
@@ -756,7 +756,7 @@ class MPQTests(unittest.TestCase):
         shutil.copyfile(supplied, self.root / 'maps' / filename)
         self.doc = json.loads((ROOT / 'config/presets.example.json').read_text())
         self.save()
-        self.cfg['gameplay']['map_preset'] = 'footman-ultimate-ai'
+        self.cfg['gameplay']['map_cycle'] = ['footman-ultimate-ai']
         result = prepare_native(self.cfg, 'SyntheticUser').read_text()
         for line in ('autohost_gamename = Footman Ultimate AI', 'bot_maxplayers = 12',
                      'bot_autostart_enabled = 1',
