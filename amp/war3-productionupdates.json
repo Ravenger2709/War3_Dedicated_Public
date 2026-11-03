@@ -4,7 +4,7 @@
     "UpdateSourcePlatform": "Linux",
     "UpdateSource": "Executable",
     "UpdateSourceData": "/usr/bin/python3",
-    "UpdateSourceArgs": "\"{{$FullBaseDir}}control/production.py\" apply-presets --instance-dir \"{{$FullBaseDir}}\"",
+    "UpdateSourceArgs": "\"{{$FullBaseDir}}control/production.py\" apply-presets --instance-dir \"{{$FullBaseDir}}\" --defer-if-running",
     "SkipOnFailure": false
   }
 ]

@@ -494,8 +494,7 @@ class ManifestAndReleaseTests(unittest.TestCase):
         editor = next(s for s in settings if s["ParamFieldName"] == "preset_definitions")
         self.assertEqual(editor["InputType"], "Textarea")
         self.assertEqual(editor["Subcategory"], "Map presets:map:20")
-        self.assertEqual(editor["Actions"], [{"Caption": "Apply presets", "Module": "Core",
-            "Method": "UpdateApplication", "Argument": "", "IsClientSide": False}])
+        self.assertFalse(editor.get("Actions"))
         selector = next(s for s in settings if s["ParamFieldName"] == "map_cycle")
         self.assertEqual(selector["InputType"], "Textarea")
         self.assertEqual(json.loads(selector["DefaultValue"]), ["manual"])
@@ -539,7 +538,7 @@ class ManifestAndReleaseTests(unittest.TestCase):
         updates = json.loads((ROOT / "amp/war3-productionupdates.json").read_text())
         self.assertEqual(updates, [{"UpdateStageName": "Apply local map presets", "UpdateSourcePlatform": "Linux",
             "UpdateSource": "Executable", "UpdateSourceData": "/usr/bin/python3",
-            "UpdateSourceArgs": '"{{$FullBaseDir}}control/production.py" apply-presets --instance-dir "{{$FullBaseDir}}"',
+            "UpdateSourceArgs": '"{{$FullBaseDir}}control/production.py" apply-presets --instance-dir "{{$FullBaseDir}}" --defer-if-running',
             "SkipOnFailure": False}])
         kvp = dict(line.split("=", 1) for line in (ROOT / "amp/war3-production.kvp").read_text().splitlines())
         self.assertEqual(kvp["App.ExitMethod"], "SIGTERM")

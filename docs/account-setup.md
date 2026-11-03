@@ -298,31 +298,20 @@ Applying presets does not require starting the bot:
 python3 control/production.py apply-presets --instance-dir .
 ```
 
-For the normal UI flow, the textarea's **Apply presets** action invokes stock
-`Core/UpdateApplication` with no arguments. The main integration owns the
-Executable update stage to `amp/war3-productionupdates.json` (owned by main):
+In AMP, edit **Preset definitions JSON** and **Lobby rotation (preset IDs JSON)**,
+then restart the game instance with its normal controls. AMP saves these inputs
+without stopping the current game. Startup validates the pending JSON and the
+entire rotation before launching the runtime. No panel restart or template enum
+refresh is needed.
 
-```json
-{
-  "UpdateStageName": "Apply local map presets",
-  "UpdateSourcePlatform": "Linux",
-  "UpdateSource": "Executable",
-  "UpdateSourceData": "/usr/bin/python3",
-  "UpdateSourceArgs": "\"{{$FullBaseDir}}control/production.py\" apply-presets --instance-dir \"{{$FullBaseDir}}\"",
-  "SkipOnFailure": false
-}
-```
-
-The **Apply presets** action sets `Argument=""` and `IsClientSide=false`.
-The flow is paste JSON → Apply presets while stopped → restart the AMP
-instance using its ordinary controls → reconnect to the panel → select a preset
-→ Start. Restarting AMP
-reloads the static manifest and briefly disconnects the panel. A live
-2.8.0.10 test confirmed that the managed control container was recreated, the
-panel returned in about 33 seconds, and the new custom preset appeared.
-`GenericModule/ReloadGenericConfig` and settings-cache refresh did not reload
-changed enum definitions in that test.
-Legacy installations with an empty updates manifest cannot apply presets.
+The preset editor deliberately has no `Core/UpdateApplication` button: AMP's
+application updater has its own lifecycle state and a rejected stopped-only
+apply could mark a still-running game as Error. For compatibility, the local
+update stage uses `apply-presets --defer-if-running`: while a container exists,
+it returns success without writing runtime configuration, taking profile locks,
+or validating pending JSON. The next normal restart performs full validation.
+Other update errors remain failures. The CLI without this flag remains strictly
+stopped-only.
 
 This explicit helper validates deployment/image identity and the stopped state,
 uses the same setup/profile locks, applies the editor, and regenerates enum

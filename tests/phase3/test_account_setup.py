@@ -1332,6 +1332,29 @@ class PresetEditorTests(unittest.TestCase):
         self.assertEqual(self.manifest.read_bytes(), before)
         self.assertEqual(production.read_json(self.root / production.PRESETS), self.manual)
 
+    def test_amp_update_defers_live_edits_without_locks_validation_or_writes(self):
+        # Saving incomplete text must not disturb an already running match.
+        production.private_json(self.root / production.PRESET_EDITOR,
+                                {"version": 1, "preset_definitions": "{unfinished"})
+        spec = {"schema_version": 1, "image_id": IMAGE, "container_name": "war3-phase3-staging",
+                "uid": os.geteuid(), "gid": os.getegid()}
+        production.private_json(self.root / "deployment.json", spec)
+        production.private_json(self.root / "acceptance.json", acceptance())
+        before = {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        with patch.object(production, "docker_output", return_value=b"active\n"), \
+                patch.object(production, "image_preflight", side_effect=AssertionError("image preflight forbidden")), \
+                patch.object(account, "locked", side_effect=AssertionError("profile/setup lock forbidden")), \
+                patch.object(production.os, "execvpe", side_effect=AssertionError("runtime forbidden")), \
+                redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(production.cli(["apply-presets", "--defer-if-running", "--instance-dir", str(self.root)]), 0)
+        self.assertIn("next game restart", output.getvalue())
+        self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+        unexpected = production.SettingsError("PRESET_EXTERNAL_CONFLICT")
+        with patch.object(production, "stopped", side_effect=unexpected):
+            with self.assertRaises(production.SettingsError) as error:
+                production.apply_presets(self.root, spec, defer_if_running=True)
+            self.assertIs(error.exception, unexpected)
+
     def test_explicit_apply_checks_gate_and_stopped_state_without_profile_generation_or_start(self):
         custom_only = {"version": 1, "presets": [self.desired["presets"][1]]}
         self.edit(custom_only)
@@ -1350,7 +1373,7 @@ class PresetEditorTests(unittest.TestCase):
                 patch.object(production.os, "execvpe", side_effect=AssertionError("runtime forbidden")), \
                 redirect_stdout(io.StringIO()) as output:
             self.assertEqual(production.cli(["apply-presets", "--instance-dir", str(self.root)]), 0)
-        self.assertIn("Restart the AMP instance", output.getvalue())
+        self.assertIn("Start/Restart the game instance", output.getvalue())
         self.assertNotIn("refresh AMP Generic", output.getvalue())
         self.assertTrue(all(call.args[0][:2] == ["ps", "-aq"] for call in docker.call_args_list))
         self.assertEqual(production.read_json(self.root / production.PRESETS), custom_only)

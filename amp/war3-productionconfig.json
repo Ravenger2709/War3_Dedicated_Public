@@ -266,7 +266,7 @@
   },
   {
     "DisplayName": "Preset definitions JSON",
-    "Description": "Game settings for each map. IDs from this JSON go into Lobby rotation. AI: enabled true/false, target computer count, skill 0 Easy / 1 Normal / 2 Insane. No capability IDs, review notes or hashes are needed; the runtime checks the selected map. Blank uses data/config/presets.json. Apply while stopped, then start the instance.",
+    "Description": "Game settings for each map. IDs from this JSON go into Lobby rotation. AI: enabled true/false, target computer count, skill 0 Easy / 1 Normal / 2 Insane. No capability IDs, review notes or hashes are needed; the runtime checks the selected map. Blank uses data/config/presets.json. Changes are saved automatically. Restart the game instance to validate and apply them; the AMP panel does not need a restart.",
     "Category": "War3_Dedicated:sports_esports",
     "Subcategory": "Map presets:map:20",
     "FieldName": "preset_definitions",
@@ -276,15 +276,6 @@
     "IncludeInCommandLine": false,
     "Required": false,
     "EnumValues": {},
-    "Actions": [
-      {
-        "Caption": "Apply presets",
-        "Module": "Core",
-        "Method": "UpdateApplication",
-        "Argument": "",
-        "IsClientSide": false
-      }
-    ],
     "Placeholder": "{\"version\":1,\"presets\":[{\"id\":\"custom\",\"enabled\":true,\"map_filename\":\"Custom.w3x\",\"start\":{\"autostart_enabled\":true,\"autostart_players\":6,\"countdown_seconds\":5}}]}"
   }
 ]

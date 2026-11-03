@@ -314,11 +314,21 @@ def preset_manifest_update(instance, check_revision=None):
             transaction.close()
 
 
-def apply_presets(instance, spec):
+def apply_presets(instance, spec, *, defer_if_running=False):
     """Explicit stopped-only apply/selector refresh, without starting any bot process."""
     account.directory(instance)
     account.directory(instance / "control")
     account.generator_owner(spec)
+    if defer_if_running:
+        try:
+            stopped(spec)
+        except SettingsError as error:
+            if error.args != ("RUNTIME_STILL_RUNNING",):
+                raise
+            # AMP has already saved its editor input. Do not touch the live
+            # config or profile, and do not report an application update failure
+            # merely because these saved edits need the next normal restart.
+            return False
     image_preflight(instance, spec)
     with ExitStack() as locks:
         locks.enter_context(account.locked(instance / "control/account-setup.lock", create=True))
@@ -328,6 +338,7 @@ def apply_presets(instance, spec):
         stopped(spec)
         with preset_update(instance) as check_revision, preset_manifest_update(instance, check_revision):
             pass
+    return True
 
 
 def migrate_cycle_settings(instance):
@@ -1008,6 +1019,8 @@ def main(argv=None):
     for action in ("prepare", "plan", "preflight", "run", "rollback", "list-presets", "apply-presets", "migrate-cycle"):
         sub = commands.add_parser(action)
         sub.add_argument("--instance-dir", required=True, type=Path)
+        if action == "apply-presets":
+            sub.add_argument("--defer-if-running", action="store_true")
         if action in ("prepare", "rollback"):
             sub.add_argument("--image-id", required=True)
             sub.add_argument("--gate", required=True, type=Path)
@@ -1029,8 +1042,11 @@ def main(argv=None):
         print("Legacy cycle migrated." if changed else "Cycle already present; no settings changed.")
         return 0
     if args.action == "apply-presets":
-        apply_presets(instance, spec)
-        print("Preset definitions applied. Set enabled preset IDs in Lobby rotation, then Start/Restart the game instance. Bot start not performed.")
+        applied = apply_presets(instance, spec, defer_if_running=args.defer_if_running)
+        if applied:
+            print("Preset definitions applied. Set enabled preset IDs in Lobby rotation, then Start/Restart the game instance. Bot start not performed.")
+        else:
+            print("Preset edits saved for the next game restart. The running game was not changed; pending JSON will be validated on restart.")
         return 0
     if args.action == "rollback":
         accepted = read_json(args.gate)
