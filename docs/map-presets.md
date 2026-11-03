@@ -143,8 +143,9 @@ See [kick voting](kick-voting.md) and [message interval](lobby-message-interval.
 
 ## Modern W3I inspection and classic-client compatibility
 
-The metadata reader supports W3I 18, 25 and 33. Inspect a map without
-reading or executing its JASS/Lua script:
+The metadata reader supports W3I 18, 25 and 33. From updated source, with
+the StormLib runtime available, inspect a map without reading or executing
+its JASS/Lua script:
 
 ```sh
 python3 -m src.runtime.presets --info-only /path/to/map.w3x
@@ -154,7 +155,7 @@ W3I 33 includes the saved game version, script language, additional camera
 settings and enemy-priority fields for players. Inspection supports modern
 player colours up to 23, while classic hosting remains limited to 12 slots.
 Modern results include `classic_compatible: false`. They are rejected by both
-normal and sealed-input preset compilation for the current Warcraft III 1.26a
+normal and sealed-input named-preset compilation for the current Warcraft III 1.26a
 runtime. Reading a new header does not supply newer client native functions or
 convert the map to an older game version. The normal script extraction limits
 and AI approval requirements remain unchanged.
