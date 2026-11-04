@@ -71,6 +71,7 @@ class SettingsError(ValueError):
             "PRESET_SELECTION_CHANGED": "The selected preset changed during map discovery. Retry start.",
             "PRESET_EDIT_CONFLICT": "Settings rejected: preset editor and File Manager both changed; clear the editor and apply to adopt the file first.",
             "PRESET_EXTERNAL_CONFLICT": "Preset file changed during apply. Keep stopped and inspect control/preset-conflict and any control/war3-preset-* recovery directory before retrying; external edits were preserved.",
+            "POWER_RECOVERY_BLOCKED": "Automatic reboot recovery was blocked. Keep the instance stopped and inspect the retained cycle journal; no history was reset.",
             "CYCLE_CHANGE_BLOCKED": "Map rotation cannot change while a launch or reservation is unresolved. Stop cleanly and inspect the retained cycle journal; no history was cleared.",
             "RUNTIME_STILL_RUNNING": "A War3 container already exists. Stop the instance before applying presets or starting it; if AMP shows stopped, inspect the existing container before removing it.",
         }.get(code, "Settings rejected; verify preset input and private files.")
@@ -1011,7 +1012,7 @@ if __name__=='__main__':
 
 
 def reconfigure_cycle_stopped(instance, spec, validated):
-    """Amend a stopped, cleanly handed-off cursor without resetting history."""
+    """Recover a proven host reboot, then amend a safely handed-off cursor."""
     root = instance / "data/state/cycle"
     if root.is_symlink():
         raise SettingsError("CYCLE_CHANGE_BLOCKED")
@@ -1022,6 +1023,15 @@ def reconfigure_cycle_stopped(instance, spec, validated):
     if (not host.is_absolute() or ".." in host.parts
             or any(ord(c) < 32 or ord(c) == 127 or c == "," for c in str(host))):
         raise ValueError("invalid cycle amendment bind path")
+    # The same stopped-only path is used by AMP and the standalone CLI.
+    # Run new control code with the existing accepted runtime APIs, not on the
+    # control host (which has no runtime package or game dependencies).
+    recovery_source = Path(__file__).with_name("power_recovery.py").read_text(encoding="utf-8")
+    if not 0 < len(recovery_source.encode()) <= 65536:
+        raise SettingsError("POWER_RECOVERY_BLOCKED")
+    boot = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
+    if re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", boot) is None:
+        raise SettingsError("POWER_RECOVERY_BLOCKED")
     name = "war3-cycle-amend-" + uuid.uuid4().hex
     args = [*DOCKER, "run", "--rm", "--pull=never", "--name", name,
             "--interactive", "--restart=no", "--network", "none", "--read-only",
@@ -1033,6 +1043,17 @@ def reconfigure_cycle_stopped(instance, spec, validated):
             "--mount", f"type=bind,src={host / 'data/state/cycle'},dst=/data/state/cycle",
             "--entrypoint", "python3", spec["image_id"], "-B", "-c", _CYCLE_AMEND_SCRIPT]
     try:
+        try:
+            result = subprocess.run([*args[:-1], recovery_source],
+                                    input=json.dumps({"boot_id": boot}).encode(), env=environment(),
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True, timeout=30)
+            recovered = json.loads(result.stdout)
+            if type(recovered) is not dict or set(recovered) != {"recovered"} or type(recovered["recovered"]) is not bool:
+                raise ValueError("invalid recovery result")
+            if recovered["recovered"]:
+                print("Host reboot recovery completed. Interrupted lobby retired; rotation position and match history retained.", flush=True)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            raise SettingsError("POWER_RECOVERY_BLOCKED") from None
         subprocess.run(args, input=json.dumps(validated["map_cycle"]).encode(), env=environment(),
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
@@ -1059,7 +1080,7 @@ def prepare(instance, image_id, acceptance, supervisor_config, native_config, ma
         for name in VENDOR:
             (instance / "vendor" / name).mkdir(mode=0o700, parents=True)
         (instance / "control").mkdir(mode=0o700)
-        for name in ("production.py", "production-launch.py", "account.py", "map_discovery.py"):
+        for name in ("production.py", "production-launch.py", "account.py", "map_discovery.py", "power_recovery.py"):
             shutil.copyfile(Path(__file__).parent / name, instance / "control" / name)
             (instance / "control" / name).chmod(0o600)
         shutil.copyfile(Path(__file__).parent / "war3-productionconfig.json", instance / PRESET_MANIFEST)

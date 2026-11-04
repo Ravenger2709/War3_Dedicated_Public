@@ -178,7 +178,7 @@ not validate a new release runtime or establish gameplay/iCCup GREEN.
 preset only when the existing cycle has one entry. If it has multiple entries,
 the CLI reports a conflict and preserves the selection; edit `map_cycle`
 explicitly while stopped to replace it, or omit `--preset` to start the full
-existing cycle. Unknown-crash recovery remains fail-closed: preserve unresolved
+existing cycle. Same-boot unknown-crash recovery remains fail-closed: preserve unresolved
 cycle state for reconciliation rather than clearing it to force a restart.
 
 After a clean stop, changing `map_cycle` uses the runtime's existing durable
@@ -245,3 +245,5 @@ checkout, approved gate/identity and image to prepare a new standalone directory
 transfer validated configuration/data while keeping the old instance stopped.
 There is no automatic image update, approval bypass or simultaneous second account
 session. Starting and health-checking a new image remains part of its acceptance.
+
+Host reboot recovery is shared with AMP Start/Restart; see [host reboot recovery](host-reboot-recovery.md) for boot evidence, retained history and the direct Docker restart-policy limitation.

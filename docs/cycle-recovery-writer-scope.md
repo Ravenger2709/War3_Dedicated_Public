@@ -19,8 +19,9 @@ it must not leave the process group or delegate its journal/IPC writer. The
 process-group check does not prove those properties against arbitrary code. A
 supervisor crash, unexpected native exit, missing session binding, pending
 selection, unverified wait or inaccessible process-group status does not grant
-a handoff. Automatic reconciliation of such an interrupted queue is not
-implemented; the launch claim and prior data remain for inspection. Native IPC
+a handoff. Same-boot ambiguity still blocks automatic reconciliation. A separate stopped-only
+[host reboot recovery](host-reboot-recovery.md) path can retire a session after
+verifying a different kernel boot ID; it retains the launch claim and prior data. Native IPC
 inode attestation and actual default-map validation also remain prerequisites.
 
 The offline native test uses the real merged GHost binary, synthetic maps and
