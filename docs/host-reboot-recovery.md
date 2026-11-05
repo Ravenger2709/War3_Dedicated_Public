@@ -54,3 +54,6 @@ Offline tests exercise real SQLite and native-format journals with synthetic
 boot IDs, including interruptions after intent, directory creation, state,
 catalog and receipt writes. They do not power-cycle a production host or claim
 that an interrupted Warcraft match can be resumed.
+
+A management-panel restart with a surviving healthy container is handled by
+[AMP runtime reattachment](amp-runtime-reattachment.md), rather than boot recovery.

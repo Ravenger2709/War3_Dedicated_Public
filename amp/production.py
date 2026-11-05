@@ -1080,7 +1080,7 @@ def prepare(instance, image_id, acceptance, supervisor_config, native_config, ma
         for name in VENDOR:
             (instance / "vendor" / name).mkdir(mode=0o700, parents=True)
         (instance / "control").mkdir(mode=0o700)
-        for name in ("production.py", "production-launch.py", "account.py", "map_discovery.py", "power_recovery.py"):
+        for name in ("production.py", "production-launch.py", "account.py", "map_discovery.py", "power_recovery.py", "runtime_attachment.py"):
             shutil.copyfile(Path(__file__).parent / name, instance / "control" / name)
             (instance / "control" / name).chmod(0o600)
         shutil.copyfile(Path(__file__).parent / "war3-productionconfig.json", instance / PRESET_MANIFEST)

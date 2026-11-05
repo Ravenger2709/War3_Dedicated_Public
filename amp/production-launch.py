@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""AMP foreground launcher; local-only, gate checked before Docker start."""
+"""AMP foreground owner: adopt a healthy survivor or perform a gated start."""
 import sys
-from production import cli
+import production
+from runtime_attachment import launch
 
-if __name__ == "__main__":
-    raise SystemExit(cli(["run", *sys.argv[1:]]))
+if __name__ == '__main__':
+    raise SystemExit(launch(production, sys.argv[1:]))
