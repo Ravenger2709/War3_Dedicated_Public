@@ -291,6 +291,6 @@
     "InputType": "number",
     "minValue": "0",
     "maxValue": "1440",
-    "Subcategory": "Map cycle:autorenew:25"
+    "Subcategory": "Map presets:map:20"
   }
 ]

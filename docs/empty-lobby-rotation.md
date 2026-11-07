@@ -5,7 +5,7 @@ continuous minutes without human players. This is independent of vote-start,
 auto-start and the empty-slot refresh interval. Running matches continue on the
 same native process and keep their player connections.
 
-In AMP, use **Empty lobby rotation timeout (minutes)** under **Map cycle**.
+In AMP, use **Empty lobby rotation timeout (minutes)** under **Map presets**.
 The default is `10`; `0` disables idle rotation; the supported range is
 `0`–`1440`. Save and apply on the next safe application Start/Restart. Restarting
 an occupied application still disconnects its players, so wait until it is empty.
