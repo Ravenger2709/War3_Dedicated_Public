@@ -486,7 +486,7 @@ class ManifestAndReleaseTests(unittest.TestCase):
             "Account:account_circle:10", "Map presets:map:20", "Lobby:groups:30",
             "Lobby / Messages:chat:35", "Voting:how_to_vote:40", "Refresh:refresh:50"})
         internal_settings = {"autostart_players", "autostart_enabled", "game_port", "max_players"}
-        self.assertEqual(len(gameplay), 14)
+        self.assertEqual(len(gameplay), 15)
         self.assertEqual({s["ParamFieldName"] for s in gameplay}, set(production.DEFAULTS) - internal_settings - {"map_preset"})
         self.assertTrue(internal_settings.isdisjoint(s["FieldName"] for s in settings))
         self.assertTrue(internal_settings.isdisjoint(s["ParamFieldName"] for s in settings))
