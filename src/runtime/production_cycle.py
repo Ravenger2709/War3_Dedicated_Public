@@ -268,8 +268,10 @@ class ProductionCycleControl:
                     raise ValueError('CYCLE_HISTORY_MISMATCH')
             elif not self.state._find_closed(generation,event.host_counter):
                 raise ValueError('CYCLE_HISTORY_MISMATCH')
-            elif event.version == 2 and self.state._find_catalog_close(generation,event.host_counter) != (
+            elif event.version in (2,3) and self.state._find_catalog_close(generation,event.host_counter) != (
                     event.request_id,event.manifest_sha256,event.catalog_index):
+                raise ValueError('CYCLE_HISTORY_MISMATCH')
+            if event.event == 'lobby_closed' and self.state._find_idle(generation,event.host_counter) != (event.version == 3):
                 raise ValueError('CYCLE_HISTORY_MISMATCH')
         if self.state.state['pending'] is not None:
             raise ValueError('CYCLE_PENDING_UNRESOLVED')

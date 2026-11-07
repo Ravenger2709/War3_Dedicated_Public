@@ -1,15 +1,26 @@
 {
   "mode": "iccup",
   "hostbot": {
-    "command": ["/opt/war3/bin/ghost++", "/data/state/native/ghost.cfg"],
+    "command": [
+      "/opt/war3/bin/ghost++",
+      "/data/state/native/ghost.cfg"
+    ],
     "cwd": "/data",
     "startup_timeout": 90,
     "stop_timeout": 20,
     "lobby_timeout": 3600
   },
-  "http": {"host": "127.0.0.1", "port": 8080},
+  "http": {
+    "host": "127.0.0.1",
+    "port": 8080
+  },
   "runtime_dir": "/data/state/supervisor",
-  "recovery": {"max_restarts": 5, "backoff_initial": 5, "backoff_max": 120, "stable_seconds": 300},
+  "recovery": {
+    "max_restarts": 5,
+    "backoff_initial": 5,
+    "backoff_max": 120,
+    "stable_seconds": 300
+  },
   "iccup": {
     "adapter": "original-star-v1",
     "upstream": "57.129.6.91",
@@ -47,6 +58,7 @@
     "lobby_message_interval": 20,
     "lobby_refresh_mode": "slot_toggle",
     "autohost_enabled": true,
-    "reconnect_enabled": true
+    "reconnect_enabled": true,
+    "empty_lobby_rotation_minutes": 10
   }
 }

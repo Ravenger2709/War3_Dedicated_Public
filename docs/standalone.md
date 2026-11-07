@@ -164,6 +164,11 @@ array such as `["selected-map", "other-map", "selected-map"]` and set
 existing IDs; duplicates intentionally repeat a map. Preserve private ownership
 and permissions. An explicit cycle takes priority over any retained legacy key.
 
+`empty_lobby_rotation_minutes` defaults to `10`: an empty lobby advances after
+ten continuous minutes without humans; `0` disables it. Joins and downloads
+reset the timer, and running matches continue. See [idle rotation](empty-lobby-rotation.md)
+for AMP and standalone configuration and recovery semantics.
+
 With a matching cycle-aware accepted image, startup validates every multi-cycle
 entry through that image's full-cycle validator before merging settings or
 launching the runtime. This offline Python container mounts only config/maps

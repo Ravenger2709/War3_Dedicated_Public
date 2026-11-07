@@ -74,7 +74,9 @@ root must already be an exclusively owned managed `SessionLease` session.
 The pump opens the lease and cursor itself, scans at most once per second,
 commits validated start/close events through `CycleCoordinator` and ACKs only
 after the durable state transition. It never interprets an observed phase as a
-start. A close does not advance the cursor; a start advances once. Any missing
+start. An ordinary close does not advance the cursor; a start advances once.
+The explicit [idle-timeout close](../empty-lobby-rotation.md) advances once
+without recording a match. Any missing
 or uncertain exit leaves the reservation pending. Journal or state errors
 latch `storage_error`; the controller keeps an already running native process
 and refuses subsequent native launches.

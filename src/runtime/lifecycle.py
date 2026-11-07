@@ -28,6 +28,7 @@ _CLOSE_NAME = re.compile(r'close-([0-9a-f]{32})-([1-9][0-9]{0,8})\.json\Z', re.A
 _FIELDS = frozenset(('version', 'event', 'session_generation', 'match_id', 'host_counter'))
 _CLOSE_FIELDS = frozenset(('version', 'event', 'session_generation', 'host_counter'))
 _CLOSE_V2_FIELDS = _CLOSE_FIELDS | {'request_id', 'manifest_sha256', 'catalog_index'}
+_CLOSE_V3_FIELDS = _CLOSE_V2_FIELDS | {'reason'}
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
 _FILE_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
 
@@ -74,6 +75,11 @@ class CatalogLobbyClosed:
     @property
     def idempotency_key(self):
         return (self.session_generation, self.host_counter)
+
+
+@dataclass(frozen=True)
+class IdleLobbyClosed(CatalogLobbyClosed):
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -162,18 +168,22 @@ def _parse(name, raw):
         raise LifecycleJournalError('invalid event JSON: ' + name) from exc
     if close is not None:
         if (type(obj) is not dict or type(obj.get('version')) is not int or
-                obj['version'] not in (1, 2) or
-                obj.keys() != (_CLOSE_FIELDS if obj['version'] == 1 else _CLOSE_V2_FIELDS)
+                obj['version'] not in (1, 2, 3) or
+                obj.keys() != ({1:_CLOSE_FIELDS,2:_CLOSE_V2_FIELDS,3:_CLOSE_V3_FIELDS}[obj['version']])
                 or type(obj['event']) is not str or obj['event'] != 'lobby_closed'
                 or type(obj['session_generation']) is not str or obj['session_generation'] != close[1]
                 or type(obj['host_counter']) is not int or not 1 <= obj['host_counter'] < 2**28
                 or str(obj['host_counter']) != close[2]):
             raise LifecycleJournalError('invalid close event fields: ' + name)
-        if obj['version'] == 2:
+        if obj['version'] in (2, 3):
             if (type(obj['request_id']) is not str or re.fullmatch(r'[0-9a-f]{32}',obj['request_id']) is None or
                     type(obj['manifest_sha256']) is not str or re.fullmatch(r'[0-9a-f]{64}',obj['manifest_sha256']) is None or
                     type(obj['catalog_index']) is not int or not 0 <= obj['catalog_index'] < 32):
                 raise LifecycleJournalError('invalid catalog close fields: ' + name)
+            if obj['version'] == 3:
+                if obj['reason'] != 'empty_timeout':
+                    raise LifecycleJournalError('invalid idle close reason')
+                return IdleLobbyClosed(**obj)
             return CatalogLobbyClosed(**obj)
         return LobbyClosed(**obj)
     if (type(obj) is not dict or obj.keys() != _FIELDS

@@ -646,7 +646,8 @@ class ICCupSupervisor(OperatorLogMixin,Supervisor):
                 if (queue_before.data['pending'] is None and completed is not None
                         and completed['request_id']==selection_before['request_id']
                         and completed.get('outcome')=='closed'):
-                    verified_transition='closed'
+                    verified_transition=('idle_rotated' if self.cycle_control.state._find_idle(
+                        queue_before.generation,completed['counter']) else 'closed')
             observation=self._cycle_current_observation()
             if observation is not None and self.cycle_control.driver is not None:
                 child,event,stamp=observation
@@ -685,8 +686,10 @@ class ICCupSupervisor(OperatorLogMixin,Supervisor):
                     else:self.cycle_telemetry_highwater=current
                 telemetry=(event,observed[2],self.cycle_control.catalog)
             status=project(status,self.cycle_control.state,self.cycle_control.max_games,telemetry)
-            transition=verified_transition if verified_transition in ('started','closed') else status.get('driver')
-            if transition in ('started','closed'):
+            transition=verified_transition if verified_transition in ('started','closed','idle_rotated') else status.get('driver')
+            if transition == 'idle_rotated':
+                self.log('cycle_idle_rotation')
+            if transition in ('started','closed','idle_rotated'):
                 self.cycle_last_transition={'event':transition,'observed_at':datetime.now(timezone.utc).isoformat()}
             status['last_transition']=self.cycle_last_transition
             status['availability']['last_transition']='verified_observed' if self.cycle_last_transition is not None else 'unavailable'

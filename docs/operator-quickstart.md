@@ -1,5 +1,9 @@
 # Operator quickstart
 
+The [empty lobby rotation timeout](empty-lobby-rotation.md) defaults to ten
+minutes without human players. AMP exposes it under Map cycle. `0` disables it;
+joins reset the timer and running matches continue.
+
 Use a trusted release checkout and its maintainer-exported release identity. The runtime image and identity can be downloaded from GitHub Releases as described in [standalone setup](standalone.md), or built and validated following [source build and validation](build-from-source.md). Use an
 already installed Docker service and AMP, and your own licensed Star/Warcraft
 files. Routine setup needs no AI, manual 31-file copying, or host dependency

@@ -54,6 +54,7 @@ class CycleState:
         self._insert_event = None
         self._insert_close = None
         self._insert_catalog_close = None
+        self._insert_idle = None
         if self.db_path.exists() or self.db_path.is_symlink():
             state = self._load_db()
             self._validate(state)
@@ -230,13 +231,19 @@ class CycleState:
         version = db.execute('PRAGMA user_version').fetchone()[0]
         present = bool(db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='closed_lobbies'").fetchone())
         catalog = bool(db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='catalog_closed_lobbies'").fetchone())
-        if version not in (0, 1, 2) or present != (version in (1, 2)) or catalog != (version == 2):
+        idle = bool(db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='idle_lobbies'").fetchone())
+        if version not in (0, 1, 2, 3) or present != (version in (1, 2, 3)) or catalog != (version in (2, 3)) or idle != (version == 3):
             raise ValueError('MAP_CYCLE_DATABASE_REJECTED')
         if catalog:
             columns = [row[1] for row in db.execute('PRAGMA table_info(catalog_closed_lobbies)')]
             if columns != ['generation', 'counter', 'request_id', 'digest', 'catalog_index']:
                 raise ValueError('MAP_CYCLE_DATABASE_REJECTED')
             if db.execute('SELECT 1 FROM catalog_closed_lobbies c LEFT JOIN closed_lobbies l ON c.generation=l.generation AND c.counter=l.counter WHERE l.generation IS NULL LIMIT 1').fetchone():
+                raise ValueError('MAP_CYCLE_DATABASE_REJECTED')
+        if idle:
+            if [r[1] for r in db.execute('PRAGMA table_info(idle_lobbies)')] != ['generation','counter']:
+                raise ValueError('MAP_CYCLE_DATABASE_REJECTED')
+            if db.execute('SELECT 1 FROM idle_lobbies i LEFT JOIN catalog_closed_lobbies c ON i.generation=c.generation AND i.counter=c.counter WHERE c.generation IS NULL LIMIT 1').fetchone():
                 raise ValueError('MAP_CYCLE_DATABASE_REJECTED')
         return present
 
@@ -373,12 +380,16 @@ class CycleState:
                 db.execute('CREATE TABLE IF NOT EXISTS closed_lobbies (generation TEXT NOT NULL, counter INTEGER NOT NULL, PRIMARY KEY(generation, counter))')
                 if self._insert_catalog_close is not None:
                     db.execute('CREATE TABLE IF NOT EXISTS catalog_closed_lobbies (generation TEXT NOT NULL, counter INTEGER NOT NULL, request_id TEXT NOT NULL UNIQUE, digest TEXT NOT NULL, catalog_index INTEGER NOT NULL, PRIMARY KEY(generation, counter))')
-                    db.execute('PRAGMA user_version=2')
+                    db.execute('PRAGMA user_version=' + str(max(version,2)))
                 elif version == 0:
                     db.execute('PRAGMA user_version=1')
                 db.execute('INSERT INTO closed_lobbies VALUES (?, ?)', self._insert_close)
                 if self._insert_catalog_close is not None:
                     db.execute('INSERT INTO catalog_closed_lobbies VALUES (?, ?, ?, ?, ?)', self._insert_catalog_close)
+            if self._insert_idle is not None:
+                db.execute('CREATE TABLE IF NOT EXISTS idle_lobbies (generation TEXT NOT NULL, counter INTEGER NOT NULL, PRIMARY KEY(generation,counter))')
+                db.execute('INSERT INTO idle_lobbies VALUES (?, ?)',self._insert_idle)
+                db.execute('PRAGMA user_version=3')
             if self._insert_event is not None:
                 event = self._insert_event
                 db.execute('INSERT INTO events VALUES (?, ?, ?, ?)',
@@ -411,7 +422,7 @@ class CycleState:
         try:
             with closing(self._connect()) as db, db:
                 self._has_close_schema(db)
-                if db.execute('PRAGMA user_version').fetchone()[0] != 2:
+                if db.execute('PRAGMA user_version').fetchone()[0] < 2:
                     return None
                 return db.execute('SELECT request_id, digest, catalog_index FROM catalog_closed_lobbies WHERE generation=? AND counter=?',
                                   (generation, counter)).fetchone()
@@ -423,7 +434,7 @@ class CycleState:
         try:
             with closing(self._connect()) as db, db:
                 self._has_close_schema(db)
-                if db.execute('PRAGMA user_version').fetchone()[0] != 2:
+                if db.execute('PRAGMA user_version').fetchone()[0] < 2:
                     return None
                 return db.execute('SELECT generation, counter FROM catalog_closed_lobbies WHERE request_id=?',
                                   (request_id,)).fetchone()
@@ -431,18 +442,33 @@ class CycleState:
             self._write_failed = True
             raise
 
+    def _find_idle(self, generation, counter):
+        try:
+            with closing(self._connect()) as db, db:
+                self._has_close_schema(db)
+                if db.execute('PRAGMA user_version').fetchone()[0] != 3:
+                    return False
+                return bool(db.execute('SELECT 1 FROM idle_lobbies WHERE generation=? AND counter=?',
+                                       (generation, counter)).fetchone())
+        except (OSError, sqlite3.Error, ValueError):
+            self._write_failed = True
+            raise
+
     def consume_close(self, event):
-        """Durably fence a native lobby pair; never advance the cursor."""
+        """Fence a close; only a native empty-timeout close advances the cursor."""
         if self._write_failed:
             raise ValueError('MAP_CYCLE_STORAGE_UNCERTAIN')
         basic = {'version', 'event', 'session_generation', 'host_counter'}
         extended = basic | {'request_id', 'manifest_sha256', 'catalog_index'}
+        idle = isinstance(event, dict) and event.get('version') == 3
         if (not isinstance(event, dict) or type(event.get('version')) is not int or
-                event['version'] not in (1, 2) or set(event) != (basic if event['version'] == 1 else extended)
+                event['version'] not in (1, 2, 3) or set(event) != (basic if event['version'] == 1 else extended | {'reason'} if idle else extended)
                 or event['event'] != 'lobby_closed' or not _hex_id(event['session_generation'])
                 or not _counter(event['host_counter'])):
             raise ValueError('MAP_CYCLE_EXTERNAL_EVENT_REJECTED')
-        catalog = event['version'] == 2
+        catalog = event['version'] in (2,3)
+        if idle and event['reason'] != 'empty_timeout':
+            raise ValueError('MAP_CYCLE_EXTERNAL_EVENT_REJECTED')
         if catalog and (not _hex_id(event['request_id']) or
                 not isinstance(event['manifest_sha256'], str) or
                 re.fullmatch(r'[0-9a-f]{64}', event['manifest_sha256']) is None or
@@ -452,7 +478,7 @@ class CycleState:
         identity = (event['request_id'], event['manifest_sha256'], event['catalog_index']) if catalog else None
         self._enable_sqlite()
         if self._find_closed(generation, counter):
-            if self._find_catalog_close(generation, counter) != identity:
+            if self._find_catalog_close(generation, counter) != identity or self._find_idle(generation,counter) != idle:
                 raise ValueError('MAP_CYCLE_CLOSE_IDENTITY_CONFLICT')
             return False
         if self._find_external('counter', generation, counter):
@@ -461,13 +487,18 @@ class CycleState:
             raise ValueError('MAP_CYCLE_CLOSE_IDENTITY_CONFLICT')
         pending = self.state['pending']
         matches = pending and pending.get('session_generation') == generation and pending['host_counter'] == counter
+        if idle and not matches:
+            raise ValueError('MAP_CYCLE_IDLE_RESERVATION_MISMATCH')
+        self._insert_idle = (generation,counter) if idle else None
         self._insert_close = (generation, counter)
         if catalog:
             self._insert_catalog_close = (generation, counter, *identity)
         try:
-            self._save({**self.state, 'pending': None if matches else pending, 'changed_at': self.clock()})
+            self._save({**self.state, 'pending': None if matches else pending,
+                        'index':(self.state['index']+1)%len(self.cycle) if idle else self.state['index'],
+                        'changed_at': self.clock()})
         finally:
-            self._insert_close = self._insert_catalog_close = None
+            self._insert_close = self._insert_catalog_close = self._insert_idle = None
         return True
 
     def reserve_external(self, session_generation, host_counter):

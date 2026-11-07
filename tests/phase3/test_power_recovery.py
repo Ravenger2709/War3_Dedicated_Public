@@ -183,6 +183,32 @@ class RecoveryTests(unittest.TestCase):
         self.assertTrue((self.journal/('close-'+GEN+'-2.json')).exists())
         self.assertEqual(self.read_state()[0]['index'],0)
 
+    def idle_recovery(self, committed):
+        self.fixture()
+        event = {'version': 3, 'event': 'lobby_closed', 'session_generation': GEN,
+                 'host_counter': 2, 'request_id': 'd'*32, 'manifest_sha256': 'c'*64,
+                 'catalog_index': 0, 'reason': 'empty_timeout'}
+        atomic_json(self.journal/('close-'+GEN+'-2.json'), event)
+        if committed:
+            self.cursor.consume_close(event)
+        self.run_recovery()
+        state, retained = self.read_state()
+        self.assertEqual(state['index'], 1)
+        self.assertIsNone(state['pending'])
+        self.assertIsNone(state['last_started'])
+        with closing(recovery.database(self.root)) as db:
+            self.assertEqual(db.execute('SELECT generation,counter FROM idle_lobbies').fetchall(), [(GEN, 2)])
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM events').fetchone()[0], 0)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 3)
+        self.run_recovery()
+        self.assertEqual(self.read_state(), (state, retained))
+
+    def test_idle_close_after_reboot_advances_once_without_creating_match(self):
+        self.idle_recovery(False)
+
+    def test_committed_idle_close_replayed_after_reboot_does_not_advance_twice(self):
+        self.idle_recovery(True)
+
     def test_foreign_catalog_close_does_not_create_tombstone(self):
         self.fixture()
         atomic_json(self.journal/('close-'+GEN+'-2.json'),{

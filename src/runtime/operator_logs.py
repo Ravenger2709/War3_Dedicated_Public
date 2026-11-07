@@ -148,6 +148,8 @@ class OperatorEvents:
             if fields.get('state') in ('ERROR', 'RECONNECTING'):
                 level = 'ERROR' if fields['state'] == 'ERROR' else 'WARN'
                 message += ' ' + visible(fields.get('reason', '')).replace('_', ' ').capitalize().rstrip('.') + '.'
+        elif kind == 'cycle_idle_rotation':
+            message = 'Empty lobby timeout reached. Advancing to the next map; active matches are preserved.'
         elif kind == 'cycle_monitor':
             active, maximum = fields.get('active'), fields.get('maximum')
             if type(active) is not int or type(maximum) is not int:

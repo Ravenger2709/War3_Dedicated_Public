@@ -78,7 +78,7 @@ class CycleDriver:
         generation, counter = self.catalog.generation, record['counter']
         if self.cursor._find_closed(generation, counter):
             self.catalog.retire_closed(self.cursor, record['request_id'])
-            return 'closed'
+            return 'idle_rotated' if self.cursor._find_idle(generation,counter) else 'closed'
         if self.cursor._find_external('counter', generation, counter):
             self.catalog.complete(self.cursor, record['request_id'])
             return 'started'
@@ -110,7 +110,7 @@ class CycleDriver:
                 and self.catalog.data['completed'] is not None
                 and self.catalog.data['completed']['request_id'] == record['request_id']
                 and self.catalog.data['completed'].get('outcome') == 'closed'):
-            return DriverResult('closed', record['request_id'])
+            return DriverResult('idle_rotated' if self.cursor._find_idle(self.catalog.generation,record['counter']) else 'closed', record['request_id'])
         outcome = self._retire()
         if outcome:
             return DriverResult(outcome, record['request_id'])

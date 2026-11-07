@@ -19,8 +19,9 @@ for driver in phase3/native-driver bridge/native-publication-driver; do
         -Lbuild/ghost/lib -L/deps/usr/lib/x86_64-linux-gnu -lbncsutil -lStorm -lboost_filesystem -lboost_system -lgmp -lbz2 -lz -lpthread -ldl -lrt -o "$output"
 done
 export LD_LIBRARY_PATH=/repo/build/ghost/lib:/deps/usr/lib/x86_64-linux-gnu
-export WAR3_STORM_LIBRARY=/repo/build/ghost/lib/libStorm.so
+export WAR3_STORM_LIBRARY=${WAR3_STORM_LIBRARY:-/repo/build/ghost/lib/libStorm.so}
 export PYTHONDONTWRITEBYTECODE=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
+python3 tests/phase4/native-empty-lobby-rotation-test.py
 PYTHONPATH=/repo python3 tests/bridge/test_publication_file_race.py
 python3 tests/phase3/native-test.py
 python3 tests/phase3/native-vote-reminder-test.py
@@ -48,3 +49,4 @@ python3 tests/phase4/native-catalog-close-recovery-test.py
 python3 tests/phase4/native-manual-preload-test.py
 python3 tests/phase3/native-preset-fence-test.py
 python3 tests/bridge/native-publication-test.py
+

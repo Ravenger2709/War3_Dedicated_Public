@@ -238,6 +238,7 @@ def prepare_native(config,username,publish=True, *, catalog_overrides=None, cata
         'bot_vote_cooldown':str(game['vote_cooldown']),
         'bot_lobby_refresh_enabled':str(int(game['lobby_refresh_enabled'])),
         'bot_lobby_message_interval':str(game['lobby_message_interval']),
+        'bot_empty_lobby_rotation_seconds':str(game['empty_lobby_rotation_minutes']*60),
         'bot_lobby_refresh_interval':str(game['lobby_refresh_interval']),'bot_lobby_refresh_mode':game['lobby_refresh_mode']})
     values.update(ai_values)
     if catalog_overrides is not None: values.update(catalog_overrides)

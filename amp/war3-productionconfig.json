@@ -277,5 +277,20 @@
     "Required": false,
     "EnumValues": {},
     "Placeholder": "{\"version\":1,\"presets\":[{\"id\":\"custom\",\"enabled\":true,\"map_filename\":\"Custom.w3x\",\"start\":{\"autostart_enabled\":true,\"autostart_players\":6,\"countdown_seconds\":5}}]}"
+  },
+  {
+    "DisplayName": "Empty lobby rotation timeout (minutes)",
+    "Description": "Advance to the next map after the lobby has contained no human players for this many continuous minutes. Joining resets the timer. Running matches are preserved. 0 disables idle rotation. Applied on next AMP Start/Restart.",
+    "Category": "War3_Dedicated:sports_esports",
+    "FieldName": "empty_lobby_rotation_minutes",
+    "ParamFieldName": "empty_lobby_rotation_minutes",
+    "DefaultValue": "10",
+    "IncludeInCommandLine": false,
+    "Required": true,
+    "EnumValues": {},
+    "InputType": "number",
+    "minValue": "0",
+    "maxValue": "1440",
+    "Subcategory": "Map cycle:autorenew:25"
   }
 ]

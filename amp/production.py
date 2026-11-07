@@ -28,7 +28,7 @@ DEFAULTS = {
     "vote_enabled": True, "vote_required_percent": 60, "vote_min_players": 2,
     "vote_timeout": 60, "vote_cooldown": 30, "lobby_refresh_enabled": True,
     "lobby_refresh_interval": 10, "lobby_refresh_mode": "slot_toggle",
-    "lobby_message_interval": 20,
+    "lobby_message_interval": 20, "empty_lobby_rotation_minutes": 10,
     "autohost_enabled": True, "reconnect_enabled": True, "map_preset": "manual",
     "autostart_enabled": True,
 }
@@ -36,6 +36,7 @@ RANGES = {"game_port": (6113, 6113), "max_players": (2, 12), "autostart_players"
           "countdown_seconds": (0, 60), "vote_required_percent": (1, 100),
           "vote_min_players": (2, 12), "vote_timeout": (5, 600), "vote_cooldown": (0, 600),
           "lobby_refresh_interval": (10, 3600), "lobby_message_interval": (10, 3600),
+          "empty_lobby_rotation_minutes": (0, 1440),
           "max_concurrent_matches": (1, 5)}
 RO = ("config", "maps", "warcraft")
 RW = ("state", "sqlite", "logs", "replays", "prefix", "session")
@@ -697,7 +698,8 @@ def settings(raw):
     cycle = raw.pop("map_cycle", None) if "map_cycle" in raw else [raw.get("map_preset", "manual")]
     limit = raw.pop("max_concurrent_matches", 3)
     raw = {"map_preset": "manual", "autostart_enabled": True,
-           "lobby_message_interval": DEFAULTS["lobby_message_interval"], **raw}
+           "lobby_message_interval": DEFAULTS["lobby_message_interval"],
+           "empty_lobby_rotation_minutes": DEFAULTS["empty_lobby_rotation_minutes"], **raw}
     if set(raw) != set(DEFAULTS):
         raise ValueError("settings must contain exactly the documented fields")
     if isinstance(cycle, str):

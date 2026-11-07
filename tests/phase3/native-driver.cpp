@@ -388,6 +388,11 @@ int main(int argc,char **argv)
                 std::istringstream input(command.substr(13)); int fd=-1; string digest; input >> fd >> digest;
                 std::cout << "TEST MANIFESTHASH " << NativePreloadManifestDigestMatches(fd,digest) << std::endl;
             }
+            else if(command.compare(0,13,"emptytimeout ")==0)
+            {
+                string value = command.substr(13);
+                gGHost->m_EmptyLobbyRotationSeconds=std::min((uint32_t)86400,UTIL_ToUInt32(value));
+            }
             else if(command=="generation")
                 std::cout << "TEST GENERATION " << gGHost->m_LifecycleGeneration << std::endl;
             else if(command.compare(0, 17, "catalogholdbound ")==0)

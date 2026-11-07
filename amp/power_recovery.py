@@ -100,7 +100,11 @@ def history(db):
     result = hashlib.sha256()
     for table, order in [('events', 'generation,match_id'),
                          ('closed_lobbies', 'generation,counter'),
-                         ('catalog_closed_lobbies', 'generation,counter')]:
+                         ('catalog_closed_lobbies', 'generation,counter'), ('idle_lobbies','generation,counter')]:
+        # Preserve fingerprints of pre-idle recovery intents when no idle table
+        # exists; an interrupted recovery must remain resumable after upgrade.
+        if table == 'idle_lobbies' and not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='idle_lobbies'").fetchone():
+            continue
         result.update(table.encode())
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
             for row in db.execute('SELECT * FROM ' + table + ' ORDER BY ' + order):
@@ -293,7 +297,7 @@ def recover(root, expected_boot):
                 if event['event'] == 'game_started':
                     cursor.consume_external(event)
                 else:
-                    if event['version'] == 2:
+                    if event['version'] in (2,3):
                         known = cursor._find_catalog_close(generation, event['host_counter'])
                         identity = (event['request_id'], event['manifest_sha256'], event['catalog_index'])
                         require(known == identity or q is not None and q['digest'] == event['manifest_sha256']

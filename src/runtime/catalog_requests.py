@@ -202,7 +202,7 @@ class CatalogRequests:
         operation until both the cursor tombstone and selection update commit.
         A different late event never retires the current request.
         """
-        if (self.failed or not isinstance(event, dict) or event.get('version') != 2
+        if (self.failed or not isinstance(event, dict) or event.get('version') not in (2,3)
                 or event.get('session_generation') != self.generation
                 or event.get('manifest_sha256') != self.digest):
             raise CatalogRequestError('invalid catalog close')
@@ -219,7 +219,10 @@ class CatalogRequests:
                     event.get('catalog_index') != candidate['index'] or
                     candidate['counter'] not in (None, event.get('host_counter'))):
                 raise CatalogRequestError('catalog close identity mismatch')
-            if active and (candidate['position'] != state['index'] or candidate['status'] == 'rejected'):
+            idle_committed = (event.get('version') == 3 and state['version'] == 3
+                              and cursor._find_idle(self.generation,event.get('host_counter')))
+            position = (candidate['position']+1)%len(self.indices) if idle_committed else candidate['position']
+            if active and (position != state['index'] or candidate['status'] == 'rejected'):
                 raise CatalogRequestError('catalog close conflicts with selection')
             if previous and candidate.get('outcome') != 'closed' and candidate['status'] != 'closed':
                 raise CatalogRequestError('catalog close conflicts with completion')
@@ -290,7 +293,7 @@ class CatalogRequests:
     def retire_closed(self, cursor, request_id):
         """Retire a staged lobby only after its matching durable fenced close.
 
-        No cursor advancement or inference of a start is performed. As with all
+        Cursor advancement, if any, was committed with the idle close. As with all
         operations, lifecycle consumption and cursor access must be serialized.
         """
         if self.failed:
@@ -307,8 +310,8 @@ class CatalogRequests:
             raise CatalogRequestError('request has no bound staged lobby')
         state = self._cursor(cursor)
         if (state['version'] != 3 or state['pending'] is not None
-                or state['index'] != record['position']
-                or self.indices[state['index']] != record['index']
+                or state['index'] != ((record['position']+1)%len(self.indices) if cursor._find_idle(self.generation,record['counter']) else record['position'])
+                or self.indices[record['position']] != record['index']
                 or not cursor._find_closed(self.generation, record['counter'])
                 or cursor._find_external('counter', self.generation, record['counter'])):
             raise CatalogRequestError('matching fenced close unavailable')

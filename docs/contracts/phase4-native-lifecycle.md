@@ -54,6 +54,14 @@ can occur after the durable record but before any packet reaches clients.
 
 ## Consumer and acknowledgement
 
+Catalog-managed empty lobbies additionally support [idle timeout rotation](../empty-lobby-rotation.md).
+Its close record is version `3`, with the same catalog identity as a version-2
+close plus the exact `reason: "empty_timeout"`. It is emitted only after the
+native admission thread checks the lobby has no human or potential connections
+and fences that identity. Only this close kind advances the cycle. The SQLite
+cursor commits its idle fence and next position in one transaction; no start
+event is synthesized. Normal version-1/2 close semantics remain unchanged.
+
 Python should scan all `start-*.json` and `close-*.json` files at startup and after every wakeup;
 stdout is only a hint, never a cursor or an authoritative event stream. A scan
 can see the name between rename and producer directory-fsync. Before using a

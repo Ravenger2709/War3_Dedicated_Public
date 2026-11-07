@@ -25,7 +25,7 @@ class CycleCoordinator:
         def persist(event):
             # An already committed event is an acceptable, durable replay.
             if event.event == 'lobby_closed':
-                if event.version == 2:
+                if event.version in (2, 3):
                     if self.catalog_requests is None:
                         raise ValueError('CATALOG_CLOSE_COORDINATOR_REQUIRED')
                     self.catalog_requests.consume_catalog_close(self.state, asdict(event))
