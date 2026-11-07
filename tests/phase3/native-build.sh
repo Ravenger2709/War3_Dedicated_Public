@@ -2,6 +2,7 @@
 # Execute only inside the pinned local --network=none builder; staged sources only.
 set -euo pipefail
 cd /repo
+export PYTHONPATH=/repo
 export GHOST_DEPS_ROOT=/deps JOBS=2
 bash scripts/build-ghost.sh
 python3 tests/offline/test_ghost_source_guard.py
