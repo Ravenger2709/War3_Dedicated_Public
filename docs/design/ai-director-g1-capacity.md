@@ -28,8 +28,9 @@ limits are not a proof that every possible twelve-human transport is impossible.
 
 ## One bounded candidate: two genuine senders
 
-This is a proposed experiment, **not implemented or accepted**. It requires two
-independent real clients; synthetic peers cannot settle its engine behavior.
+The separate [dual probe implementation](ai-director-g1-dual-probe.md) now exists
+as a **probe-only experiment, not engine-accepted**. It requires two independent
+real clients; synthetic peers cannot settle its engine behavior.
 
 1. Use a fresh exact-hash fixture with unchanged human rows and no fake sender.
    Capture each selected sender's actual chat receiver pair from that release.

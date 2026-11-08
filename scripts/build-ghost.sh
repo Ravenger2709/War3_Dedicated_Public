@@ -77,7 +77,8 @@ fi
 # from a sanitizer build to release. Never reuse partially instrumented objects.
 GHOST_PATCH_SHA=$(sha256sum "$PATCH" | cut -d ' ' -f 1)
 G1_BRIDGE_SHA=$(sha256sum src/hostbot/native_g1_bridge.h | cut -d ' ' -f 1)
-PROFILE="$OPT|$SANFLAGS|$INC|$LIB|$GHOST_PATCH_SHA|$G1_BRIDGE_SHA"
+G1_DUAL_PROBE_SHA=$(sha256sum src/hostbot/native_g1_dual_probe.h | cut -d ' ' -f 1)
+PROFILE="$OPT|$SANFLAGS|$INC|$LIB|$GHOST_PATCH_SHA|$G1_BRIDGE_SHA|$G1_DUAL_PROBE_SHA"
 if [[ ! -f build/ghost-build-profile ]] || [[ $(cat build/ghost-build-profile) != "$PROFILE" ]]; then
     for directory in bncsutil/src/bncsutil ghost; do
         make -C "vendor/ghostplusplus/$directory" clean
@@ -92,6 +93,11 @@ make -C vendor/ghostplusplus/bncsutil/src/bncsutil -j"$JOBS" \
 make -C vendor/ghostplusplus/ghost -j"$JOBS" 'C++=g++ -std=gnu++11' \
     DFLAGS= OFLAGS="$OPT $SANFLAGS $INC" \
     LFLAGS="$SANFLAGS -L../bncsutil/src/bncsutil  $LIB -lbncsutil -lpthread -ldl -lz -lstorm -lboost_filesystem -lboost_system -lrt"
+[[ $(sha256sum "$PATCH" | cut -d ' ' -f 1) == "$GHOST_PATCH_SHA" &&
+   $(sha256sum src/hostbot/native_g1_bridge.h | cut -d ' ' -f 1) == "$G1_BRIDGE_SHA" &&
+   $(sha256sum src/hostbot/native_g1_dual_probe.h | cut -d ' ' -f 1) == "$G1_DUAL_PROBE_SHA" ]] || {
+    echo 'Native sources changed during build; retry from a stable checkout' >&2; exit 1;
+}
 publish_elf() {
     local source=$1 destination=$2 temporary
     temporary=$(mktemp "${destination}.XXXXXXXX")

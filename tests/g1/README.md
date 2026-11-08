@@ -7,6 +7,12 @@ comparison, see [the operator procedure](../../docs/design/ai-director-g1-two-cl
 The pure Python `test_peer_ack_audit.py` suite uses synthetic logs only; its
 success does not replace running two actual Warcraft clients.
 
+The slot-free [dual-real-sender probe](../../docs/design/ai-director-g1-dual-probe.md)
+has a separate 26-scenario ASan/UBSan unit executable,
+`tests/g1/dual-probe-test.cpp`, run by the native suite. Its `/tmp` tmpfs must be
+executable. These are protocol/model checks, not two-engine callback evidence;
+this candidate cannot generate actor orders.
+
 ```sh
 # Repository bind /repo; default working directory /repo.
 # No network, Docker socket, account/profile, Wine or Warcraft engine.

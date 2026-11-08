@@ -71,8 +71,14 @@ class G1Tests(unittest.TestCase):
   self.assertFalse(any('receiver probe ACK confirmed' in line for line in n.lines))
   self.assertFalse(a.disconnected)
  def test_real_sender_profile_admits_twelve_without_fake_row(self):
-  n=self.native({'bot_g1_bridge_mode':'2','bot_g1_map_sha256':hashlib.sha256(b'').hexdigest(),
-   'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'821','bot_g1_receiver_b':'821'}).start().create()
+  self.check_twelve_real_admissions(2)
+ def test_dual_profile_admits_twelve_without_fake_row(self):
+  self.check_twelve_real_admissions(4)
+ def check_twelve_real_admissions(self,mode):
+  settings={'bot_g1_bridge_mode':str(mode),'bot_g1_map_sha256':hashlib.sha256(b'').hexdigest(),
+   'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'821','bot_g1_receiver_b':'821'}
+  if mode==4:settings.update(bot_g1_secondary_receiver_a='822',bot_g1_secondary_receiver_b='822')
+  n=self.native(settings).start().create()
   peers=[n.peer('Human'+str(i),lan=True) for i in range(12)]
   wait(lambda:n.state()['players']==12)
   slots=bytes(int(word,16) for word in n.state()['slots_hex'].split())
@@ -80,6 +86,44 @@ class G1Tests(unittest.TestCase):
   self.assertEqual({slots[i] for i in range(0,len(slots),9)},{peer.pid for peer in peers})
   n.peer('Overflow',accepted=False)
   self.assertTrue(all(not peer.disconnected for peer in peers))
+ def start_dual(self):
+  n=self.native({'bot_g1_bridge_mode':'4','bot_g1_map_sha256':hashlib.sha256(b'').hexdigest(),
+   'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'821','bot_g1_receiver_b':'821',
+   'bot_g1_secondary_receiver_a':'822','bot_g1_secondary_receiver_b':'822'})
+  n.start().create();a=n.peer('First',lan=True,game_keepalive=True);b=n.peer('Second',game_keepalive=True)
+  n.command('load')
+  for peer in (a,b):peer.sock.sendall(g.frame(0x23))
+  wait(lambda:n.state()['game_loaded'])
+  return n,a,b
+ def test_dual_probe_preserves_real_records_and_needs_both_acks(self):
+  n,a,b=self.start_dual();epoch=n.state()['host_counter']
+  original=cache('wire_version',3)+cache('tick',8)
+  send(a,original);send(b,original)
+  first=chat(f'~g1:{epoch}:0:8:0',821,821);second=chat(f'~g1:{epoch}:0:8:0',822,822)
+  wait(lambda:found(a,first) and found(a,second) and found(b,first) and found(b,second))
+  records=[r for p in a.frames if p[1]==0x0c for r in action_records(p)]
+  for record in [(a.pid,original),(b.pid,original),(a.pid,first),(b.pid,second)]:self.assertIn(record,records)
+  self.assertFalse(any('POSITIVE CONTROL' in l or '[G1] fixed command queued' in l for l in n.lines))
+  send(a,cache('tick',9)+cache('raw0',0)+cache('raw1',1)+cache('accepted_probe',1)+cache('probe',epoch))
+  wait(lambda:sum('dual probe ACK pid=' in l for l in n.lines)==1)
+  self.assertFalse(any('dual probe confirmed by both peers' in l for l in n.lines))
+  send(b,cache('tick',9)+cache('raw0',1)+cache('raw1',0)+cache('accepted_probe',1)+cache('probe',epoch))
+  wait(lambda:any('dual probe confirmed by both peers' in l for l in n.lines))
+  for peer in (a,b):send(peer,cache('tick',100))
+  time.sleep(.2)
+  self.assertFalse(any('dual probe failed' in l or '[G1] fixed command queued' in l for l in n.lines))
+ def test_dual_probe_one_ack_cannot_complete_after_deadline(self):
+  n,a,b=self.start_dual();epoch=n.state()['host_counter']
+  for peer in (a,b):send(peer,cache('wire_version',3)+cache('tick',8))
+  wait(lambda:any('dual probe queued real_senders=2' in l for l in n.lines))
+  response=cache('raw0',1)+cache('raw1',1)+cache('accepted_probe',1)+cache('probe',epoch)
+  send(a,cache('tick',9)+response)
+  wait(lambda:any('dual probe ACK pid=' in l for l in n.lines))
+  send(b,response+cache('tick',29))
+  wait(lambda:any('dual probe failed' in l for l in n.lines))
+  send(b,cache('tick',30)+response);time.sleep(.2)
+  self.assertFalse(any('dual probe confirmed by both peers' in l or '[G1] fixed command queued' in l for l in n.lines))
+  self.assertFalse(a.disconnected or b.disconnected)
  def test_roundtrip_sender_binding_filter_and_replay(self):
   n,a,b=self.start();epoch=n.state()['host_counter']
   send(b,chat('g1:hello'));send(b,cache('tick',8));time.sleep(.2)
@@ -179,6 +223,8 @@ class G1Tests(unittest.TestCase):
          {'bot_g1_bridge_mode':'1','bot_g1_map_sha256':'bad'},
          {'bot_g1_bridge_mode':'2','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_a':'4294967296','bot_g1_receiver_b':'1'},
          {'bot_g1_bridge_mode':'2','bot_g1_map_sha256':'a'*64}]
+  base={'bot_g1_bridge_mode':'4','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'821','bot_g1_receiver_b':'821','bot_g1_secondary_receiver_a':'822','bot_g1_secondary_receiver_b':'822'}
+  cases += [{**base,'bot_g1_receiver_binding':'manual'},{**base,'bot_g1_secondary_receiver_a':'0'},{**base,'bot_g1_secondary_receiver_b':'65536'},{**base,'bot_g1_secondary_receiver_b':'x'}]
   for settings in cases:
    with self.subTest(settings=settings):
     n=self.native(settings).start(ready=False)

@@ -68,3 +68,9 @@ generated downlink. Ask the operator to type `g1:hello` once in common in-game
 chat after loading. Record the genuine action's receiver pair and compare it
 with the historical candidate. A fresh active attempt still requires its own
 harmless probe ACK; genuine hello capture alone grants no actor authority.
+
+The subsequent real red-client capture on that exact 0.1.7 map returned
+821/821 again. The initial configured address therefore matches fresh observed
+traffic, while the reflected self probe still has no ACK. The root cause remains
+unconfirmed. The next bounded candidate is the separate
+[two-real-sender probe](ai-director-g1-dual-probe.md), which issues no actor orders.

@@ -7,6 +7,10 @@ export PYTHONPATH=/repo JOBS=2
 : "${WAR3_STORM_LIBRARY:?Supply the unsanitized MIT StormLib path for Python MPQ fixtures}"
 [[ -f "$WAR3_STORM_LIBRARY" ]]
 [[ $(stat -c %i /sys/fs/cgroup) == 1 ]] || { echo "Full read-only cgroup hierarchy required for concurrency tests" >&2; exit 2; }
+g++ -std=c++11 -Wall -Wextra -Werror -Wno-misleading-indentation \
+    -fsanitize=address,undefined -fno-omit-frame-pointer -I. \
+    tests/g1/dual-probe-test.cpp -o /tmp/g1-dual-probe-test
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 /tmp/g1-dual-probe-test
 bash scripts/build-ghost.sh
 flags=(-std=gnu++11 -O1 -g -fno-omit-frame-pointer -Ivendor/ghostplusplus/ghost -Ivendor/ghostplusplus/bncsutil/src -Ivendor/stormlib/src)
 if [[ -n ${GHOST_SANITIZERS:-} ]]; then flags+=("-fsanitize=$GHOST_SANITIZERS"); fi
