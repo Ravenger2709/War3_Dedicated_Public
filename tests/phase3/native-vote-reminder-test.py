@@ -26,7 +26,7 @@ def messages(peer,prefix):
         if packet[1]!=0x0f:continue
         count=packet[4];start=7+count+(4 if packet[6+count]==32 else 0)
         value=packet[start:-1].decode('utf8','replace')
-        if value.startswith(prefix) and (prefix!=VOTE or value.endswith("Type !vote when ready.")):result.append((stamp,value))
+        if value.startswith(prefix) and (prefix!=VOTE or value.endswith('Type "!vote" to start map')):result.append((stamp,value))
     return result
 
 def settle(seconds):
@@ -55,7 +55,7 @@ class VoteReminderTests(unittest.TestCase):
         wait(lambda:any(after is None or stamp>after for stamp,_ in messages(peer,VOTE)),6)
         stamp,text=next((stamp,text) for stamp,text in messages(peer,VOTE) if after is None or stamp>after)
         word='player' if required==1 else 'players'
-        self.assertEqual(text,f'Voting requires at least {required} human {word} ({max(0,required-humans)} more needed). Type !vote when ready.')
+        self.assertEqual(text,f'Voting requires at least {required} human {word} ({max(0,required-humans)} more needed). Type "!vote" to start map')
         return stamp
 
     def test_four_two_delay_fresh_join_counts_and_repeated_calls_do_not_postpone(self):
@@ -96,12 +96,12 @@ class VoteReminderTests(unittest.TestCase):
         n=self.start(auto=False);a=n.peer('First')
         wait(lambda:len(messages(a,VOTE))==1,12)
         first,text=messages(a,VOTE)[0]
-        self.assertEqual(text,'Voting requires at least 2 human players (1 more needed). Type !vote when ready.')
+        self.assertEqual(text,'Voting requires at least 2 human players (1 more needed). Type "!vote" to start map')
         b=n.peer('Second');wait(lambda:n.state()['players']==2)
         wait(lambda:len(messages(a,VOTE))==2,12)
         second,text=messages(a,VOTE)[1]
         self.assertGreaterEqual(second-first,9.5);self.assertLessEqual(second-first,10.6)
-        self.assertEqual(text,'Voting requires at least 2 human players (0 more needed). Type !vote when ready.')
+        self.assertEqual(text,'Voting requires at least 2 human players (0 more needed). Type "!vote" to start map')
         self.assertFalse(messages(a,AUTO));self.assertEqual(n.state()['phase'],'LOBBY')
         self.assertFalse(b.disconnected)
 
@@ -197,7 +197,7 @@ class ConcurrentReminderTests(unittest.TestCase):
         self.assertIsNotNone(start)
         vote=messages(b,VOTE);self.assertEqual(len(vote),1)
         self.assertEqual(messages(b,AUTO)[0][1],'Auto-start requires 3 human players (2 more needed).')
-        self.assertEqual(vote[0][1],'Voting requires at least 2 human players (1 more needed). Type !vote when ready.')
+        self.assertEqual(vote[0][1],'Voting requires at least 2 human players (1 more needed). Type "!vote" to start map')
         self.assertGreaterEqual(vote[0][0]-start,3.2);self.assertLessEqual(vote[0][0]-start,4.2)
         echoes=[stamp for stamp,frame in zip(a.frame_times,a.frames) if start<=stamp<=vote[0][0] and frame[1]==0x0c and len(frame)>8]
         self.assertGreaterEqual(len(echoes),15)

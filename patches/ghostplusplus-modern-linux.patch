@@ -405,7 +405,7 @@ index 8b54fcd..864ac7a 100644
  	// record everything we need to ban each player in case we decide to do so later
  	// this is because when a player leaves the game an admin might want to ban that player
 diff --git a/ghost/game_base.cpp b/ghost/game_base.cpp
-index 121bc52..db6d4e7 100644
+index 121bc52..a436ae5 100644
 --- a/ghost/game_base.cpp
 +++ b/ghost/game_base.cpp
 @@ -25,6 +25,7 @@
@@ -1435,7 +1435,7 @@ index 121bc52..db6d4e7 100644
 +        if(m_NativeVoteReminderDueMS && now>=m_NativeVoteReminderDueMS)
 +        {
 +            m_NativeVoteReminderDueMS=0; m_NativeVoteReminderLastSentMS=now;
-+            if(humans) SendAllChat(NativeHumanRequirement("Voting requires at least ",max(m_NativeGameplay.VoteMinPlayers,NativeMinimumHumans()),humans)+" Type !vote when ready.");
++            if(humans) SendAllChat(NativeHumanRequirement("Voting requires at least ",max(m_NativeGameplay.VoteMinPlayers,NativeMinimumHumans()),humans)+" Type \"!vote\" to start map");
 +        }
 +    }
 +    else m_NativeVoteReminderDueMS=0;

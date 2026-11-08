@@ -120,7 +120,7 @@ class ProductionBackendE2E(unittest.TestCase):
                 first=join(['VoteA1'],maps.a.stat().st_size)
                 until(lambda:'Auto-start requires 4 human players (3 more needed).' in first[0].chats(),
                       15,'separate auto-start notice')
-                until(lambda:'Voting requires at least 2 human players (1 more needed). Type !vote when ready.' in first[0].chats(),
+                until(lambda:'Voting requires at least 2 human players (1 more needed). Type "!vote" to start map' in first[0].chats(),
                       6,'periodic voting reminder without invoking a command')
                 self.assertFalse(any('Voting' in line or '!vote' in line for line in first[0].chats()
                                      if line.startswith('Auto-start requires ')))
