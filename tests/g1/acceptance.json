@@ -21,9 +21,9 @@
     "tests/g1/lan-smoke.py": "c944bb44d073812548c3605103eda6154d2399f733a2080cdeaa0cc7a01ea96e",
     "tests/offline/ghost_lifecycle.py": "b3471da089bf7fc55abd3cd9cf3dd5a4e87bbc97a4d717787f7f09cf2f81568e",
     "tests/g1/native-isolation-test.py": "5af17e9f03c488fbdbcb26049b51aea8ef98f0f41a63086b54544ff71eb038c9",
-    "tests/g1/replay-audit.py": "1bacd427e40c4e3b2e0dd07d2ba49a5f1e317062381ac015e349b855b3f223a0",
+    "tests/g1/replay-audit.py": "044912f4aa264d749f76bacea0da566f1652038a1ffd875e68034a7ea992376c",
     "tests/g1/test_replay_audit.py": "6c59a63038ba2fb39eac6bafc52f7bfe93a47c44827957ab467ba1166ff06ded",
-    "tests/g1/test_safety_replay.py": "ab6e7c4accaa316e71af3c704fac07ac01f12fa8011e2b34ae595a543261bd30"
+    "tests/g1/test_safety_replay.py": "e25b6e58b08eb054a0a2ad86155d478749a78baeb9d8bf63ed7fd4b526afa6d5"
   },
   "automatic_checks": {
     "exact_native_source_guard": "PASS",
@@ -56,7 +56,7 @@
     },
     "simulation_clock_and_retirement": "PASS_SESSION_MODEL_NOT_ENGINE_PAUSE",
     "replay_auditor": {
-      "synthetic_tests_passed": 30,
+      "synthetic_tests_passed": 32,
       "completed_lan_samples": 4,
       "all_samples_container_and_record_integrity": "PASS",
       "historical_failed_samples_ack_count": 0,
@@ -106,7 +106,7 @@
       "scope": "Current native source incl classic pause/save fix; Python safety telemetry tests separately recorded"
     },
     "safety_telemetry_audit": {
-      "synthetic_tests_passed": 7,
+      "synthetic_tests_passed": 9,
       "scope": "Negative snapshot, epoch, timing, position, order and recovery fixtures; actual safety map engine pending"
     }
   },
@@ -118,8 +118,9 @@
     "full_twelve_human_capacity_execution": "NOT_PASSED_POSITIVE_CONTROL_RESERVES_ONE_SLOT",
     "exact_126a_standard_library_installation_provenance": "UNVERIFIED",
     "pause_resume": "PASS_ONE_REAL_CLIENT_WITH_ACK_RESUMPTION",
-    "lag_recovery": "NOT_RUN",
-    "lease_fallback": "NOT_RUN"
+    "lag_recovery": "CONTROLLED_HOST_STALL_PASS_PEER_LAG_AND_PACKET_LOSS_NOT_RUN",
+    "lease_fallback": "RETEST_WITH_DELAYED_PHYSICAL_SAMPLES_PENDING",
+    "controlled_host_stall": "PASS_8_SECONDS_SAME_PROCESS_ACKS_RESUMED"
   },
   "production_amp_changed": false,
   "llm_calls": 0,
@@ -279,11 +280,33 @@
     "native_binary_sha256": "d26d7f4ee66e48e728f17c4c12b425b4e3b7a6ce0adb6eb7448eb5c8ce97ab1a"
   },
   "next_safety_map": {
-    "maps_commit": "34af33a",
-    "version": "0.1.5",
-    "map_sha256": "b076f6aa529e6219717bf1905a7cb683a37fda1f13a1d527236f9283730a5cf0",
-    "classic_map_tests_passed": 20,
-    "real_client": "PENDING",
+    "maps_commit": "fe3d39a",
+    "version": "0.1.6",
+    "map_sha256": "acbd5550213a340aeda08114e9b91be262309e8c2bd9c254ce92e29a8c3dfd1f",
+    "classic_map_tests_passed": 23,
+    "real_client": "PENDING_DELAYED_POSITION_SAMPLES",
     "receiver_pair": "PRIOR_GENUINE_CAPTURE_CANDIDATE_FRESH_PROBE_REQUIRED"
+  },
+  "safety_015_observation": {
+    "actor_commands": 91,
+    "ack_count": 91,
+    "duration_ms": 193000,
+    "structure": "PASS",
+    "hold_accepted": 1,
+    "before_order": 851986,
+    "immediate_after_order": 0,
+    "fallback_tick": 69,
+    "lease_end": 68,
+    "position_x_offset": 4342,
+    "target_x_offset": 4608,
+    "controlled_host_stall": {
+      "seconds": 8.0,
+      "before_sequence": 11,
+      "after_sequence": 14,
+      "same_pid": true,
+      "restart_count_changed": false
+    },
+    "lease_gate": "PENDING_DELAYED_SAMPLES",
+    "engine_playback": "NOT_RUN"
   }
 }

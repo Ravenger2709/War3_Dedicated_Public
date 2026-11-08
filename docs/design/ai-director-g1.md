@@ -192,3 +192,14 @@ order transitions, position against target and post-stall recovery. Its positive
 result means known-fixture reported telemetry is consistent; a real client must
 still execute the scenario. Other full-G1 gates, including two-client desync and
 twelve-human capacity, remain pending.
+
+
+The actual 0.1.5 run produced 91 commands/ACKs and recovered from the announced
+eight-second host-container freeze without process replacement or a client
+disconnect. Its map reported a successful hold at logical tick 69 after lease
+68, while moving toward an unreached target. The immediate current-order result
+was zero, so the physical-stop gate was withheld. Candidate 0.1.6 preserves the
+behavior and adds a previous-tick position plus two delayed post-hold samples.
+The audit accepts a completed-order zero only with verified position stability,
+logical timing, no natural arrival/superseding order, and command/ACK recovery.
+This is a diagnostic correction; 0.1.5 is not retroactively declared a safety pass.

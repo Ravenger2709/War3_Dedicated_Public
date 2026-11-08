@@ -117,3 +117,11 @@ pair is only a startup candidate for the new exact-hash map: fresh real probe AC
 remains mandatory before actor orders. If it fails, capture the sender's genuine
 pair for the new release rather than deriving or enumerating IDs. Structural and
 reported-telemetry consistency checks do not establish engine replay playback.
+
+
+Candidate 0.1.6 repeats the same automatic scenario with position history and
+post-hold samples. Use the release-specific path
+`Maps\Download\g1-safety-0.1.6.w3x`. Wait for `hold samples collected` and RESUME,
+then leave after approximately 45 seconds. The already-passed host freeze need
+not be repeated. The extra samples distinguish an actual stopped unit from a
+completed immediate order whose current-order getter returns zero.

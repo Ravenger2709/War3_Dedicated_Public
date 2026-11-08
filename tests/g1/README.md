@@ -96,3 +96,12 @@ labels its evidence as map telemetry, with network packet loss, engine playback
 and desync unassessed. An actual known-map client run is required before recording
 the controlled-stall gate as passed. This fixture retains eleven real-human
 places and is not the twelve-human transport experiment.
+
+
+The 0.1.5 real client accepted the hold but returned current order zero
+immediately after it. That alone is not safety evidence. Candidate 0.1.6 reports
+position history from T-1 and two post-hold samples at T+1/T+5. The audit requires
+motion before hold, stationary post-samples away from the target, valid order
+reports and no superseding command. A conservative travel/arrival margin also
+rejects natural arrival before the first sample. Order zero is allowed only
+alongside this physical evidence; missing samples cannot inherit a pass.

@@ -29,6 +29,9 @@ SAFETY_KEYS = {
     'fallback_hold_ok', 'fallback_x_offset', 'fallback_y_offset',
     'fallback_target_x_offset', 'fallback_target_y_offset',
     'move_order', 'hold_order', 'move_speed',
+    'fallback_previous_tick', 'fallback_previous_x_offset', 'fallback_previous_y_offset',
+    'hold_sample1_tick', 'hold_sample1_order', 'hold_sample1_x_offset', 'hold_sample1_y_offset',
+    'hold_sample2_tick', 'hold_sample2_order', 'hold_sample2_x_offset', 'hold_sample2_y_offset',
 }
 KEYS |= {key.encode('ascii') for key in SAFETY_KEYS}
 
@@ -277,6 +280,12 @@ class Summary:
         start_order = self.export_order[(self.publisher, 'stall_start')]
         end_order = self.export_order[(self.publisher, 'stall_end')]
         before, after = values['fallback_before_order'], values['fallback_order']
+        point = lambda prefix: (values[prefix + '_x_offset'], values[prefix + '_y_offset'])
+        at_hold = point('fallback')
+        target = point('fallback_target')
+        sample1, sample2 = point('hold_sample1'), point('hold_sample2')
+        sample_orders = [[self.export_order[(self.publisher, key)] for key in SAFETY_KEYS
+                          if key.startswith(prefix)] for prefix in ('hold_sample1_', 'hold_sample2_')]
         latest_ack = self.last_ack_order.get((self.publisher, epoch), (0, 0))
         recovered = any(c['epoch'] == epoch and c['sequence'] > sequence
                         and end_order < order < latest_ack[1]
@@ -301,16 +310,35 @@ class Summary:
             'order_reported': values['move_order'] == 851986 and values['hold_order'] == 851993
                               and before == values['move_order']
                               and values['fallback_hold_ok'] == 1
-                              and after == values['hold_order'],
-            'positive_move_speed': values['move_speed'] > 0,
+                              and after in (0, values['hold_order']),
+            'positive_move_speed': 0 < values['move_speed'] <= 522,
             'position_in_bounds': all(0 <= values[key] <= 8192 for key in
                 ('fallback_x_offset', 'fallback_y_offset',
-                 'fallback_target_x_offset', 'fallback_target_y_offset')),
+                 'fallback_target_x_offset', 'fallback_target_y_offset',
+                 'fallback_previous_x_offset', 'fallback_previous_y_offset',
+                 'hold_sample1_x_offset', 'hold_sample1_y_offset',
+                 'hold_sample2_x_offset', 'hold_sample2_y_offset')),
             'interrupted_before_target': (values['fallback_x_offset'], values['fallback_y_offset'])
                 != (values['fallback_target_x_offset'], values['fallback_target_y_offset']),
             'fixture_target': (values['fallback_target_x_offset'], values['fallback_target_y_offset'])
                               == (4608, 4096),  # seq5: (+512, 0), encoded with +4096
             'telemetry_ordered': start_order < min(fields) <= max(fields) < end_order,
+            'moving_before_hold': values['fallback_previous_tick'] + 1 == values['fallback_tick']
+                                  and point('fallback_previous') != at_hold,
+            'delayed_sample_ticks': values['hold_sample1_tick'] == values['fallback_tick'] + 1
+                                   and values['hold_sample2_tick'] == values['fallback_tick'] + 5
+                                   and values['hold_sample2_tick'] < end,
+            'delayed_sample_order': max(fields) < min(sample_orders[0])
+                                    and max(sample_orders[0]) < min(sample_orders[1])
+                                    and max(sample_orders[1]) < end_order,
+            'stationary_after_hold': sample1 == sample2 and sample1 != target
+                                    and all(values[key] in (0, values['hold_order']) for key in
+                                            ('hold_sample1_order', 'hold_sample2_order')),
+            # The G1 footman's arrival tolerance cannot explain reaching a point
+            # before sample1. Use a conservative 32-unit margin plus one 4 Hz tick
+            # of travel; otherwise stable post-samples could be natural arrival.
+            'not_natural_arrival': 16 * sum((a - b) ** 2 for a, b in zip(at_hold, target))
+                                  > (values['move_speed'] + 128) ** 2,
             'command_precedes_stall': len(matching) == 1 and matching[0][1] < start_order,
             'lease_matches_command_window': len(matching) == 1 and
                 20 <= values['fallback_lease'] - matching[0][0]['source_tick'] <= 40,

@@ -17,10 +17,16 @@ def scenario(changes=None, omit=(), foreign_field=None, duplicate_field=None,
     values = dict(stall_start=49, stall_end=89, fallback_count=1,
                   fallback_tick=69, fallback_lease=68, fallback_epoch=42,
                   fallback_sequence=5, fallback_before_order=851986,
-                  fallback_order=851993, fallback_hold_ok=1,
+                  fallback_order=0, fallback_hold_ok=1,
                   fallback_x_offset=4200, fallback_y_offset=4096,
                   fallback_target_x_offset=4608, fallback_target_y_offset=4096,
-                  move_order=851986, hold_order=851993, move_speed=150)
+                  move_order=851986, hold_order=851993, move_speed=150,
+                  fallback_previous_tick=68, fallback_previous_x_offset=4162,
+                  fallback_previous_y_offset=4096,
+                  hold_sample1_tick=70, hold_sample1_order=0,
+                  hold_sample1_x_offset=4200, hold_sample1_y_offset=4096,
+                  hold_sample2_tick=74, hold_sample2_order=0,
+                  hold_sample2_x_offset=4200, hold_sample2_y_offset=4096)
     values.update(changes or {})
 
     def emit(*keys):
@@ -48,11 +54,14 @@ def scenario(changes=None, omit=(), foreign_field=None, duplicate_field=None,
     raw += emit('fallback_count', 'fallback_tick', 'fallback_lease',
                 'fallback_epoch', 'fallback_sequence', 'fallback_before_order')
     raw += emit('fallback_order', 'fallback_hold_ok', 'fallback_x_offset',
-                'fallback_y_offset', 'fallback_target_x_offset', 'fallback_target_y_offset')
+                'fallback_y_offset', 'fallback_target_x_offset', 'fallback_target_y_offset',
+                'fallback_previous_tick', 'fallback_previous_x_offset', 'fallback_previous_y_offset')
     if duplicate_field:
         raw += emit(duplicate_field)
     if intervening:
         raw += f.frame((2, f.triggered(b'~g1:42:6:70:2', 832, 832)))
+    raw += emit('hold_sample1_tick', 'hold_sample1_order', 'hold_sample1_x_offset', 'hold_sample1_y_offset')
+    raw += emit('hold_sample2_tick', 'hold_sample2_order', 'hold_sample2_x_offset', 'hold_sample2_y_offset')
     raw += emit('stall_end')
     if recovery:
         raw += f.frame((2, f.triggered(f'~g1:{recovery_epoch}:6:89:2'.encode(), 832, 832)))
@@ -124,6 +133,29 @@ class SafetyReplayTests(unittest.TestCase):
     def test_ordinary_replay_never_gains_a_safety_claim(self):
         result = f.audit.audit(f.packed(f.body()))
         self.assertEqual(result['controlled_stall']['code'], 'NOT_OBSERVED')
+
+    def test_accepted_hold_with_zero_current_order_needs_physical_samples(self):
+        self.assertEqual(self.safety()['code'], 'CONSISTENT_REPORTED_CONTROLLED_STALL')
+        self.assertEqual(self.safety(changes={'fallback_order': 851993,
+                          'hold_sample1_order': 851993, 'hold_sample2_order': 851993})['code'],
+                         'CONSISTENT_REPORTED_CONTROLLED_STALL')
+        self.assertEqual(self.safety(omit=('hold_sample2_tick',))['code'],
+                         'INCOMPLETE_REPORTED_TELEMETRY')
+
+    def test_stopped_position_not_inferred_from_order_code_alone(self):
+        invalid = [
+            {'fallback_previous_tick': 67}, {'fallback_previous_x_offset': 4200},
+            {'hold_sample1_tick': 69}, {'hold_sample2_tick': 75},
+            {'hold_sample2_x_offset': 4237}, {'hold_sample1_order': 851986},
+            {'hold_sample2_order': 851986}, {'hold_sample1_x_offset': 0xffffffff},
+            {'hold_sample1_x_offset': 4608, 'hold_sample2_x_offset': 4608},
+            {'fallback_x_offset': 4592, 'hold_sample1_x_offset': 4592,
+             'hold_sample2_x_offset': 4592},
+        ]
+        for change in invalid:
+            with self.subTest(change=change):
+                self.assertEqual(self.safety(changes=change)['code'],
+                                 'INCONSISTENT_REPORTED_TELEMETRY')
 
 
 if __name__ == '__main__':
