@@ -535,5 +535,15 @@
       "sync_checks_enabled": true,
       "result": "FAIL_REAL_ENGINE_DESYNC"
     }
+  },
+  "autonomous_channel_review": {
+    "manifest": "tests/g1/channel-review.json",
+    "status": "BOUNDED_AUTONOMOUS_REVIEW_COMPLETE_STOPPED",
+    "families": 12,
+    "new_tests_passed": 25,
+    "engine_executed": false,
+    "new_engine_green": false,
+    "runtime_promoted": false,
+    "operator_requested_stop_after_review": true
   }
 }

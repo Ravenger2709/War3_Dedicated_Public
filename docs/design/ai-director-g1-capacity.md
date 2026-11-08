@@ -1,6 +1,9 @@
 # G1 capacity: remaining experiment
 
 Status: **two-client reserved-sender control passed; slot-free route unvalidated**.
+The subsequent [autonomous channel review](ai-director-g1-autonomous-review.md)
+is complete and stopped. It records the failed real-PID routes, twelve reviewed
+families and the remaining engine-dependent unknowns; it schedules no client test.
 Local CI/CD LAN only. No AMP, VPN, DLL, client upgrade, game engine on the
 server or LLM integration is authorized by this experiment.
 

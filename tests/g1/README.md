@@ -1,5 +1,12 @@
 # G1 offline checks
 
+The completed [autonomous slot-free review](../../docs/design/ai-director-g1-autonomous-review.md)
+has a separate, non-runtime model and native-surface suite:
+`python3 tests/g1/test_order_channel_model.py` and
+`python3 tests/g1/test_native_channel_surfaces.py` in the existing offline
+toolchain container. These checks need no operator or game engine. Their pass
+does not promote a slot-free transport; see `channel-review.json` for the boundary.
+
 These run in the local CI/CD compiler container, never on production AMP.
 
 For the real two-client reserved-sender baseline and bounded timestamped ACK

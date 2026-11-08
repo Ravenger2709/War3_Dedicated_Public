@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "status": "BOUNDED_AUTONOMOUS_REVIEW_COMPLETE_STOPPED",
+  "target_client": "1.26.0.6401",
+  "scope": "AVAILABLE_PRIMARY_SOURCES_AND_OFFLINE_CHECKS_WITHOUT_OPERATOR",
+  "engine_executed_this_pass": false,
+  "new_engine_green": false,
+  "operator_participation_this_pass": false,
+  "operator_questions_this_pass": 0,
+  "new_tests": {
+    "passed": 25,
+    "model": 23,
+    "actual_native_surface": 2,
+    "network": "none",
+    "synthetic_keepalive_checksums": "FIXED_ZERO_NOT_DESYNC_PROOF"
+  },
+  "native_binary_sha256_unchanged": "2f3c5dc54a7a5eee7056f9d54eda969b3b5515d6b0eee244bc5de6f6d62827c7",
+  "runtime_source_patch_sha256_unchanged": "3fce8c37ed44073d120408ceeccb1d31813281b46d340251f4ef906ba6a98057",
+  "source_files_sha256": {
+    "docs/design/ai-director-g1-autonomous-review.md": "e5a74f2e2b9a06f4b405be0277735475f38ab902c91f702bc501e00950762e5f",
+    "docs/design/ai-director-g1-engine-channels.md": "1e1aaddfa217cadef377ac2c3e3e42b6c8b8a77c32d4f9998d426892ce25a664",
+    "tests/g1/order_channel_model.py": "d83337e599463860ea9be049364edddb53abc42e28b17f20b6eacfd62e5ef7f5",
+    "tests/g1/test_order_channel_model.py": "9f1053da5fddc60f7b159f7b1e5c29539b37b700ca537b2a25b58524822b1463",
+    "tests/g1/test_native_channel_surfaces.py": "2934d926f4cb76ed6b1faabc88163e7c9fa87adbc4314b90e74785dd2bfe72a5"
+  },
+  "families": [
+    {
+      "id": "real_pid_trigger_chat",
+      "decision": "FAILED_PRIOR_REAL_ENGINE_TRIALS"
+    },
+    {
+      "id": "classic_inbound_gamecache",
+      "decision": "UNRESOLVED_ENGINE_ACCEPTANCE_AND_READ_GATE"
+    },
+    {
+      "id": "virtual_neutral_observer_ai_identity",
+      "decision": "NO_VALIDATED_SPARE_ID_OR_TWELVE_HUMAN_ROUTE"
+    },
+    {
+      "id": "ordinary_server_peer_text",
+      "decision": "NATIVE_TEXT_DELIVERY_PASS_JASS_CALLBACK_UNASSESSED"
+    },
+    {
+      "id": "live_player_metadata",
+      "decision": "NO_SUPPORTED_SAFE_LIVE_MAP_MAILBOX_ESTABLISHED"
+    },
+    {
+      "id": "genuine_marker_ordering",
+      "decision": "MODEL_ONLY_ENGINE_NOT_RUN"
+    },
+    {
+      "id": "startup_hcl_seed_map_replay",
+      "decision": "NOT_A_LIVE_DOWNLINK"
+    },
+    {
+      "id": "latency_pause_tick_timing",
+      "decision": "UNPROVEN_OBSERVABILITY_GAMEPLAY_IMPACT_EXCLUDED"
+    },
+    {
+      "id": "preload_and_client_files",
+      "decision": "CLIENT_FILES_AND_EXACT_ENGINE_TEST_REQUIRED"
+    },
+    {
+      "id": "client_helper_or_engine_publisher",
+      "decision": "NEW_CLIENT_DEPLOYMENT_FOOTPRINT_NOT_AVAILABLE_HERE"
+    },
+    {
+      "id": "modern_or_third_party_natives",
+      "decision": "OUTSIDE_UNCHANGED126A"
+    },
+    {
+      "id": "deterministic_map_policy",
+      "decision": "NOT_A_LIVE_DOWNLINK"
+    }
+  ],
+  "cached_api_surface": {
+    "sha256": "9cb04da1c75dd30025d96fec12b4302c2f6a1f1a8c864b66d6cf52c65ecde924",
+    "installation_provenance": "UNVERIFIED",
+    "selected_names_checked": 19,
+    "modern_names_absent": [
+      "BlzSendSyncData",
+      "BlzTriggerRegisterPlayerSyncEvent",
+      "DzSyncData",
+      "DzTriggerRegisterSyncData"
+    ],
+    "scope": "CACHED_DECLARATIONS_NOT_RUNTIME"
+  },
+  "remaining_engine_candidates": [
+    "classic_inbound_gamecache",
+    "genuine_marker_ordering",
+    "ordinary_server_text_callback"
+  ],
+  "production_promotion": false,
+  "sync_checks_disabled": false,
+  "runtime_native_or_map_changed_this_pass": false,
+  "lan_task_container": "REMOVED_AFTER_STOP_AND_EVIDENCE_PRESERVATION",
+  "amp_changed": false,
+  "vpn_changed": false,
+  "automatic_followup_scheduled": false,
+  "stop_reason": "AVAILABLE_SAFE_NON_OPERATOR_CHECKS_COMPLETE_ENGINE_UNKNOWNS_RETAINED",
+  "model_action_payload_limit": 1024
+}
