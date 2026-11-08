@@ -24,7 +24,7 @@
 - [Протокол, синхронизация и проверка транспорта](ai-director-protocol.md).
 - [Точки интеграции хост-бота и AMP](ai-director-host-amp-plan.md).
 - [Предлагаемая конфигурация](ai-director-config.example.json) — дизайн, существующие validators её пока не принимают.
-- Map SDK и адаптеры находятся в приватном [war3-maps](https://github.com/Ravenger2709/war3-maps), в ветке research/ai-director-api-20261108.
+- Map SDK и адаптеры находятся в приватном [war3-maps](https://github.com/Ravenger2709/war3-maps), в ветке feature/ai-director-g1-20261108.
 
 ## 1. Что установлено по исходникам
 
