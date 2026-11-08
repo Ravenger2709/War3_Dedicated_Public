@@ -29,3 +29,9 @@ client downlinks, and deterministic malformed-byte fuzzing. The Python suite
 sends W3GS packets to actual CGame, observes native outgoing actions and reads
 its replay container. Synthetic peers do not execute JASS, simulate Warcraft,
 validate chat receiver mapping or detect real desync. Those remain client gates.
+
+`build-native-tests.sh --g1-only` runs focused bridge and ordinary multi-match
+checks without repeating the unchanged periodic-message suite. Mode-3 tests
+also verify the explicit fake sender, eleven-human budget, owner/reserved
+rejection without kicks, and wrong-map isolation. These synthetic checks do
+not establish that a real client executes the control command.

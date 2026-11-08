@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Local toolchain container, --network none. No engine, credentials or AMP.
 set -euo pipefail
+case "${1:-}" in ""|--g1-only) ;; *) echo "Unknown G1 test option" >&2; exit 2 ;; esac
 cd /repo
 export PYTHONPATH=/repo JOBS=2
 : "${WAR3_STORM_LIBRARY:?Supply the unsanitized MIT StormLib path for Python MPQ fixtures}"
@@ -18,5 +19,5 @@ g++ "${flags[@]}" tests/phase3/native-driver.cpp build/native-test-ghost.o "${ob
 export LD_LIBRARY_PATH=/repo/build/ghost/lib
 export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
 python3 tests/g1/native-bridge-test.py
-python3 tests/phase3/native-vote-reminder-test.py
+if [[ ${1:-} != --g1-only ]]; then python3 tests/phase3/native-vote-reminder-test.py; fi
 python3 tests/phase3/native-multimatch-test.py

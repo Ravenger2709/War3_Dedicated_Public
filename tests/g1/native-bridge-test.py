@@ -74,13 +74,39 @@ class G1Tests(unittest.TestCase):
    compressed,expanded=struct.unpack_from('<HH',data,offset);offset+=8
    block=zlib.decompress(data[offset:offset+compressed]);self.assertEqual(len(block),expanded);raw.extend(block);offset+=compressed
   self.assertIn(expected,raw);self.assertIn(second,raw);self.assertNotIn(forged,raw)
+ def test_explicit_control_uses_fake_sender_and_reports_real_ack(self):
+  n,a,b=self.start(mode=3);epoch=n.state()['host_counter']
+  slots=bytes(int(word,16) for word in n.state()['slots_hex'].split());fake=slots[11*9];self.assertNotIn(fake,(0,a.pid,b.pid))
+  self.assertEqual(slots[11*9+2:11*9+4],bytes((2,0)))
+  send(a,chat('g1:hello'));wait(lambda:any((a.pid,chat('g1:hello')) in action_records(p) for p in b.frames))
+  send(a,cache('tick',8));expected=chat(f'~g1:{epoch}:1:8:1');wait(lambda:found(b,expected))
+  packet=next(p for p in b.frames if p[1]==0x0c and expected in p[8:])
+  self.assertIn((fake,expected),action_records(packet))
+  send(a,cache('digest',321)+cache('ack',1));wait(lambda:any('[G1] ack ' in line for line in n.lines))
+ def test_control_human_budget_is_eleven_and_fake_row_is_preserved(self):
+  n=self.native({'bot_g1_bridge_mode':'3','bot_g1_map_sha256':hashlib.sha256(b'').hexdigest(),'bot_g1_receiver_a':'17','bot_g1_receiver_b':'23'}).start().create()
+  fake=bytes(int(word,16) for word in n.state()['slots_hex'].split())[11*9:12*9]
+  peers=[n.peer('Control'+str(i),lan=True) for i in range(11)]
+  wait(lambda:n.state()['players']==11)
+  n.peer('Overflow',accepted=False)
+  n.peer('Owner',accepted=False)
+  n.command('hold Reserved')
+  n.peer('Reserved',accepted=False)
+  self.assertTrue(all(not peer.disconnected for peer in peers))
+  self.assertEqual(n.state()['players'],11)
+  self.assertEqual(bytes(int(word,16) for word in n.state()['slots_hex'].split())[11*9:12*9],fake)
  def test_wrong_map_pin_leaves_existing_actions_unchanged(self):
   n,a,b=self.start(pin='0'*64)
   send(a,chat('g1:hello'));send(a,cache('tick',8));time.sleep(.25)
   self.assertFalse(any(line.startswith('[G1]') for line in n.lines))
   ordinary=chat('ordinary chat');send(a,ordinary);wait(lambda:found(b,ordinary))
+ def test_control_wrong_pin_does_not_allocate_a_fake_player(self):
+  n,a,b=self.start(mode=3,pin='0'*64)
+  slots=bytes(int(word,16) for word in n.state()['slots_hex'].split())
+  self.assertEqual(slots[11*9],0)
+  self.assertFalse(any(line.startswith('[G1]') for line in n.lines))
  def test_invalid_enabled_config_fails_before_runtime(self):
-  cases=[{'bot_g1_bridge_mode':'-1'}, {'bot_g1_bridge_mode':'2x'},
+  cases=[{'bot_g1_bridge_mode':'4'}, {'bot_g1_bridge_mode':'-1'}, {'bot_g1_bridge_mode':'2x'},
          {'bot_g1_bridge_mode':'3'},
          {'bot_g1_bridge_mode':'1','bot_g1_map_sha256':'bad'},
          {'bot_g1_bridge_mode':'2','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_a':'4294967296','bot_g1_receiver_b':'1'},

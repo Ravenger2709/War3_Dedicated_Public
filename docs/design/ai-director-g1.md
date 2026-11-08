@@ -80,3 +80,24 @@ Fixture 0.1.2 adds display-only startup/hello/command/rejection diagnostics;
 actual guards, orders and ACK logic are unchanged. A fresh stock-client test
 must distinguish callback nondelivery from explicit map rejection. No reserved
 slot, synthetic client ACK or production deployment is used as a substitute.
+
+## Explicit reserved-sender positive control
+
+Mode 3 is a **separate control profile**, not the slot-preserving solution.
+It is still off by default and requires an exact map SHA plus a real publisher
+hello matching the configured receiver pair. On that map only, native creates
+one ordinary fake-human sender in the initially open human colour-11 row.
+No other row may be replaced to create it. Its action uses that participant's
+PID; the real publisher remains colour 0. The matching 0.1.3 fixture explicitly
+accepts triggering player 11 and visibly labels its effective capacity:
+**eleven real humans, one reserved human slot**. Full twelve-human acceptance
+is NOT PASSED. A full control lobby rejects overflow, including owner/reserved
+joins, before selecting any occupant for replacement.
+
+This is grounded in the historical source's explicit [fake-player sender
+assignment](https://github.com/cipherxof/th-ghost/blob/63df93c6b52b9d9420dcf77481bb016e0a0f4c6a/ghost/ghost.cpp),
+not proof of this implementation's client compatibility. Both real-PID
+experiments (separate and coalesced records) have produced zero real ACKs so
+far. The control is intended to isolate sender identity; it must not silently
+reduce production capacity or be promoted as the final G1 design. No DLL,
+LLM/provider, Star/iCCup account, AMP or VPN is used in this LAN experiment.

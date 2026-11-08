@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
-  "status": "EXPERIMENTAL_REAL_CLIENT_RETEST_PENDING",
+  "status": "POSITIVE_CONTROL_ONLY_REAL_CLIENT_PENDING",
   "target_client": "1.26.0.6401",
-  "maps_commit": "6531f6bc49b7fcdd1eb829e661acca0a7515bb49",
-  "map_sha256": "50d7b04ccd59fe121a77f86310a64f2958c364d4c2a429ada46a38ccccfaaf04",
+  "maps_commit": "dbbd76836f282465602ebd2de0d71bf1cc3bdf70",
+  "map_sha256": "b2fb00230bd6191f6bc209067ef8e4119a0178157c82f3ecd8859f5fd9d953b9",
   "test_toolchain_image_id": "sha256:f2754a594e3b7883b452f33d1498e90e64d1deb9299d278b266cd5c84292adc9",
   "native_binary_profile": "release-O2",
-  "native_binary_sha256": "0cfa720a08281175b360efe79a69017638f27c791ecb15bc497eacfac89af7e3",
+  "native_binary_sha256": "1ccca93d2cc0e3223da15c4c526850ba9504ac4ce7d3d100abfd69bdb31bb3de",
   "source_files_sha256": {
     "src/hostbot/native_g1_bridge.h": "cdda49e59f29c463d0a018c3c5ecd9f6865d0502a3313ddd9270c48e0ddaa387",
-    "patches/ghostplusplus-modern-linux.patch": "7a908d750f4fccab198423fee205e5fd49f6ec3a1d715911b38e78586afd5737",
+    "patches/ghostplusplus-modern-linux.patch": "656e92a2b2b4e3502564bc2d487abb79458f4c67381008201f5001155e1539be",
     "scripts/build-ghost.sh": "4d3729f1df001fd2cc83648f596fb1f58e33caf5484966e1206c876eaa963e09",
-    "third_party/ghost.lock.json": "cf8afbb422a7f1c55778bca5582ac84ddc204279629526c8a7a2cd2ed4bef5d0",
+    "third_party/ghost.lock.json": "6adc62fbac72c0d0940b9fee42b7abce2db3326009df502c99c09515729f883a",
     "tests/g1/bridge-test.cpp": "c01ef28f4a820171abbf094a51f958922bf4b4362e6cca24282abb4a4952de4f",
-    "tests/g1/native-bridge-test.py": "75b0943d5759b171114873b05c0cc3760ef167f0282641a8530e7b68832573a7",
-    "tests/g1/build-native-tests.sh": "d56570a283c7b73abbfa57ad918501876d74a63cbdbb487cb84950746dd5f33a",
+    "tests/g1/native-bridge-test.py": "8bcbbd7f8a1b87f6a5a42ea5f6b73aff182a6aaa92fd4fa0e8522270473bc112",
+    "tests/g1/build-native-tests.sh": "4df254b68d68e1e5320bc140c2c4ac178b235423aa8ec76fe83e3ce3ca22e97f",
     "docker/g1/Dockerfile": "d16e483360bfe9aa088d4ebf67277c4949bc54e931f3bf6272884e6d2556aca2",
     "scripts/g1-lan-prepare.py": "115c70d1e42220ac161d82ef918dbe79682798211e5f608f02c7269bb4261716",
     "tests/g1/test_lan_prepare.py": "68d28f1357f8d544429683a545da82cd61a581630c6eb3c3da5b9ee645cb0aba",
@@ -27,14 +27,14 @@
     "bounded_parser_session_asan_ubsan": "PASS",
     "deterministic_fuzz_inputs": 50000,
     "actual_cgame_w3gs": {
-      "passed": 4,
-      "scope": "Synthetic peers, merged publisher record+CRC+replay; no JASS execution"
+      "passed": 7,
+      "scope": "Synthetic control sender, eleven-human cap, owner/reserved rejection, wrong-map isolation, existing bridge CRC/replay checks; no engine execution"
     },
     "multimatch_lifecycle": {
       "passed": 5
     },
     "classic_fixture_tests": {
-      "passed": 10
+      "passed": 11
     },
     "existing_host_mpq_analysis": {
       "human_capacity": 12,
@@ -49,7 +49,7 @@
     "two_client_digest_and_desync": "NOT_RUN",
     "pause_lag_and_fallback": "NOT_RUN",
     "real_replay_playback_without_network": "NOT_RUN",
-    "full_twelve_human_capacity_execution": "NOT_RUN",
+    "full_twelve_human_capacity_execution": "NOT_PASSED_POSITIVE_CONTROL_RESERVES_ONE_SLOT",
     "exact_126a_standard_library_installation_provenance": "UNVERIFIED"
   },
   "production_amp_changed": false,
@@ -59,7 +59,7 @@
     "patch_sha256": "da894553e962643fef457d44e4050d1890e9d86d7bd118217ad98856faccb5a4",
     "scope": "Initial bridge CGame tests before the three G1-only solo-start exceptions; not a sanitizer claim for the current native binary."
   },
-  "map_version": "0.1.2",
+  "map_version": "0.1.3",
   "vpn_changed": false,
   "previous_real_client_attempt": {
     "map_version": "0.1.1",
@@ -71,7 +71,7 @@
     "tcp_closed_after_ms": 6400,
     "root_cause": "UNCONFIRMED"
   },
-  "transport": "experimental_coalesced_pid_record",
+  "transport": "explicit_reserved_sender_positive_control",
   "previous_lan_transport_smoke": {
     "synthetic_peer": true,
     "engine_executed": false,
@@ -92,5 +92,18 @@
       "passed": 1,
       "note": "Rerun with public MIT StormLib and full read-only cgroup hierarchy"
     }
+  },
+  "positive_control": {
+    "native_mode": 3,
+    "sender_player": 11,
+    "reserved_human_slots": 1,
+    "effective_human_capacity": 11,
+    "stock_client_result": "NOT_RUN"
+  },
+  "slot_preserving_real_client_attempts": {
+    "separate_record": "NO_ACK",
+    "coalesced_record": "NO_ACK",
+    "local_hello_callback_player": 0,
+    "full_twelve_human_gate": "NOT_PASSED"
   }
 }
