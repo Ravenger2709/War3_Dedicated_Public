@@ -60,6 +60,25 @@
       "all_samples_container_and_record_integrity": "PASS",
       "historical_failed_samples_ack_count": 0,
       "scope": "Structural CRC and action-boundary audit only; no engine playback or desync proof"
+    },
+    "current_native_sanitizers": {
+      "schema_version": 1,
+      "source_commit": "e17e4dd",
+      "native_source_equivalent_to_release": true,
+      "profile": "address,undefined O1 debug frame-pointers",
+      "network": "none",
+      "temporary_build": "CONTAINER_TMPFS_REMOVED_ON_EXIT",
+      "test_counts": {
+        "native_g1": 8,
+        "same_process_isolation": 1,
+        "replay_auditor": 21,
+        "ordinary_multimatch": 5
+      },
+      "total": 35,
+      "exit_code": 0,
+      "running_lan_binary_changed": false,
+      "amp_changed": false,
+      "vpn_changed": false
     }
   },
   "real_client_gates": {
@@ -116,7 +135,7 @@
     "sender_player": 11,
     "reserved_human_slots": 1,
     "effective_human_capacity": 11,
-    "stock_client_result": "PASS_SINGLE_CLIENT_11_HUMAN_CONTROL_ONLY",
+    "stock_client_result": "PASS_ONE_REAL_CLIENT_RESERVED_SENDER_CONTROL",
     "receiver_binding": "wire_probe"
   },
   "slot_preserving_real_client_attempts": {
@@ -163,7 +182,15 @@
     "network": "LOCAL_LAN",
     "amp_changed": false,
     "vpn_changed": false,
-    "scope": "Control profile only; no two-client desync/replay or twelve-human claim"
+    "scope": "Control profile only; no two-client desync/replay or twelve-human claim",
+    "continuation_soak": {
+      "ack_count": 530,
+      "observed_ack_span_seconds": 1059.847,
+      "max_ack_gap_seconds": 2.387,
+      "consecutive_sequences": true,
+      "container_restarts": 0,
+      "scope": "One real client, no pause confirmation or two-client desync claim"
+    }
   },
   "capacity_followup": {
     "status": "PROPOSED_NOT_IMPLEMENTED",
