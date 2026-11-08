@@ -125,3 +125,8 @@ post-hold samples. Use the release-specific path
 then leave after approximately 45 seconds. The already-passed host freeze need
 not be repeated. The extra samples distinguish an actual stopped unit from a
 completed immediate order whose current-order getter returns zero.
+
+For the next reserved-sender baseline, see
+[the two-client procedure](ai-director-g1-two-client.md). It waits for two real
+clients and keeps the current fake sender; it does not implement the slot-free
+experiment.

@@ -2,6 +2,11 @@
 
 These run in the local CI/CD compiler container, never on production AMP.
 
+For the real two-client reserved-sender baseline and bounded timestamped ACK
+comparison, see [the operator procedure](../../docs/design/ai-director-g1-two-client.md).
+The pure Python `test_peer_ack_audit.py` suite uses synthetic logs only; its
+success does not replace running two actual Warcraft clients.
+
 ```sh
 # Repository bind /repo; default working directory /repo.
 # No network, Docker socket, account/profile, Wine or Warcraft engine.
