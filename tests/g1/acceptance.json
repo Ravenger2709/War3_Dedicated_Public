@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
-  "status": "DUAL_REAL_SENDER_PROBE_GENUINE_PAIRS_CAPTURED_CALLBACK_TEST_PENDING",
+  "status": "CROSS_ONLY_OFFLINE_WIRE_PASS_REAL_CALLBACK_TEST_PENDING",
   "target_client": "1.26.0.6401",
   "maps_commit": "d4e188171751c13336eda3a8106910a071870003",
   "map_sha256": "3dece954b410008c69758424bd3bde948d1d20192c55e44950cc5922f9e2d6c6",
   "test_toolchain_image_id": "sha256:f2754a594e3b7883b452f33d1498e90e64d1deb9299d278b266cd5c84292adc9",
   "native_binary_profile": "release-O2",
-  "native_binary_sha256": "4b6a2442e4e2df7672eb1f4bd99a5dfe444dbcb3a6ad8df5d22c4457057a8408",
+  "native_binary_sha256": "2f3c5dc54a7a5eee7056f9d54eda969b3b5515d6b0eee244bc5de6f6d62827c7",
   "source_files_sha256": {
     "src/hostbot/native_g1_bridge.h": "262d0d4fcb742b5bb063053877ea464aa4b4f1e5287ba2153069fe7ffa675070",
-    "patches/ghostplusplus-modern-linux.patch": "9fe22736533d7969dacc9c1f0bcac84145df56889f94d3233f989b0ff9bb65bf",
+    "patches/ghostplusplus-modern-linux.patch": "3fce8c37ed44073d120408ceeccb1d31813281b46d340251f4ef906ba6a98057",
     "scripts/build-ghost.sh": "fc6aea00d50022a89286ba8c738b4dfcce8fe9685aa461e8a73afcc1725b2eb2",
-    "third_party/ghost.lock.json": "d4e849e0ccc9f13a885599104894727236a9f1fde0ff14e3c11a3812f2df1fe1",
+    "third_party/ghost.lock.json": "318f55c1c07dedc3c4e9708fc1174a2e5db9af983f16e75ccd5d8d3309dff6b1",
     "tests/g1/bridge-test.cpp": "b593070e19fdd00e3621c8111c5648dbadd4d9373f8993f6f55cd81389688208",
-    "tests/g1/native-bridge-test.py": "c66c301b02ca8bbc2d4acbf8a4fafd8bafdd8c6108e9b138ce2896af191d43da",
-    "tests/g1/build-native-tests.sh": "478e993643d34b5261bbdbee424ae94d7b6c21ec82f508cd4ad6c9f16d523788",
+    "tests/g1/native-bridge-test.py": "b111c20b9b8102262e1bfa7c69c829e7aa745d621d3feb35f8767f300f7d6f29",
+    "tests/g1/build-native-tests.sh": "4946ebb85375af26c4d69dd257a065b62b017dc23db1e2484f4bb2ed56c7cfa8",
     "docker/g1/Dockerfile": "d16e483360bfe9aa088d4ebf67277c4949bc54e931f3bf6272884e6d2556aca2",
     "scripts/g1-lan-prepare.py": "115c70d1e42220ac161d82ef918dbe79682798211e5f608f02c7269bb4261716",
     "tests/g1/test_lan_prepare.py": "68d28f1357f8d544429683a545da82cd61a581630c6eb3c3da5b9ee645cb0aba",
@@ -27,7 +27,8 @@
     "tests/g1/peer-ack-audit.py": "3137017931176a1808c1c53cce8096f4a96852a6df48cee97238bacae217dd9d",
     "tests/g1/test_peer_ack_audit.py": "73bb1115c7fa362a2b89e1765d9d8513359ac649ec8f21bcff5660d3efa11aed",
     "src/hostbot/native_g1_dual_probe.h": "c96f43efd355adab1cde95ede1907d682b6b250d63cdbf05b4de75bd46c5c022",
-    "tests/g1/dual-probe-test.cpp": "0ae4d9f8e265d9f585643096b329affbcf19aed8a6e185e759ba6cde844e0033"
+    "tests/g1/dual-probe-test.cpp": "0ae4d9f8e265d9f585643096b329affbcf19aed8a6e185e759ba6cde844e0033",
+    "tests/g1/native-cross-probe-test.py": "01d6006e2c541036e4f017c144a676e4322673bd8a7c1727550b589829646e0e"
   },
   "automatic_checks": {
     "exact_native_source_guard": "PASS",
@@ -137,6 +138,10 @@
       "dual_probe_header_sha256": "c96f43efd355adab1cde95ede1907d682b6b250d63cdbf05b4de75bd46c5c022",
       "current_native_release_checks": 72,
       "source_stability_before_publish": "PASS"
+    },
+    "cross_only_native_wire": {
+      "passed": 5,
+      "scope": "Synthetic actual CGame recipient filtering, unchanged originals, third recipient, later flushes, canonical replay, overflow CRC/intervals; no engine callback delivery"
     }
   },
   "real_client_gates": {
@@ -152,7 +157,7 @@
     "controlled_host_stall": "PASS_8_SECONDS_SAME_PROCESS_ACKS_RESUMED",
     "two_client_departure_lease_hold": "UNVERIFIED_REMAINING_CLIENT_STAYED_NO_EXPIRY_MESSAGE_OBSERVED",
     "slot_free_self_delivery": "MAP017_NO_ACK_WITH_PAIR821_821_FRESH_CALIBRATION_MATCH_CONFIRMED",
-    "slot_free_dual_probe": "PENDING_TWO_GENUINE_CLIENT_CALLBACKS"
+    "slot_free_dual_probe": "BROADCAST_FAILED_CROSS_ONLY_REAL_TEST_PENDING"
   },
   "production_amp_changed": false,
   "llm_calls": 0,
@@ -468,7 +473,7 @@
   },
   "dual_probe_experiment": {
     "native_mode": 4,
-    "runtime_staging": "PROBE_ONLY_MODE4_ACTIVE",
+    "runtime_staging": "CROSS_ONLY_MODE4_ACTIVE",
     "wire_version": 3,
     "real_sender_colours": [
       0,
@@ -477,12 +482,12 @@
     "reserved_human_slots": 0,
     "effective_human_capacity": 12,
     "fresh_pair_capture": "PASS_TWO_GENUINE_COLOURS_ON_MAP018",
-    "genuine_peer_probe_acks": "PENDING_REAL_TEST",
+    "genuine_peer_probe_acks": "FAILED_BROADCAST_ZERO_ACKS",
     "actor_commands": "DISABLED_IN_NATIVE_AND_MAP",
     "model_sanitizer_scenarios": 26,
-    "native_and_python_checks": 72,
+    "native_and_python_checks": 77,
     "map_checks": 38,
-    "engine_execution": "PENDING",
+    "engine_execution": "TWO_REAL_CLIENT_BROADCAST_ATTEMPTS_FAILED",
     "full_twelve_human_execution": "NOT_PASSED",
     "genuine_receiver_pairs": {
       "colour0": [
@@ -493,6 +498,23 @@
         822,
         822
       ]
-    }
+    },
+    "broadcast_attempts": {
+      "real_matches": 2,
+      "both_clients_finished_loading": true,
+      "probe_commands_per_match": 2,
+      "probe_acks": 0,
+      "actor_commands": 0,
+      "replay_duration_ms_each": 2400,
+      "replay_structural_integrity": "PASS_BOTH",
+      "connection_closures": "PEER_CLOSED_TCP_BOTH",
+      "native_restart_count": 0,
+      "native_oom_events": 0,
+      "native_desync_events": 0,
+      "root_cause": "UNCONFIRMED"
+    },
+    "next_variant": "CROSS_ONLY_REAL_TEST_PENDING",
+    "delivery": "cross_only",
+    "whole_native_cross_sanitizers": "RUNNING_SEPARATELY"
   }
 }

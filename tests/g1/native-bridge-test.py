@@ -225,6 +225,7 @@ class G1Tests(unittest.TestCase):
          {'bot_g1_bridge_mode':'2','bot_g1_map_sha256':'a'*64}]
   base={'bot_g1_bridge_mode':'4','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'821','bot_g1_receiver_b':'821','bot_g1_secondary_receiver_a':'822','bot_g1_secondary_receiver_b':'822'}
   cases += [{**base,'bot_g1_receiver_binding':'manual'},{**base,'bot_g1_secondary_receiver_a':'0'},{**base,'bot_g1_secondary_receiver_b':'65536'},{**base,'bot_g1_secondary_receiver_b':'x'}]
+  cases += [{**base,'bot_g1_dual_delivery':'invalid'},{**base,'bot_g1_bridge_mode':'2','bot_g1_dual_delivery':'cross_only'},{'bot_g1_dual_delivery':'cross_only'}]
   for settings in cases:
    with self.subTest(settings=settings):
     n=self.native(settings).start(ready=False)

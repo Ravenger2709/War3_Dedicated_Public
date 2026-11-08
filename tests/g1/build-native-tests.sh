@@ -23,6 +23,7 @@ g++ "${flags[@]}" tests/phase3/native-driver.cpp build/native-test-ghost.o "${ob
 export LD_LIBRARY_PATH=/repo/build/ghost/lib
 export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
 python3 tests/g1/native-bridge-test.py
+python3 tests/g1/native-cross-probe-test.py
 python3 tests/g1/native-isolation-test.py
 python3 tests/g1/test_replay_audit.py
 python3 tests/g1/test_safety_replay.py

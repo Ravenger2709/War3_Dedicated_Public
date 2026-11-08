@@ -27,6 +27,11 @@ autohost_startplayers = 2
 autohost_gamename = G1 Dual Receiver Probe
 ```
 
+`bot_g1_dual_delivery = broadcast` preserves the first experiment. The separate
+`cross_only` candidate omits only a generated probe whose source PID equals the
+recipient PID. This option is valid only in global mode 4. It never omits an
+original player action, even from the same PID or with matching bytes.
+
 Mode 4 is deliberately distinct from the historical global mode-2 self route
 and mode-3 reserved-sender control. Invalid/missing pairs, manual binding or an
 unmatched map pin cannot activate the dual probe. A new header's digest joins
@@ -63,3 +68,32 @@ failure must be recorded without choosing either explanation as fact.
 This first callback test needs approximately twenty seconds after both clients
 load, not another ten-minute baseline. Keep raw logs/replays private and publish
 only bounded protocol counters. AMP and VPN remain outside this experiment.
+
+## Broadcast attempt: reproduced failure
+
+Both colours' genuine `g1:hello` actions on the exact 0.1.8 fixture confirmed
+821/821 and 822/822. Two subsequent broadcast-mode matches each completed loading
+on both real clients, queued the two probes and lost both TCP connections within
+approximately 10–110 ms. GHost stayed alive with zero restarts/OOM events and no
+native desync event. Both completed replays passed structure/CRC checks and
+contain 2.4 seconds, two probes, zero actor commands and zero probe ACKs.
+The callback gate failed. This establishes reproducibility, not an engine
+root cause or an independent world-state desync diagnosis.
+
+## Cross-only candidate
+
+This candidate tests whether echoing a generated action under the receiving
+client's own PID is the relevant difference. It is not yet an accepted fix.
+Two exact generated action objects are marked when queued. At ordinary and
+overflow serialization, each recipient retains every original object and
+receives only marked probes from other PIDs. CRC is recomputed for that actual
+recipient's payload; the shared time interval is preserved. Empty overflow
+packets may be skipped, while the final normal tick is always sent.
+
+Marks are erased before the generated objects are deleted after flushing, so
+later player actions cannot inherit a filter through pointer reuse. Other maps
+and modes take the existing unfiltered path. Canonical replay still stores both
+generated probes; its contents cannot independently prove each recipient's
+filtered view or engine playback. The map and captured receiver pairs are
+unchanged. Real ACKs from both clients remain mandatory, and actor commands
+remain disabled even after success.
