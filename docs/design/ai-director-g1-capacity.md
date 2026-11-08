@@ -1,11 +1,11 @@
 # G1 capacity: remaining experiment
 
-Status: **eleven-human control works; twelve-human route unvalidated**.
+Status: **two-client reserved-sender control passed; slot-free route unvalidated**.
 Local CI/CD LAN only. No AMP, VPN, DLL, client upgrade, game engine on the
 server or LLM integration is authorized by this experiment.
 
-The current mode-3 control has genuine sender-11 calibration, a fresh map probe
-ACK and increasing command ACKs from one stock client. It reserves one existing
+The mode-3 control has genuine sender-11 calibration, a fresh map probe
+ACK and 317 matching command ACK pairs from two stock clients. It reserves one existing
 human row. All twelve W3I rows still being human does not mean twelve people
 can join this runtime. Earlier real-PID injection attempts did not pass; their
 failure does not prove that the engine skips its own reflected actions.
@@ -50,3 +50,25 @@ On timeout or failure, issue no actor commands or retries. Do not allocate a fak
 sender, evict anyone or change roles in the running match. Return to the proven
 reserved-sender profile only in a new isolated test match after participants
 leave. Existing production templates and runtime defaults remain unaffected.
+
+## Preceding one-client self-delivery experiment
+
+The first slot-free candidate uses exactly one real client, colour 0, and no
+fake gameplay sender. It tests self-delivery only; it cannot establish delivery
+to another client's world. Global native mode 2 with `wire_probe` reuses the
+existing internal probe state machine and merges the probe into the real
+publisher's action record. The genuine captured colour-0 receiver pair is a
+candidate, not a handle-derived identity or a successful fresh calibration.
+
+Map 0.1.7 accepts sender colour 0 and retains all twelve human rows. Runtime
+allocates no fake row. Before any actor command, a harmless sequence-zero probe
+must cause a genuine subsequent map `probe` export within the existing 20-tick
+window. Merely seeing the probe in native output, a replay or synthetic peer
+frames does not satisfy this requirement. Timeout disables actor commands for
+the session; there is no automatic retry or fallback to a reserved slot.
+
+If self-delivery fails, record the missing probe ACK without declaring an
+engine defect or treating sender-skipping as proven. The two-genuine-sender
+experiment above remains a separate candidate requiring two clients. Twelve
+synthetic admissions only check native capacity; twelve real-human execution
+remains a separate gate.

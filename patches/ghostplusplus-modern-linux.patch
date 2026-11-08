@@ -405,7 +405,7 @@ index 8b54fcd..864ac7a 100644
  	// record everything we need to ban each player in case we decide to do so later
  	// this is because when a player leaves the game an admin might want to ban that player
 diff --git a/ghost/game_base.cpp b/ghost/game_base.cpp
-index 121bc52..99f79a8 100644
+index 121bc52..264059b 100644
 --- a/ghost/game_base.cpp
 +++ b/ghost/game_base.cpp
 @@ -25,6 +25,7 @@
@@ -968,7 +968,7 @@ index 121bc52..99f79a8 100644
 +	if( !bridge.downlink.empty( ) && !control )
 +	{
 +		if( war3g1::append_downlink( *action->GetAction( ), bridge.downlink ) )
-+			CONSOLE_Print( "[G1] fixed command queued merged=1 host_counter=" + UTIL_ToString( m_HostCounter ) );
++			CONSOLE_Print( string( bridge.probe_packet ? "[G1] receiver probe queued merged=1 host_counter=" : "[G1] fixed command queued merged=1 host_counter=" ) + UTIL_ToString( m_HostCounter ) );
 +		else CONSOLE_Print( "[G1] command deferred because action batch is full" );
 +	}
  	m_Actions.push( action );
@@ -2332,7 +2332,7 @@ index ed6c35a..3771785 100644
  	virtual void StopLaggers( string reason );
  	virtual void CreateVirtualHost( );
 diff --git a/ghost/ghost.cpp b/ghost/ghost.cpp
-index c723c77..9d8abfd 100644
+index c723c77..b74be53 100644
 --- a/ghost/ghost.cpp
 +++ b/ghost/ghost.cpp
 @@ -18,6 +18,8 @@
@@ -3323,7 +3323,7 @@ index c723c77..9d8abfd 100644
 +	    ( m_G1Mode && ( m_G1MapSHA256.size( ) != 64 || m_G1MapSHA256.find_first_not_of( "0123456789abcdef" ) != string::npos ) ) ||
 +	    ( m_G1Mode >= 2 && ( !war3g1::decimal( CFG->GetString( "bot_g1_receiver_a", "" ), m_G1ReceiverA ) ||
 +	                        !war3g1::decimal( CFG->GetString( "bot_g1_receiver_b", "" ), m_G1ReceiverB ) ) ) ) m_Phase3ConfigValid = false;
-+	if( ( g1Binding != "manual" && g1Binding != "wire_probe" ) || ( m_G1WireProbe && ( m_G1Mode != 3 || !m_G1ReceiverA || !m_G1ReceiverB || m_G1ReceiverA > 65535 || m_G1ReceiverB > 65535 ) ) ) m_Phase3ConfigValid = false;
++	if( ( g1Binding != "manual" && g1Binding != "wire_probe" ) || ( m_G1WireProbe && ( ( m_G1Mode != 2 && m_G1Mode != 3 ) || !m_G1ReceiverA || !m_G1ReceiverB || m_G1ReceiverA > 65535 || m_G1ReceiverB > 65535 ) ) ) m_Phase3ConfigValid = false;
 +	if( !m_Phase3ConfigValid ) { CONSOLE_Print( "[GHOST] invalid native gameplay configuration" ); m_Enabled = false; m_Exiting = true; }
  	m_Latency = CFG->GetInt( "bot_latency", 100 );
  	m_SyncLimit = CFG->GetInt( "bot_synclimit", 50 );

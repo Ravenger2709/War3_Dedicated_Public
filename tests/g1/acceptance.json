@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "status": "TWO_CLIENT_RESERVED_SENDER_BASELINE_PASS_FULL_G1_PENDING",
+  "status": "SLOT_FREE_SELF_PROBE_READY_REAL_CLIENT_PENDING",
   "target_client": "1.26.0.6401",
-  "maps_commit": "54734f97592072118108a4eb2fd3b224662c169c",
-  "map_sha256": "acbd5550213a340aeda08114e9b91be262309e8c2bd9c254ce92e29a8c3dfd1f",
+  "maps_commit": "19d509499b98b1782127714ac625929a269891ac",
+  "map_sha256": "b7327ce8e923e4093a009bf4ea861a73590dd167b9f74cf6c6ceb38ca9d796d0",
   "test_toolchain_image_id": "sha256:f2754a594e3b7883b452f33d1498e90e64d1deb9299d278b266cd5c84292adc9",
   "native_binary_profile": "release-O2",
-  "native_binary_sha256": "3d1efb8cb6103789854ef1f855957afe5df8299f67f49c1ee8cd519c1676ba64",
+  "native_binary_sha256": "f01bbb77e045a8332d0b9bcce5b683c4c9542ee9ae729fdf3fade1bb8d1574f1",
   "source_files_sha256": {
     "src/hostbot/native_g1_bridge.h": "262d0d4fcb742b5bb063053877ea464aa4b4f1e5287ba2153069fe7ffa675070",
-    "patches/ghostplusplus-modern-linux.patch": "4370d671d2ca1045a03b59687dc32e6d743b83d4f40b8e11c09026fd5b2a68c2",
+    "patches/ghostplusplus-modern-linux.patch": "c5399da38457fc284d96bcc9242bcd8ee49f1a0b47427847bf5f1a825d46ec39",
     "scripts/build-ghost.sh": "4d3729f1df001fd2cc83648f596fb1f58e33caf5484966e1206c876eaa963e09",
-    "third_party/ghost.lock.json": "ca0fe29d74dcceb1a35c359871401af8732e042d73c715e12628c099f6fa5a88",
+    "third_party/ghost.lock.json": "dd0eb5a87c90d9a1ea3f65b0546098cff2a6483c0961dd8d455ae777b988ea2e",
     "tests/g1/bridge-test.cpp": "b593070e19fdd00e3621c8111c5648dbadd4d9373f8993f6f55cd81389688208",
-    "tests/g1/native-bridge-test.py": "e7f3c9cc87d46b4e623d603dbc108ac65ab0e3279f6b361e2c74e340d807c1d5",
+    "tests/g1/native-bridge-test.py": "ee2223e9aaa4527964c122016103fb0a30ebe59e2bc668500e1771e3b10175be",
     "tests/g1/build-native-tests.sh": "f7a4d6948c379468dbb81a84cbef55ee2e6369ab420ca197c509767b860e2a0d",
     "docker/g1/Dockerfile": "d16e483360bfe9aa088d4ebf67277c4949bc54e931f3bf6272884e6d2556aca2",
     "scripts/g1-lan-prepare.py": "115c70d1e42220ac161d82ef918dbe79682798211e5f608f02c7269bb4261716",
@@ -33,20 +33,14 @@
     "bounded_parser_session_asan_ubsan": "PASS",
     "deterministic_fuzz_inputs": 50000,
     "actual_cgame_w3gs": {
-      "passed": 9,
-      "scope": "Synthetic genuine-wire-pair configuration, harmless probe before authority, wrong/early/expired ACK rejection, colour-aware capture, invalid configuration, exact map pin, sender capacity/ownership and native CRC/replay; no engine execution"
+      "passed": 12,
+      "scope": "Synthetic native G1 wire checks incl merged real-sender probe, no-ACK timeout without actor authority, twelve synthetic admissions, existing reserved sender and classic pause handling; no engine execution"
     },
     "multimatch_lifecycle": {
       "passed": 5
     },
     "classic_fixture_tests": {
       "passed": 23
-    },
-    "existing_host_mpq_analysis": {
-      "human_capacity": 12,
-      "reserved_bridge_slots": 1,
-      "effective_human_capacity": 11,
-      "map_version": "0.1.6"
     },
     "lan_configuration_tests": {
       "passed": 2
@@ -86,7 +80,31 @@
     },
     "classic_pause_and_save": "PASS_OPCODE_ONLY_PAUSE_SINGLE_STRING_SAVE_AND_FOLLOWING_ACTION_BOUNDARIES",
     "native_pause_resume_forwarding": "PASS_EXACT_ACTION_RECORDS_ORIGINAL_PID_CRC_AND_FRESH_PROBE_AFTER_RESUME",
-    "current_native_sanitizers": {
+    "safety_telemetry_audit": {
+      "synthetic_tests_passed": 9,
+      "scope": "Negative snapshot, epoch, timing, position, order and recovery fixtures; real-client map telemetry separately recorded"
+    },
+    "peer_ack_auditor": {
+      "synthetic_tests_passed": 19,
+      "network": "none",
+      "scope": "Bounded timestamped native logs only; not an engine execution claim"
+    },
+    "previous_reserved_sender_host_mpq_analysis": {
+      "human_capacity": 12,
+      "reserved_bridge_slots": 1,
+      "effective_human_capacity": 11,
+      "map_version": "0.1.6"
+    },
+    "slot_free_map_contract": {
+      "human_rows": 12,
+      "reserved_bridge_slots": 0,
+      "sender_colour": 0,
+      "map_version": "0.1.7",
+      "map_specific_checks_passed": 25,
+      "classic_compile_readback_mpq_preservation": "PASS",
+      "engine_executed": false
+    },
+    "previous_native_sanitizers": {
       "source_commit": "380d5a7feda0b880ee22e7a5ffa4b73501c42411",
       "archive_sha256": "8008886c5d0b7b943a146b3297d95cf08042ab6994fbf1ae340ab7369b34413e",
       "profile": "address,undefined",
@@ -107,14 +125,11 @@
       "total": 38,
       "scope": "Current native source incl classic pause/save fix; Python safety telemetry tests separately recorded"
     },
-    "safety_telemetry_audit": {
-      "synthetic_tests_passed": 9,
-      "scope": "Negative snapshot, epoch, timing, position, order and recovery fixtures; real-client map telemetry separately recorded"
-    },
-    "peer_ack_auditor": {
-      "synthetic_tests_passed": 19,
-      "network": "none",
-      "scope": "Bounded timestamped native logs only; not an engine execution claim"
+    "current_native_sanitizers": {
+      "status": "NOT_RERUN_CONFIG_AND_LOGGING_DELTA",
+      "unchanged_session_header_sha256": "262d0d4fcb742b5bb063053877ea464aa4b4f1e5287ba2153069fe7ffa675070",
+      "previous_evidence": "previous_native_sanitizers",
+      "current_native_checks": "69_RELEASE_PROFILE_TESTS_PASS"
     }
   },
   "real_client_gates": {
@@ -128,7 +143,8 @@
     "lag_recovery": "CONTROLLED_HOST_STALL_PASS_PEER_LAG_AND_PACKET_LOSS_NOT_RUN",
     "lease_fallback": "PASS_MAP016_ONE_REAL_CLIENT_CONTROLLED_STALL_WITH_PHYSICAL_SAMPLES",
     "controlled_host_stall": "PASS_8_SECONDS_SAME_PROCESS_ACKS_RESUMED",
-    "two_client_departure_lease_hold": "UNVERIFIED_REMAINING_CLIENT_STAYED_NO_EXPIRY_MESSAGE_OBSERVED"
+    "two_client_departure_lease_hold": "UNVERIFIED_REMAINING_CLIENT_STAYED_NO_EXPIRY_MESSAGE_OBSERVED",
+    "slot_free_self_delivery": "PENDING_ONE_REAL_CLIENT"
   },
   "production_amp_changed": false,
   "llm_calls": 0,
@@ -137,7 +153,7 @@
     "patch_sha256": "da894553e962643fef457d44e4050d1890e9d86d7bd118217ad98856faccb5a4",
     "scope": "Initial bridge CGame tests before the three G1-only solo-start exceptions; not a sanitizer claim for the current native binary."
   },
-  "map_version": "0.1.6",
+  "map_version": "0.1.7",
   "vpn_changed": false,
   "previous_real_client_attempt": {
     "map_version": "0.1.1",
@@ -265,11 +281,11 @@
     "full_twelve_humans": "NOT_PASSED"
   },
   "capacity_followup": {
-    "status": "PROPOSED_NOT_IMPLEMENTED",
-    "design": "docs/design/ai-director-g1-capacity.md",
-    "real_clients_required": 2,
-    "current_reserved_slots": 1,
-    "current_human_capacity": 11
+    "status": "ONE_CLIENT_SELF_PROBE_STAGED_TWO_GENUINE_SENDER_CANDIDATE_DEFERRED",
+    "design": "docs/design/ai-director-g1-self-probe.md",
+    "real_clients_required": 1,
+    "current_reserved_slots": 0,
+    "current_human_capacity": 12
   },
   "pause_failure": {
     "map_version": "0.1.4",
@@ -401,5 +417,27 @@
       "lease_expiry_message_observed": false,
       "physical_hold_after_departure": "UNVERIFIED"
     }
+  },
+  "previous_reserved_sender_release": {
+    "map_version": "0.1.6",
+    "map_sha256": "acbd5550213a340aeda08114e9b91be262309e8c2bd9c254ce92e29a8c3dfd1f",
+    "maps_commit": "54734f97592072118108a4eb2fd3b224662c169c",
+    "native_binary_sha256": "3d1efb8cb6103789854ef1f855957afe5df8299f67f49c1ee8cd519c1676ba64",
+    "two_client_result": "PASS_317_MATCHING_ACK_PAIRS_650_SECONDS_NO_REPORTED_DESYNC"
+  },
+  "self_probe_experiment": {
+    "native_mode": 2,
+    "binding": "wire_probe",
+    "receiver_candidate": [
+      821,
+      821
+    ],
+    "receiver_pair_current_release_verified": false,
+    "probe_ack": "PENDING",
+    "actor_acks": 0,
+    "synthetic_tests": 69,
+    "real_engine": "PENDING",
+    "full_twelve_human_execution": "NOT_PASSED",
+    "two_client_slot_free_delivery": "NOT_RUN"
   }
 }

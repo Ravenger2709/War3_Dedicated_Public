@@ -25,7 +25,7 @@ class G1Tests(unittest.TestCase):
  setUp=g.GameplayTests.setUp
  tearDown=g.GameplayTests.tearDown
  native=g.GameplayTests.native
- def start(self,mode=2,pin=None,binding="manual"):
+ def start(self,mode=2,pin=None,binding="manual",real_peers=2):
   n=self.native({'bot_g1_bridge_mode':str(mode),'bot_g1_map_sha256':pin or hashlib.sha256(b'').hexdigest(),
    'bot_g1_receiver_a':'832' if binding=='wire_probe' else '17','bot_g1_receiver_b':'832' if binding=='wire_probe' else '23','bot_g1_receiver_binding':binding,'bot_countdownseconds':'1','bot_savereplays':'1'})
   # Existing synthetic CGame fixture intentionally has no MPQ bytes.
@@ -33,11 +33,53 @@ class G1Tests(unittest.TestCase):
   replay=n.root/'replays';replay.mkdir();n.cfg.write_text(n.cfg.read_text()+f'bot_replaypath = {replay}/\n')
   n.start().create()
   wait(lambda:n.path.exists())
-  a=n.peer('Publisher',lan=True,game_keepalive=True);b=n.peer('Observer',game_keepalive=True)
+  a=n.peer('Publisher',lan=True,game_keepalive=True)
+  b=n.peer('Observer',game_keepalive=True) if real_peers==2 else None
   n.command('load')
-  for peer in (a,b):peer.sock.sendall(g.frame(0x23))
+  for peer in (a,b):
+   if peer:peer.sock.sendall(g.frame(0x23))
   wait(lambda:n.state()['game_loaded'])
   return n,a,b
+ def test_real_sender_probe_keeps_all_rows_and_requires_fresh_ack(self):
+  n,a,b=self.start(mode=2,binding='wire_probe',real_peers=1);epoch=n.state()['host_counter']
+  self.assertIsNone(b)
+  slots=bytes(int(word,16) for word in n.state()['slots_hex'].split())
+  self.assertEqual(len(slots),12*9)
+  self.assertEqual(sum(slots[i+2]==2 for i in range(0,len(slots),9)),1)
+  send(a,cache('wire_version',2)+cache('tick',8))
+  probe=chat(f'~g1:{epoch}:0:8:0',832,832)
+  wait(lambda:found(a,probe))
+  records=[r for p in a.frames if p[1]==0x0c for r in action_records(p)]
+  self.assertTrue(any(pid==a.pid and payload.endswith(probe) for pid,payload in records))
+  self.assertFalse(any('[G1] fixed command queued' in line for line in n.lines))
+  send(a,cache('tick',9)+cache('probe',epoch))
+  wait(lambda:any('receiver probe ACK confirmed' in line for line in n.lines))
+  send(a,cache('tick',16));command=chat(f'~g1:{epoch}:1:16:1',832,832)
+  wait(lambda:found(a,command))
+  send(a,cache('digest',456)+cache('ack',1))
+  wait(lambda:any('[G1] ack ' in line and 'digest=456' in line for line in n.lines))
+  self.assertFalse(any('POSITIVE CONTROL' in line for line in n.lines))
+ def test_real_sender_without_probe_ack_never_issues_actor_command(self):
+  n,a,_=self.start(mode=2,binding='wire_probe',real_peers=1)
+  send(a,cache('wire_version',2)+cache('tick',8))
+  wait(lambda:any('receiver probe queued merged=1' in line for line in n.lines))
+  send(a,cache('tick',29))
+  wait(lambda:any('probe timed out; actor commands disabled' in line for line in n.lines))
+  send(a,cache('probe',n.state()['host_counter'])+cache('tick',40))
+  time.sleep(.2)
+  self.assertFalse(any('[G1] fixed command queued' in line for line in n.lines))
+  self.assertFalse(any('receiver probe ACK confirmed' in line for line in n.lines))
+  self.assertFalse(a.disconnected)
+ def test_real_sender_profile_admits_twelve_without_fake_row(self):
+  n=self.native({'bot_g1_bridge_mode':'2','bot_g1_map_sha256':hashlib.sha256(b'').hexdigest(),
+   'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'821','bot_g1_receiver_b':'821'}).start().create()
+  peers=[n.peer('Human'+str(i),lan=True) for i in range(12)]
+  wait(lambda:n.state()['players']==12)
+  slots=bytes(int(word,16) for word in n.state()['slots_hex'].split())
+  self.assertEqual(len(slots),12*9)
+  self.assertEqual({slots[i] for i in range(0,len(slots),9)},{peer.pid for peer in peers})
+  n.peer('Overflow',accepted=False)
+  self.assertTrue(all(not peer.disconnected for peer in peers))
  def test_roundtrip_sender_binding_filter_and_replay(self):
   n,a,b=self.start();epoch=n.state()['host_counter']
   send(b,chat('g1:hello'));send(b,cache('tick',8));time.sleep(.2)
@@ -132,7 +174,7 @@ class G1Tests(unittest.TestCase):
   cases=[{'bot_g1_bridge_mode':'4'}, {'bot_g1_bridge_mode':'-1'}, {'bot_g1_bridge_mode':'2x'},
          {'bot_g1_bridge_mode':'3'},
          {'bot_g1_bridge_mode':'3','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_binding':'event_probe','bot_g1_receiver_a':'832','bot_g1_receiver_b':'832'},
-         {'bot_g1_bridge_mode':'2','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'832','bot_g1_receiver_b':'832'},
+         {'bot_g1_bridge_mode':'1','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'832','bot_g1_receiver_b':'832'},
          {'bot_g1_bridge_mode':'3','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'0','bot_g1_receiver_b':'832'},
          {'bot_g1_bridge_mode':'1','bot_g1_map_sha256':'bad'},
          {'bot_g1_bridge_mode':'2','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_a':'4294967296','bot_g1_receiver_b':'1'},
