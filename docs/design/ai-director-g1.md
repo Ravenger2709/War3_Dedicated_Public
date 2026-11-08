@@ -166,6 +166,11 @@ other maps and mode 0 retain their old path.
 
 Source facts: the [classic action description](https://github.com/scopatz/w3g/blob/master/w3g_actions.txt)
 and the [modern format rewrite](https://github.com/PBug90/w3gjs/commit/370601c7f74274227aa259520d9d72f2c9ac41d6).
-The real pause/resume retest is pending. Structural replay integrity and earlier
-sanitizer runs do not pass that engine gate. The auditor's action subset is not
+The corrected native binary passed the one-client pause/resume retest: the
+operator paused about ten seconds and confirmed ticks continued after resume.
+Native observed an 11.376-second gap between ACK 8 and 9, then continuous ACKs
+through sequence 30 with the player connected, no rejected actions, no remote
+close and no restart. Replay pause/resume records await match completion;
+engine replay playback, lag and lease fallback remain untested. Structural
+replay integrity and earlier sanitizer runs do not pass those remaining gates. The auditor's action subset is not
 certified as a complete classic replay decoder.
