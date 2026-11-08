@@ -1840,6 +1840,49 @@ class GameplayTests(unittest.TestCase):
         finally:
             n.stop()
 
+    def test_ai_capacity_minus_one_refresh_admits_join_and_restores_departed_computer(self):
+        for capacity in (8, 12):
+            for route in ('normal', 'scored'):
+                with self.subTest(capacity=capacity, route=route):
+                    n = self.ai_native({'bot_maxplayers': str(capacity),
+                                        'bot_lobby_refresh_interval': '30'},
+                                       target=capacity-1, slots=capacity, map_players=capacity)
+                    try:
+                        n.start().create()
+                        self.ai_capture(n, players=0, computer_players=capacity-1,
+                                        ai_owned=capacity-1, max_players=capacity)
+                        a = n.peer('Owner', lan=True)
+                        state = self.ai_capture(n, a, players=1, computer_players=capacity-2,
+                                                ai_owned=capacity-2)
+                        self.assertEqual(sum(row[2] == 0 for row in self.ai_rows(state)), 1)
+                        guard = self.ai_guard(a)
+                        owned = {sid: self.ai_rows(state)[sid] for sid in state['ai_owned_sids']}
+                        if route == 'scored':
+                            n.command('scored')
+                        n.command('refresh')
+                        state = self.ai_wait(n, refresh_pending=True)
+                        rows = self.ai_rows(state)
+                        self.assertEqual(sum(row[2] == 0 for row in rows), 0)
+                        self.assertNotIn(state['refresh_sid'], owned)
+                        for sid, row in owned.items():
+                            self.assertEqual(rows[sid], row)
+                        b = n.peer('JoiningNow')
+                        state = self.ai_capture(n, a, b, players=2,
+                                                computer_players=capacity-3,
+                                                ai_owned=capacity-3, refresh_pending=False)
+                        self.assertEqual(sum(row[2] == 0 for row in self.ai_rows(state)), 1)
+                        for sid in state['ai_owned_sids']:
+                            if sid in owned:
+                                self.assertEqual(self.ai_rows(state)[sid], owned[sid])
+                        self.ai_unchanged(guard, b)
+                        b.close()
+                        state = self.ai_capture(n, a, players=1, computer_players=capacity-2,
+                                                ai_owned=capacity-2, refresh_pending=False)
+                        self.assertEqual(sum(row[2] == 0 for row in self.ai_rows(state)), 1)
+                        self.ai_unchanged(guard, state=state)
+                    finally:
+                        n.stop()
+
     def test_ai_one_second_refresh_protects_owned_rows_and_restores_before_joins(self):
         for route in ('delay', 'normal', 'scored', 'reserved', 'close'):
             with self.subTest(route=route):
