@@ -13,6 +13,12 @@ has a separate 26-scenario ASan/UBSan unit executable,
 executable. These are protocol/model checks, not two-engine callback evidence;
 this candidate cannot generate actor orders.
 
+Both tested dual-delivery variants failed their real-client callback gate:
+broadcast closed the clients' connections; cross-only triggered native desync
+handling. The synthetic native peers use fixed zero keepalive checksums, so
+their passing recipient/CRC tests are not an engine desync result. See the
+[recorded dual-probe outcome](../../docs/design/ai-director-g1-dual-probe.md).
+
 ```sh
 # Repository bind /repo; default working directory /repo.
 # No network, Docker socket, account/profile, Wine or Warcraft engine.

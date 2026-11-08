@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "CROSS_ONLY_OFFLINE_WIRE_PASS_REAL_CALLBACK_TEST_PENDING",
+  "status": "REAL_PID_CHAT_INJECTION_CANDIDATES_FAILED_RESERVED_SENDER_CONTROL_PASSED",
   "target_client": "1.26.0.6401",
   "maps_commit": "d4e188171751c13336eda3a8106910a071870003",
   "map_sha256": "3dece954b410008c69758424bd3bde948d1d20192c55e44950cc5922f9e2d6c6",
@@ -133,11 +133,16 @@
       "scope": "Current native source incl classic pause/save fix; Python safety telemetry tests separately recorded"
     },
     "current_native_sanitizers": {
-      "status": "DUAL_PROBE_HEADER_26_SCENARIOS_PASS",
-      "scope": "ASan/UBSan of new bounded dual-probe class and shared decoder; whole native executable sanitizer profile NOT_RUN_FOR_THIS_CANDIDATE",
-      "dual_probe_header_sha256": "c96f43efd355adab1cde95ede1907d682b6b250d63cdbf05b4de75bd46c5c022",
-      "current_native_release_checks": 72,
-      "source_stability_before_publish": "PASS"
+      "status": "PASS_20_ACTUAL_CGAME_SCENARIOS",
+      "profile": "address,undefined",
+      "cross_only_cases": 5,
+      "original_g1_cases": 15,
+      "san_native_driver_sha256": "65ec02124944aaf7da05c0d3a0ac4b9670f9586707aa23b2e82c183cd7468f72",
+      "patch_sha256": "3fce8c37ed44073d120408ceeccb1d31813281b46d340251f4ef906ba6a98057",
+      "source_inputs_read_only": true,
+      "temporary_build": "DISPOSABLE_CONTAINER_TMPFS",
+      "network": "none",
+      "scope": "Synthetic peers use zero keepalive checksums; memory/UB checks do not pass engine callback or desync gates"
     },
     "cross_only_native_wire": {
       "passed": 5,
@@ -157,7 +162,7 @@
     "controlled_host_stall": "PASS_8_SECONDS_SAME_PROCESS_ACKS_RESUMED",
     "two_client_departure_lease_hold": "UNVERIFIED_REMAINING_CLIENT_STAYED_NO_EXPIRY_MESSAGE_OBSERVED",
     "slot_free_self_delivery": "MAP017_NO_ACK_WITH_PAIR821_821_FRESH_CALIBRATION_MATCH_CONFIRMED",
-    "slot_free_dual_probe": "BROADCAST_FAILED_CROSS_ONLY_REAL_TEST_PENDING"
+    "slot_free_dual_probe": "FAILED_BROADCAST_CONNECTION_CLOSE_AND_CROSS_ONLY_NATIVE_DESYNC"
   },
   "production_amp_changed": false,
   "llm_calls": 0,
@@ -294,7 +299,7 @@
     "full_twelve_humans": "NOT_PASSED"
   },
   "capacity_followup": {
-    "status": "DUAL_PROBE_ONLY_IMPLEMENTED_ENGINE_PENDING",
+    "status": "TESTED_REAL_PID_INJECTION_ROUTES_FAILED",
     "design": "docs/design/ai-director-g1-dual-probe.md",
     "real_clients_required": 2,
     "current_reserved_slots": 0,
@@ -473,7 +478,7 @@
   },
   "dual_probe_experiment": {
     "native_mode": 4,
-    "runtime_staging": "CROSS_ONLY_MODE4_ACTIVE",
+    "runtime_staging": "STOPPED_AFTER_REAL_ENGINE_FAILURE",
     "wire_version": 3,
     "real_sender_colours": [
       0,
@@ -482,12 +487,12 @@
     "reserved_human_slots": 0,
     "effective_human_capacity": 12,
     "fresh_pair_capture": "PASS_TWO_GENUINE_COLOURS_ON_MAP018",
-    "genuine_peer_probe_acks": "FAILED_BROADCAST_ZERO_ACKS",
+    "genuine_peer_probe_acks": "FAILED_ZERO_REAL_ACKS",
     "actor_commands": "DISABLED_IN_NATIVE_AND_MAP",
     "model_sanitizer_scenarios": 26,
     "native_and_python_checks": 77,
     "map_checks": 38,
-    "engine_execution": "TWO_REAL_CLIENT_BROADCAST_ATTEMPTS_FAILED",
+    "engine_execution": "BROADCAST_AND_CROSS_ONLY_FAILED",
     "full_twelve_human_execution": "NOT_PASSED",
     "genuine_receiver_pairs": {
       "colour0": [
@@ -513,8 +518,22 @@
       "native_desync_events": 0,
       "root_cause": "UNCONFIRMED"
     },
-    "next_variant": "CROSS_ONLY_REAL_TEST_PENDING",
+    "next_variant": "NO_FURTHER_CLIENT_TRIAL_WITH_THIS_ROUTE",
     "delivery": "cross_only",
-    "whole_native_cross_sanitizers": "RUNNING_SEPARATELY"
+    "whole_native_cross_sanitizers": "PASS_5_CROSS_AND_15_NATIVE_CASES",
+    "cross_only_attempt": {
+      "real_clients": 2,
+      "self_omissions": 2,
+      "native_desync_events": 1,
+      "desync_tie_kick_all": true,
+      "probe_acks": 0,
+      "actor_commands": 0,
+      "native_restarts": 0,
+      "native_oom_events": 0,
+      "replay_duration_ms": 2400,
+      "replay_structural_integrity": "PASS",
+      "sync_checks_enabled": true,
+      "result": "FAIL_REAL_ENGINE_DESYNC"
+    }
   }
 }

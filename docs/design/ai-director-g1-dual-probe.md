@@ -97,3 +97,33 @@ generated probes; its contents cannot independently prove each recipient's
 filtered view or engine playback. The map and captured receiver pairs are
 unchanged. Real ACKs from both clients remain mandatory, and actor commands
 remain disabled even after success.
+
+## Cross-only result: real desync
+
+The real two-client trial did not pass. Native logged both intended self-record
+omissions, then detected a checksum disagreement about 88 ms after queuing the
+probe. Its normal 1–1 desync tie handling removed both players. GHost remained
+alive without restart or OOM. The completed replay passed structure/CRC checks,
+with 2.4 seconds, two probes, zero actor commands and zero probe ACKs. The empty
+test runtime was stopped; checksum comparison stays enabled.
+
+Five actual-CGame synthetic wire cases pass in release and under whole-native
+ASan/UBSan, together with fifteen existing native cases. Those peers send fixed
+zero keepalive checksums; they cannot establish real engine synchronization.
+This difference is why packet/CRC tests must not promote this candidate to a
+working transport.
+
+The primary [Tinker protocol implementation](https://github.com/Strilanc/Tinker/blob/master/Warcraft3/Protocol/WC3%20Protocol.vb)
+documents validation of a client's echoed actions and describes `Tock`/0x27 as
+a game-state checksum response. Its echo rule is consistent with the observed
+broadcast disconnects. Local GHost source conclusively explains the cross-only
+tie kick. The exact engine calculation and divergent internal state were not
+independently recovered, so checksum rewriting/normalization has no evidential
+basis here.
+
+Both dual-delivery variants are **failed research candidates**. The confirmed
+reserved-sender control remains separate (eleven real-human places). These
+results reject the tested real-PID 0x60 routes; they are not a proof that every
+possible slot-free classic transport is impossible. A next candidate needs a
+different supported communication path and new real-engine evidence, rather
+than disabled sync checks or repeated trials of these same streams.
