@@ -174,3 +174,21 @@ close and no restart. Replay pause/resume records await match completion;
 engine replay playback, lag and lease fallback remain untested. Structural
 replay integrity and earlier sanitizer runs do not pass those remaining gates. The auditor's action subset is not
 certified as a complete classic replay decoder.
+
+
+## Completed replay and next safety scenario
+
+The corrected 0.1.4 match's completed replay passed header/block CRC, record and
+action-boundary checks: one probe, 162 actor commands, 162 matching ACKs, one
+pause and one resume. Real-engine replay playback remains a separate pending
+gate. Native source including the classic pause/save fix passed the isolated
+ASan/UBSan suite (9 bridge, 1 isolation, 23 replay, 5 lifecycle checks); the
+record includes the instrumented binary and driver hashes. No engine ran on CI.
+
+Candidate map 0.1.5 adds an automatic controlled observation stall and explicit
+lease-hold reports. The native mock producer remains unchanged. The replay audit
+now validates snapshot completeness, epoch/sequence, logical timing, actual
+order transitions, position against target and post-stall recovery. Its positive
+result means known-fixture reported telemetry is consistent; a real client must
+still execute the scenario. Other full-G1 gates, including two-client desync and
+twelve-human capacity, remain pending.

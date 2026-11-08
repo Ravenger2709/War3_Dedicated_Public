@@ -21,5 +21,6 @@ export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1
 python3 tests/g1/native-bridge-test.py
 python3 tests/g1/native-isolation-test.py
 python3 tests/g1/test_replay_audit.py
+python3 tests/g1/test_safety_replay.py
 if [[ ${1:-} != --g1-only ]]; then python3 tests/phase3/native-vote-reminder-test.py; fi
 python3 tests/phase3/native-multimatch-test.py

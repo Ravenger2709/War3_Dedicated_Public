@@ -2,7 +2,7 @@
 
 This is an isolated CI/CD development instance. No production AMP, Star, iCCup account, VPN configuration, LLM service or Warcraft engine runs on the server. A real **TFT 1.26a / build 6401** client runs on the operator's LAN computer.
 
-Current artifact 0.1.4 is the explicit **reserved-sender positive control**: use
+The proven pause/resume artifact 0.1.4 is the explicit **reserved-sender positive control**: use
 native mode 3 with `bot_g1_receiver_binding = wire_probe`, lobby
 `G1 Receiver Probe`, one visible `FakePlayer`, and eleven real-human places.
 The twelve-human real-PID candidate has not passed. Configure only a genuine colour-11 wire capture for this exact map. A fresh
@@ -96,3 +96,24 @@ Do not infer a wire ID from an event or trigger handle. Reopen all rows, enable
 mode 3 with `wire_probe` and that observed pair, then rejoin as red/colour0.
 The fresh probe ACK remains mandatory because cross-match stability has not
 been established. This needs one real client in two sequential matches.
+
+## Automatic safety scenario (candidate 0.1.5)
+
+Join `G1 Safety Probe` in red and wait for automatic start. No chat is required.
+After the fifth move the fixture displays START, skips tick publication for forty
+simulation ticks, records LEASE HOLD, then displays RESUME and restores normal
+commands. Keep the client connected for about a minute, then leave so native can
+write the replay. A separately announced eight-second host-container freeze may
+follow RESUME to exercise connection recovery; it does not replace the map lease
+check or prove packet-loss recovery.
+
+Use `Maps\Download\g1-safety-0.1.5.w3x` as the client map path, with the actual
+file still bound at `/maps/g1.w3x` on the host. A release-specific client filename
+preserves the previously downloaded `g1.w3x` needed by the 0.1.4 replay. Do not
+retain obsolete release binaries in the CI map dist directory.
+
+The native binary is unchanged by this map scenario. The prior genuine receiver
+pair is only a startup candidate for the new exact-hash map: fresh real probe ACK
+remains mandatory before actor orders. If it fails, capture the sender's genuine
+pair for the new release rather than deriving or enumerating IDs. Structural and
+reported-telemetry consistency checks do not establish engine replay playback.

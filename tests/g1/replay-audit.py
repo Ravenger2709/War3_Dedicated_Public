@@ -23,6 +23,14 @@ MAX_COMMANDS = 4096
 MAGIC = b'Warcraft III recorded game\x1a\0'
 COMMAND = re.compile(rb'~g1:([0-9]{1,10}):([0-9]{1,10}):([0-9]{1,10}):([0-9]{1,10})\Z')
 KEYS = {b'wire_version', b'receiver0', b'receiver11', b'tick', b'probe', b'digest', b'ack'}
+SAFETY_KEYS = {
+    'stall_start', 'stall_end', 'fallback_count', 'fallback_tick', 'fallback_lease',
+    'fallback_epoch', 'fallback_sequence', 'fallback_before_order', 'fallback_order',
+    'fallback_hold_ok', 'fallback_x_offset', 'fallback_y_offset',
+    'fallback_target_x_offset', 'fallback_target_y_offset',
+    'move_order', 'hold_order', 'move_speed',
+}
+KEYS |= {key.encode('ascii') for key in SAFETY_KEYS}
 
 
 class Refusal(Exception):
@@ -131,6 +139,10 @@ class Summary:
         self.groups = {}
         self.pairs = {}
         self.commands = []
+        self.command_order = []
+        self.export_order = {}
+        self.last_ack_order = {}
+        self.causal_probe_epochs = set()
         self.sequences = {}
         self.counts = dict(hello=0, foreign_chat=0, foreign_cache=0, other_exports=0,
                            pause=0, resume=0, orphan_ack=0, duplicate_ack=0,
@@ -176,6 +188,7 @@ class Summary:
                        kind=kind, receiver_a=a, receiver_b=b, ack_count=0,
                        probe_ack_count=0, sequence_increasing=True)
         self.commands.append(command)
+        self.command_order.append((command, self.action))
         pending = (command, self.action, self.batch, set())
         if seq == 0:
             self.probe = pending
@@ -185,13 +198,16 @@ class Summary:
             self.pending = pending
 
     def observe_cache(self, pid, key, value):
-        exports = self.exports.setdefault(pid, dict(pid=pid, wire_version=0,
-                    receiver0=0, receiver11=0, tick=0, digest=0, ack=0, probe=0,
-                    wire_version_count=0, receiver0_count=0, receiver11_count=0,
-                    tick_count=0, digest_count=0, ack_count=0, probe_count=0))
-        label = key.decode('ascii')  # callers whitelist these seven fixed keys
+        if pid not in self.exports:
+            self.exports[pid] = {'pid': pid}
+            for allowed in KEYS:
+                name = allowed.decode('ascii')
+                self.exports[pid][name] = self.exports[pid][name + '_count'] = 0
+        exports = self.exports[pid]
+        label = key.decode('ascii')  # callers whitelist the fixed protocol keys
         exports[label] = value
         exports[label + '_count'] += 1
+        self.export_order[(pid, label)] = self.action
         if key == b'wire_version':
             if value == 2 and self.colours.get(pid) == 0 and self.publisher is None:
                 self.publisher = pid
@@ -213,6 +229,8 @@ class Summary:
             causal = (pid == self.publisher and self.action > order and self.batch > batch
                       and command['source_tick'] < tick <= command['source_tick'] + 20)
             self.counts['probe_causal' if causal else 'probe_noncausal'] += 1
+            if causal:
+                self.causal_probe_epochs.add(value)
         elif key == b'ack':
             if self.pending is None or value != self.pending[0]['sequence']:
                 self.counts['orphan_ack'] += 1
@@ -232,11 +250,80 @@ class Summary:
             group['digest_count'] += 1
             group['last_digest'] = digest[0]
             group['last_ack_sequence'] = value
+            self.last_ack_order[(pid, command['epoch'])] = (value, self.action)
             values = [self.group(p, command['epoch'])['last_digest'] for p in seen]
             if len(set(values)) > 1:
                 self.counts['digest_mismatches'] += 1
         else:
             self.counts['other_exports'] += 1
+
+    def safety_evidence(self):
+        """Consistency of whitelisted map reports, never a simulation oracle."""
+        result = {'code': 'NOT_OBSERVED', 'scope': 'REPORTED_MAP_TELEMETRY_ONLY',
+                  'real_network_lag': 'NOT_ASSESSED', 'engine_playback': 'NOT_ASSESSED'}
+        values = self.exports.get(self.publisher, {})
+        if not any(values.get(key + '_count', 0) for key in SAFETY_KEYS):
+            return result
+        if not all(values.get(key + '_count', 0) for key in SAFETY_KEYS):
+            result['code'] = 'INCOMPLETE_REPORTED_TELEMETRY'
+            return result
+        epoch, sequence = values['fallback_epoch'], values['fallback_sequence']
+        matching = [(c, order) for c, order in self.command_order
+                    if c['epoch'] == epoch and c['sequence'] == sequence and sequence > 0]
+        start = values['stall_start']
+        end = values['stall_end']
+        fields = [self.export_order[(self.publisher, key)] for key in SAFETY_KEYS
+                  if key.startswith('fallback_')]
+        start_order = self.export_order[(self.publisher, 'stall_start')]
+        end_order = self.export_order[(self.publisher, 'stall_end')]
+        before, after = values['fallback_before_order'], values['fallback_order']
+        latest_ack = self.last_ack_order.get((self.publisher, epoch), (0, 0))
+        recovered = any(c['epoch'] == epoch and c['sequence'] > sequence
+                        and end_order < order < latest_ack[1]
+                        and c['sequence'] <= latest_ack[0] and c['ack_count'] > 0
+                        for c, order in self.command_order)
+        move_action = matching[0][1] if len(matching) == 1 else -1
+        prefix = [c['sequence'] for c, order in self.command_order
+                  if c['epoch'] == epoch and c['sequence'] > 0 and order <= move_action]
+        checks = {
+            'single_snapshot': all(values[key + '_count'] == 1 for key in SAFETY_KEYS),
+            'first_controlled_expiry': values['fallback_count'] == 1,
+            'known_probe_epoch': epoch in self.causal_probe_epochs,
+            'fifth_move_command': len(matching) == 1 and sequence == 5
+                                  and matching[0][0]['kind'] == 1
+                                  and matching[0][0]['sequence_increasing']
+                                  and prefix == [1, 2, 3, 4, 5],
+            'logical_stall_window': 0 < start < end <= 10000000 and end - start == 40
+                                    and start <= values['fallback_tick'] < end,
+            'expiry_after_lease': values['fallback_tick'] == values['fallback_lease'] + 1,
+            # Known G1 fixture order IDs, independently fixed rather than inferred
+            # from the same reports we validate (Order_move/Order_holdposition).
+            'order_reported': values['move_order'] == 851986 and values['hold_order'] == 851993
+                              and before == values['move_order']
+                              and values['fallback_hold_ok'] == 1
+                              and after == values['hold_order'],
+            'positive_move_speed': values['move_speed'] > 0,
+            'position_in_bounds': all(0 <= values[key] <= 8192 for key in
+                ('fallback_x_offset', 'fallback_y_offset',
+                 'fallback_target_x_offset', 'fallback_target_y_offset')),
+            'interrupted_before_target': (values['fallback_x_offset'], values['fallback_y_offset'])
+                != (values['fallback_target_x_offset'], values['fallback_target_y_offset']),
+            'fixture_target': (values['fallback_target_x_offset'], values['fallback_target_y_offset'])
+                              == (4608, 4096),  # seq5: (+512, 0), encoded with +4096
+            'telemetry_ordered': start_order < min(fields) <= max(fields) < end_order,
+            'command_precedes_stall': len(matching) == 1 and matching[0][1] < start_order,
+            'lease_matches_command_window': len(matching) == 1 and
+                20 <= values['fallback_lease'] - matching[0][0]['source_tick'] <= 40,
+            'no_intervening_actor_command': move_action >= 0 and not any(
+                c['sequence'] > 0 and move_action < order < end_order
+                for c, order in self.command_order),
+            'commands_and_acks_recovered': latest_ack[0] > sequence and recovered,
+        }
+        result.update(code='CONSISTENT_REPORTED_CONTROLLED_STALL' if all(checks.values())
+                      else 'INCONSISTENT_REPORTED_TELEMETRY', checks=checks,
+                      publisher_pid=self.publisher,
+                      telemetry={key: values[key] for key in sorted(SAFETY_KEYS)})
+        return result
 
     def actions(self, pid, raw):
         c = Cursor(raw)
@@ -365,6 +452,7 @@ def parse_native(data, duration):
                 timeslots=timeslots, action_records=summary.batch, actions=summary.action,
                 duration_ms=elapsed, leave_records=leaves, checksum_records=checksums,
                 publisher_pid=summary.publisher, counts=summary.counts,
+                controlled_stall=summary.safety_evidence(),
                 commands=summary.commands,
                 exports=[value for _, value in sorted(summary.exports.items())],
                 receiver_pairs=[dict(pid=p, a=a, b=b, count=n)

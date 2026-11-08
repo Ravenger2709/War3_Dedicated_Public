@@ -74,5 +74,25 @@ and pause/resume records. ACK-to-epoch attribution is an inference from replay
 order: the original incoming network batches cannot be reconstructed. It does
 not certify receiver binding, replay playback or multiplayer desync safety.
 The four completed earlier LAN attempts passed structural checks and retained
-their original zero-ACK result. The currently running successful match is not
-included until native closes and writes its replay.
+their original zero-ACK result. The corrected 0.1.4 pause/resume match has now
+closed: one probe, 162 actor commands, 162 ACKs, one pause and one resume passed
+structural checks. Engine playback is a separate pending operator gate.
+
+## Controlled observation stall
+
+Fixture 0.1.5 suppresses only publisher tick exports for forty logical ticks
+after move sequence five. Simulation, ACK exports and lease processing continue.
+It records pre-clear lease, epoch/sequence, actual orders and position, then
+restores observations. `test_safety_replay.py` checks positive and negative
+fixtures; `controlled_stall` in the audit is a separate consistency result.
+Required fields must appear exactly once from the established publisher, match
+the preceding fifth move, use the known move/hold IDs and target, demonstrate
+expiry after the lease and an interrupted move, and precede a same-epoch recovery
+command plus a fresh publisher ACK. Header/record integrity alone cannot pass it.
+
+The order constants are independently fixed from the
+[original order catalog](https://github.com/WarRaft/Order). The report explicitly
+labels its evidence as map telemetry, with network packet loss, engine playback
+and desync unassessed. An actual known-map client run is required before recording
+the controlled-stall gate as passed. This fixture retains eleven real-human
+places and is not the twelve-human transport experiment.
