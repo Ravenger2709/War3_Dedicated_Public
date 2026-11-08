@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "status": "EXPERIMENTAL_CLIENT_GATE_PENDING",
+  "target_client": "1.26.0.6401",
+  "maps_commit": "3b4ea7039a5fe3b2da64197dcfcede1c24960c8d",
+  "map_sha256": "20a49b13387bd1d12be1e7de672ca410fc68a0b52bde5bc38155c527b019aa51",
+  "test_toolchain_image_id": "sha256:f2754a594e3b7883b452f33d1498e90e64d1deb9299d278b266cd5c84292adc9",
+  "native_binary_profile": "release-O2",
+  "native_binary_sha256": "ac8c374a9d353e0958abfa38acecfc3c197a2832c8a44c764cdfb346c096bc22",
+  "source_files_sha256": {
+    "src/hostbot/native_g1_bridge.h": "cefaf529b27dd279e38158a814e4efc2bfd53c9ba6e86a0bed71e6097e1f51c4",
+    "patches/ghostplusplus-modern-linux.patch": "ce53ec4b27481e38aa2c20aecc5cdf5a1361267f90970c677975673678c7d720",
+    "scripts/build-ghost.sh": "4d3729f1df001fd2cc83648f596fb1f58e33caf5484966e1206c876eaa963e09",
+    "third_party/ghost.lock.json": "7070200e7655c380a2ecd1a0c085e765de6f75e9f1a021c7d1d6b883dec46400",
+    "tests/g1/bridge-test.cpp": "dab640e7b961e17de730dd408a176f862be56e5c99eae535f8bd1876e6c2313a",
+    "tests/g1/native-bridge-test.py": "223ac4042fb216c0e4fae5b591c261c29f4e569b7cb938969bfb2e3e97fcdb6a",
+    "tests/g1/build-native-tests.sh": "d56570a283c7b73abbfa57ad918501876d74a63cbdbb487cb84950746dd5f33a",
+    "docker/g1/Dockerfile": "d16e483360bfe9aa088d4ebf67277c4949bc54e931f3bf6272884e6d2556aca2",
+    "scripts/g1-lan-prepare.py": "115c70d1e42220ac161d82ef918dbe79682798211e5f608f02c7269bb4261716",
+    "tests/g1/test_lan_prepare.py": "68d28f1357f8d544429683a545da82cd61a581630c6eb3c3da5b9ee645cb0aba",
+    "tests/g1/lan-smoke.py": "c944bb44d073812548c3605103eda6154d2399f733a2080cdeaa0cc7a01ea96e",
+    "tests/offline/ghost_lifecycle.py": "b3471da089bf7fc55abd3cd9cf3dd5a4e87bbc97a4d717787f7f09cf2f81568e"
+  },
+  "automatic_checks": {
+    "exact_native_source_guard": "PASS",
+    "source_guard_adversarial_regression": "PASS",
+    "bounded_parser_session_asan_ubsan": "PASS",
+    "deterministic_fuzz_inputs": 50000,
+    "actual_cgame_w3gs": {
+      "passed": 4,
+      "scope": "Synthetic peers; empty map-byte fixture pinned exactly; no JASS execution"
+    },
+    "default_gameplay_reminders": {
+      "passed": 8
+    },
+    "concurrent_catalog_reminder": {
+      "passed": 1,
+      "note": "Rerun with public MIT StormLib and full read-only cgroup hierarchy"
+    },
+    "multimatch_lifecycle": {
+      "passed": 5
+    },
+    "classic_fixture_tests": {
+      "passed": 8
+    },
+    "existing_host_mpq_analysis": {
+      "human_capacity": 12,
+      "reserved_bridge_slots": 0
+    },
+    "lan_configuration_tests": {
+      "passed": 2
+    },
+    "lan_transport_smoke": {
+      "synthetic_peer": true,
+      "engine_executed": false,
+      "download_sha256": "20a49b13387bd1d12be1e7de672ca410fc68a0b52bde5bc38155c527b019aa51",
+      "download_bytes": 21186,
+      "solo_autostart": true,
+      "action_timeslots": 5,
+      "war3_version": 26,
+      "port": 6114,
+      "scope": "Local LAN only; no callback calibration emitted."
+    }
+  },
+  "real_client_gates": {
+    "one_client_roundtrip_and_callback_capture": "NOT_RUN",
+    "two_client_digest_and_desync": "NOT_RUN",
+    "pause_lag_and_fallback": "NOT_RUN",
+    "real_replay_playback_without_network": "NOT_RUN",
+    "full_twelve_human_capacity_execution": "NOT_RUN",
+    "exact_126a_standard_library_installation_provenance": "UNVERIFIED"
+  },
+  "production_amp_changed": false,
+  "llm_calls": 0,
+  "earlier_native_sanitizer_run": {
+    "binary_sha256": "27d9612af5762502fedc025f87de0d5d2212972840c9b81b705e55bcf7b0e69e",
+    "patch_sha256": "da894553e962643fef457d44e4050d1890e9d86d7bd118217ad98856faccb5a4",
+    "scope": "Initial bridge CGame tests before the three G1-only solo-start exceptions; not a sanitizer claim for the current native binary."
+  },
+  "map_version": "0.1.1",
+  "vpn_changed": false
+}

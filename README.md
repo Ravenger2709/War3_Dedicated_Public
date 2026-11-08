@@ -99,3 +99,7 @@ The project's original integration code is provided under the [Apache License 2.
 
 
 Этот репозиторий содержит исходники хост-бота Warcraft III для iCCup. Можно использовать Docker без AMP или подключить Generic-шаблон AMP. Для запуска нужны собственные файлы Star/Warcraft III, карта, отдельный iCCup-аккаунт и собранный/проверенный runtime-образ. Приватные конфигурации не публикуются; готовый образ и данные проверки доступны в GitHub Releases. Параметры автостарта, голосования и ИИ редактируются в [пресетах](docs/map-presets.md); инструкции по [Docker](docs/standalone.md) и [AMP](docs/operator-quickstart.md) доступны в репозитории.
+
+## G1 experiment (development branch)
+
+The initial classic 1.26a map/action-bridge spike is documented in [the G1 procedure](docs/design/ai-director-g1.md). It is disabled by default, uses no LLM and has not passed the real-client/desync gate. No AMP or production deployment is part of this experiment.

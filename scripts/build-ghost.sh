@@ -76,7 +76,8 @@ fi
 # Clean our own vendor products when the profile changes, including returning
 # from a sanitizer build to release. Never reuse partially instrumented objects.
 GHOST_PATCH_SHA=$(sha256sum "$PATCH" | cut -d ' ' -f 1)
-PROFILE="$OPT|$SANFLAGS|$INC|$LIB|$GHOST_PATCH_SHA"
+G1_BRIDGE_SHA=$(sha256sum src/hostbot/native_g1_bridge.h | cut -d ' ' -f 1)
+PROFILE="$OPT|$SANFLAGS|$INC|$LIB|$GHOST_PATCH_SHA|$G1_BRIDGE_SHA"
 if [[ ! -f build/ghost-build-profile ]] || [[ $(cat build/ghost-build-profile) != "$PROFILE" ]]; then
     for directory in bncsutil/src/bncsutil ghost; do
         make -C "vendor/ghostplusplus/$directory" clean

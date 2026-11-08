@@ -27,7 +27,7 @@ def packet(kind, body=b''):
 class Peer:
     def __init__(self, info, name, download=False, bad_key=False):
         self.name, self.download = name, download
-        self.sock = socket.create_connection(('127.0.0.1', info['port']), 2)
+        self.sock = socket.create_connection((info.get('address', '127.0.0.1'), info['port']), 2)
         self.buffer = bytearray()
         self.pid = None
         self.counts = Counter()
