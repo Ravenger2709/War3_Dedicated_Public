@@ -5,6 +5,21 @@ using namespace war3g1;
 Bytes chat(const std::string &s,uint32_t a=17,uint32_t b=23){Bytes v(1,0x60);put32(v,a);put32(v,b);v.insert(v.end(),s.begin(),s.end());v.push_back(0);return v;}
 Bytes cache(const std::string &key,uint32_t val){Bytes v(1,0x6b);const char *fields[]={"AIG1.w3v","g1",key.c_str()};for(unsigned i=0;i<3;++i){std::string s(fields[i]);v.insert(v.end(),s.begin(),s.end());v.push_back(0);}put32(v,val);return v;}
 int main(){
+ // Classic pause and resume are each a complete one-byte action. In particular
+ // pause must not eat the next opcode or reject an otherwise valid lone pause.
+ for(unsigned mode:{2U,4U}) {
+  Session paused_input;paused_input.configure(mode,832,832,9);
+  assert(paused_input.process(1,0,Bytes(1,0x01),true).allowed);
+  assert(paused_input.process(1,0,Bytes(1,0x02),true).allowed);
+  Bytes batch(1,0x01), follow=cache("wire_version",2);
+  batch.insert(batch.end(),follow.begin(),follow.end());
+  assert(paused_input.process(1,0,batch,true).allowed);
+  Bytes save={0x06,'t','e','s','t',0};
+  assert(paused_input.process(1,0,save,true).allowed);
+  save.insert(save.end(),follow.begin(),follow.end());
+  assert(paused_input.process(1,0,save,true).allowed);
+  assert(!paused_input.process(1,0,Bytes{0x03},true).allowed);
+ }
  uint32_t number=0;assert(decimal("4294967295",number)&&number==0xffffffffU);for(const char *bad:{"","-1","1x","4294967296"," 2"})assert(!decimal(bad,number));
  Session s;assert(s.process(1,0,chat("~g1:forged"),true).allowed);s.configure(2,17,23,9);
  assert(s.process(1,0,cache("tick",8),true).downlink.empty());

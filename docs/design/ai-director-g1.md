@@ -145,3 +145,27 @@ After rehosting, the fake-sender probe received a genuine ACK, followed by
 additional evidence of actual map order execution. This passes the one-client
 control round trip. Full multiplayer acceptance remains pending; the successful
 fresh probe, rather than unchanged map bytes, establishes this session binding.
+
+
+## Classic pause regression
+
+A stock-client pause after 1266 successful command ACKs caused native to reject
+an action immediately before the client closed its connection. The process
+stayed alive and rehosted. The completed 42-minute replay has 1266 commands and
+1266 ACKs, but no pause action: the rejected input was not forwarded or recorded.
+The original incoming packet was not captured; do not claim a raw-byte capture.
+
+A targeted regression reproduced the parser defect before the fix. Classic TFT
+pause is `01` with no payload, resume is `02`, and game speed is `03 <byte>`.
+The modern parser reference had contributed an extra pause-byte assumption.
+Classic save is likewise `06 <name> 00`, without modern extra paths. Both native
+and replay decoders now use these classic boundaries. Tests cover standalone
+pause/resume, following cache exports, original PID/payload/CRC forwarding and
+continued probe/command handling. The exact-map restriction remains in place;
+other maps and mode 0 retain their old path.
+
+Source facts: the [classic action description](https://github.com/scopatz/w3g/blob/master/w3g_actions.txt)
+and the [modern format rewrite](https://github.com/PBug90/w3gjs/commit/370601c7f74274227aa259520d9d72f2c9ac41d6).
+The real pause/resume retest is pending. Structural replay integrity and earlier
+sanitizer runs do not pass that engine gate. The auditor's action subset is not
+certified as a complete classic replay decoder.

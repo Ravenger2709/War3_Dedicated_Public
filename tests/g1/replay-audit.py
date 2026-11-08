@@ -111,7 +111,7 @@ def unpack(data):
 
 
 # Sizes exclude the opcode. Variable-length fields are parsed separately.
-FIXED = {0x01: 1, 0x02: 0, 0x03: 1, 0x04: 0, 0x05: 0, 0x07: 4,
+FIXED = {0x01: 0, 0x02: 0, 0x03: 1, 0x04: 0, 0x05: 0, 0x07: 4,
          0x10: 14, 0x11: 22, 0x12: 30, 0x13: 38, 0x14: 43, 0x15: 51,
          0x18: 2, 0x19: 12, 0x1a: 0, 0x1b: 9, 0x1c: 9, 0x1d: 8,
          0x1e: 5, 0x1f: 5, 0x50: 5, 0x51: 9, 0x61: 0, 0x62: 12,
@@ -253,8 +253,6 @@ class Summary:
                 c.take(c.u16() * 8)
             elif op == 6:
                 c.string(128)
-                c.string(128)
-                c.take(1)
             elif op == 0x60:
                 a, b = c.u32(), c.u32()
                 self.observe_chat(pid, a, b, c.string(128))

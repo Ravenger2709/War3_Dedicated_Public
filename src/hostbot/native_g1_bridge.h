@@ -30,7 +30,9 @@ inline bool decode(const Bytes &v,std::vector<Event> &events) {
  while(p<v.size()) {
   size_t begin=p;unsigned op=v[p++]; size_t n=0; Event e(op);
   switch(op) {
-   case 0x01:case 0x03:n=1;break;
+   // TFT 1.26 pause is opcode-only; the extra pause byte is a later format.
+   case 0x03:n=1;break;
+   case 0x01:
    case 0x02:case 0x04:case 0x05:case 0x1a:case 0x61:case 0x66:case 0x67:break;
    case 0x07:n=4;break;
    case 0x10:n=14;break;case 0x11:n=22;break;case 0x12:n=30;break;
@@ -43,7 +45,8 @@ inline bool decode(const Bytes &v,std::vector<Event> &events) {
    case 0x1e:case 0x1f:n=5;break;case 0x50:n=5;break;case 0x51:n=9;break;
    case 0x62:n=12;break;case 0x63:n=8;break;case 0x64:case 0x65:n=8;break;
    case 0x06:
-    if(!str(v,p,e.text)||!str(v,p,e.key)||!take(v,p,1))return false;break;
+    // Classic save-game carries one terminated name, not the newer two paths.
+    if(!str(v,p,e.text))return false;break;
    case 0x60:
     if(p+8>v.size())return false;
     e.a=u32(v,p);e.b=u32(v,p+4);p+=8;

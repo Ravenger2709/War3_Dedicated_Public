@@ -243,13 +243,29 @@ class ReplayAuditTests(unittest.TestCase):
 
     def test_pause_resume_loading_leave_and_checksum(self):
         leave = b'\x17' + u32(1) + b'\x02' + u32(0) + u32(1)
-        records = frame((1, b'\x01\x00\x02'), op=0x1e, delta=0) + b'\x22\x04' + u32(123)
+        records = frame((1, b'\x01\x02'), op=0x1e, delta=0) + b'\x22\x04' + u32(123)
         result = self.result(records, loading=leave)
         self.assertEqual(result['code'], 'OK')
         self.assertEqual(result['counts']['pause'], 1)
         self.assertEqual(result['counts']['resume'], 1)
         self.assertEqual(result['leave_records'], 1)
         self.assertEqual(result['checksum_records'], 1)
+
+    def test_classic_pause_followed_by_cache_keeps_next_opcode(self):
+        for raw in (b'\x01', b'\x02', b'\x01\x02', b'\x01' + export(b'tick', 9)):
+            with self.subTest(raw=raw):
+                result = self.result(frame((1, raw)), 250)
+                self.assertEqual(result['code'], 'OK')
+        self.assertEqual(result['exports'][0]['tick'], 9)
+        self.refuse(packed(body(frame((1, b'\x03'))), 250), 'TRUNCATED')
+
+    def test_classic_save_name_followed_by_cache(self):
+        result = self.result(frame((1, b'\x06PRIVATE_SAVE\0' + export(b'tick', 9))), 250)
+        self.assertEqual(result['code'], 'OK')
+        self.assertEqual(result['exports'][0]['tick'], 9)
+        self.assertNotIn('PRIVATE_SAVE', json.dumps(result))
+        self.refuse(packed(body(frame((1, b'\x06no-terminator'))), 250),
+                    'STRING_BOUND_OR_TRUNCATED')
 
     def test_wrong_duration_client_pid_and_reserved_payload(self):
         self.refuse(packed(body(frame(delta=250))), 'DURATION_MISMATCH')

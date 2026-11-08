@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "status": "SINGLE_CLIENT_CONTROL_ROUNDTRIP_PASS_FULL_G1_PENDING",
+  "status": "CLASSIC_PAUSE_FIX_OFFLINE_PASS_REAL_CLIENT_RETEST_PENDING",
   "target_client": "1.26.0.6401",
   "maps_commit": "a5c02f16c5ff4f309d933304d8441b586656861c",
   "map_sha256": "5a5c7658eaefca4e0c1e7c7b56ca43aecc9958265267f0e836b17baa42ba3e76",
   "test_toolchain_image_id": "sha256:f2754a594e3b7883b452f33d1498e90e64d1deb9299d278b266cd5c84292adc9",
   "native_binary_profile": "release-O2",
-  "native_binary_sha256": "d26d7f4ee66e48e728f17c4c12b425b4e3b7a6ce0adb6eb7448eb5c8ce97ab1a",
+  "native_binary_sha256": "3d1efb8cb6103789854ef1f855957afe5df8299f67f49c1ee8cd519c1676ba64",
   "source_files_sha256": {
-    "src/hostbot/native_g1_bridge.h": "91888a04959877b2f338baf037eb032909b3e7778cd561211e479db346962989",
+    "src/hostbot/native_g1_bridge.h": "262d0d4fcb742b5bb063053877ea464aa4b4f1e5287ba2153069fe7ffa675070",
     "patches/ghostplusplus-modern-linux.patch": "4370d671d2ca1045a03b59687dc32e6d743b83d4f40b8e11c09026fd5b2a68c2",
     "scripts/build-ghost.sh": "4d3729f1df001fd2cc83648f596fb1f58e33caf5484966e1206c876eaa963e09",
     "third_party/ghost.lock.json": "ca0fe29d74dcceb1a35c359871401af8732e042d73c715e12628c099f6fa5a88",
-    "tests/g1/bridge-test.cpp": "2a4b0ad4ee0aa41539a7197bb92966c2fdd8663b9bce5132ab867fe3beac23c2",
-    "tests/g1/native-bridge-test.py": "059be835e9fee990ef821904013bde03782fe2f715d17747180bf0426a567029",
+    "tests/g1/bridge-test.cpp": "b593070e19fdd00e3621c8111c5648dbadd4d9373f8993f6f55cd81389688208",
+    "tests/g1/native-bridge-test.py": "e7f3c9cc87d46b4e623d603dbc108ac65ab0e3279f6b361e2c74e340d807c1d5",
     "tests/g1/build-native-tests.sh": "167d30c661c28cb635171ded0ac96fce43971e74eeece169f1aa192e47d548bb",
     "docker/g1/Dockerfile": "d16e483360bfe9aa088d4ebf67277c4949bc54e931f3bf6272884e6d2556aca2",
     "scripts/g1-lan-prepare.py": "115c70d1e42220ac161d82ef918dbe79682798211e5f608f02c7269bb4261716",
@@ -21,8 +21,8 @@
     "tests/g1/lan-smoke.py": "c944bb44d073812548c3605103eda6154d2399f733a2080cdeaa0cc7a01ea96e",
     "tests/offline/ghost_lifecycle.py": "b3471da089bf7fc55abd3cd9cf3dd5a4e87bbc97a4d717787f7f09cf2f81568e",
     "tests/g1/native-isolation-test.py": "5af17e9f03c488fbdbcb26049b51aea8ef98f0f41a63086b54544ff71eb038c9",
-    "tests/g1/replay-audit.py": "71a469f7ead735e8684cc4c500cd5a157584cbdffcba7d5f82a9b02c7c22c755",
-    "tests/g1/test_replay_audit.py": "8fa8ca3853b1d815a526a9dd427e75d94e370b2fee057716985e54b9d444757d"
+    "tests/g1/replay-audit.py": "b1b54a57463c2613d55ef41e429a19d313d685118ee200bbd2d9aaa4d33a205e",
+    "tests/g1/test_replay_audit.py": "6c59a63038ba2fb39eac6bafc52f7bfe93a47c44827957ab467ba1166ff06ded"
   },
   "automatic_checks": {
     "exact_native_source_guard": "PASS",
@@ -30,7 +30,7 @@
     "bounded_parser_session_asan_ubsan": "PASS",
     "deterministic_fuzz_inputs": 50000,
     "actual_cgame_w3gs": {
-      "passed": 8,
+      "passed": 9,
       "scope": "Synthetic genuine-wire-pair configuration, harmless probe before authority, wrong/early/expired ACK rejection, colour-aware capture, invalid configuration, exact map pin, sender capacity/ownership and native CRC/replay; no engine execution"
     },
     "multimatch_lifecycle": {
@@ -55,13 +55,13 @@
     },
     "simulation_clock_and_retirement": "PASS_SESSION_MODEL_NOT_ENGINE_PAUSE",
     "replay_auditor": {
-      "synthetic_tests_passed": 21,
+      "synthetic_tests_passed": 23,
       "completed_lan_samples": 4,
       "all_samples_container_and_record_integrity": "PASS",
       "historical_failed_samples_ack_count": 0,
       "scope": "Structural CRC and action-boundary audit only; no engine playback or desync proof"
     },
-    "current_native_sanitizers": {
+    "native_sanitizers_before_classic_pause_fix": {
       "schema_version": 1,
       "source_commit": "e17e4dd",
       "native_source_equivalent_to_release": true,
@@ -78,13 +78,16 @@
       "exit_code": 0,
       "running_lan_binary_changed": false,
       "amp_changed": false,
-      "vpn_changed": false
-    }
+      "vpn_changed": false,
+      "scope": "Previous native source before classic pause/save parsing correction; not a full-native sanitizer claim for the new candidate"
+    },
+    "classic_pause_and_save": "PASS_OPCODE_ONLY_PAUSE_SINGLE_STRING_SAVE_AND_FOLLOWING_ACTION_BOUNDARIES",
+    "native_pause_resume_forwarding": "PASS_EXACT_ACTION_RECORDS_ORIGINAL_PID_CRC_AND_FRESH_PROBE_AFTER_RESUME"
   },
   "real_client_gates": {
-    "one_client_roundtrip_and_callback_capture": "PASS_REAL_CLIENT_PROBE_AND_44_CONSECUTIVE_COMMAND_ACKS",
+    "one_client_roundtrip_and_callback_capture": "PREVIOUS_NATIVE_PASS_CURRENT_CLASSIC_FIX_RETEST_PENDING",
     "two_client_digest_and_desync": "NOT_RUN",
-    "pause_lag_and_fallback": "NOT_RUN",
+    "pause_lag_and_fallback": "FAILED_BEFORE_CLASSIC_PAUSE_FIX_RETEST_PENDING",
     "real_replay_playback_without_network": "NOT_RUN",
     "full_twelve_human_capacity_execution": "NOT_PASSED_POSITIVE_CONTROL_RESERVES_ONE_SLOT",
     "exact_126a_standard_library_installation_provenance": "UNVERIFIED"
@@ -190,7 +193,8 @@
       "consecutive_sequences": true,
       "container_restarts": 0,
       "scope": "One real client, no pause confirmation or two-client desync claim"
-    }
+    },
+    "native_binary_sha256": "d26d7f4ee66e48e728f17c4c12b425b4e3b7a6ce0adb6eb7448eb5c8ce97ab1a"
   },
   "capacity_followup": {
     "status": "PROPOSED_NOT_IMPLEMENTED",
@@ -198,5 +202,15 @@
     "real_clients_required": 2,
     "current_reserved_slots": 1,
     "current_human_capacity": 11
+  },
+  "pause_failure": {
+    "map_version": "0.1.4",
+    "observed_command_acks_before_disconnect": 1266,
+    "completed_replay_duration_ms": 2539200,
+    "container_restarts": 0,
+    "native_action_rejection_before_remote_close": true,
+    "classic_pause_reproduction": "OLD_DECODER_REJECTS_OPCODE_ONLY_01",
+    "fix": "CLASSIC_01_HAS_ZERO_PAYLOAD_BYTES_ALSO_CORRECT_CLASSIC_06_SINGLE_STRING",
+    "real_client_retest": "PENDING"
   }
 }

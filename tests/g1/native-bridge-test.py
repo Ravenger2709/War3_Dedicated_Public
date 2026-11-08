@@ -104,6 +104,20 @@ class G1Tests(unittest.TestCase):
   self.assertTrue(all(not peer.disconnected for peer in peers))
   self.assertEqual(n.state()['players'],11)
   self.assertEqual(bytes(int(word,16) for word in n.state()['slots_hex'].split())[11*9:12*9],fake)
+ def test_classic_pause_and_resume_forward_unchanged_and_keep_probe_working(self):
+  n,a,b=self.start(mode=3,binding='wire_probe');epoch=n.state()['host_counter']
+  def forwarded(raw):
+   return any((a.pid,raw) in action_records(p) for p in b.frames if p[1]==0x0c)
+  send(a,b'\x01');wait(lambda:forwarded(b'\x01'))
+  batch=b'\x01'+cache('wire_version',2)+cache('tick',8)
+  send(a,batch);wait(lambda:forwarded(batch))
+  wait(lambda:found(b,chat(f'~g1:{epoch}:0:8:0',832,832)))
+  send(a,b'\x02');wait(lambda:forwarded(b'\x02'))
+  send(a,cache('tick',9)+cache('probe',epoch))
+  wait(lambda:any('receiver probe ACK confirmed' in s for s in n.lines))
+  send(a,cache('tick',16));wait(lambda:found(b,chat(f'~g1:{epoch}:1:16:1',832,832)))
+  self.assertFalse(any('[G1] action rejected' in s for s in n.lines))
+  self.assertFalse(a.disconnected or b.disconnected)
  def test_wrong_map_pin_leaves_existing_actions_unchanged(self):
   n,a,b=self.start(pin='0'*64)
   send(a,chat('g1:hello'));send(a,cache('tick',8));time.sleep(.25)
