@@ -27,7 +27,7 @@ class G1Tests(unittest.TestCase):
  native=g.GameplayTests.native
  def start(self,mode=2,pin=None,binding="manual"):
   n=self.native({'bot_g1_bridge_mode':str(mode),'bot_g1_map_sha256':pin or hashlib.sha256(b'').hexdigest(),
-   'bot_g1_receiver_a':'821' if binding=='event_probe' else '17','bot_g1_receiver_b':'821' if binding=='event_probe' else '23','bot_g1_receiver_binding':binding,'bot_countdownseconds':'1','bot_savereplays':'1'})
+   'bot_g1_receiver_a':'832' if binding=='wire_probe' else '17','bot_g1_receiver_b':'832' if binding=='wire_probe' else '23','bot_g1_receiver_binding':binding,'bot_countdownseconds':'1','bot_savereplays':'1'})
   # Existing synthetic CGame fixture intentionally has no MPQ bytes.
   # Pin that exact empty byte string for this wire-only test.
   replay=n.root/'replays';replay.mkdir();n.cfg.write_text(n.cfg.read_text()+f'bot_replaypath = {replay}/\n')
@@ -84,7 +84,7 @@ class G1Tests(unittest.TestCase):
   self.assertIn((fake,expected),action_records(packet))
   send(a,cache('digest',321)+cache('ack',1));wait(lambda:any('[G1] ack ' in line for line in n.lines))
  def test_automatic_event_binding_probes_before_actor_commands(self):
-  n,a,b=self.start(mode=3,binding='event_probe');epoch=n.state()['host_counter']
+  n,a,b=self.start(mode=3,binding='wire_probe');epoch=n.state()['host_counter']
   send(a,cache('wire_version',2)+cache('receiver0',0x100335)+cache('receiver11',0x100340)+cache('tick',8))
   probe=chat(f'~g1:{epoch}:0:8:0',832,832);wait(lambda:found(a,probe) and found(b,probe))
   self.assertFalse(any('[G1] fixed command queued' in line for line in n.lines))
@@ -117,6 +117,9 @@ class G1Tests(unittest.TestCase):
  def test_invalid_enabled_config_fails_before_runtime(self):
   cases=[{'bot_g1_bridge_mode':'4'}, {'bot_g1_bridge_mode':'-1'}, {'bot_g1_bridge_mode':'2x'},
          {'bot_g1_bridge_mode':'3'},
+         {'bot_g1_bridge_mode':'3','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_binding':'event_probe','bot_g1_receiver_a':'832','bot_g1_receiver_b':'832'},
+         {'bot_g1_bridge_mode':'2','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'832','bot_g1_receiver_b':'832'},
+         {'bot_g1_bridge_mode':'3','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_binding':'wire_probe','bot_g1_receiver_a':'0','bot_g1_receiver_b':'832'},
          {'bot_g1_bridge_mode':'1','bot_g1_map_sha256':'bad'},
          {'bot_g1_bridge_mode':'2','bot_g1_map_sha256':'a'*64,'bot_g1_receiver_a':'4294967296','bot_g1_receiver_b':'1'},
          {'bot_g1_bridge_mode':'2','bot_g1_map_sha256':'a'*64}]
@@ -128,5 +131,7 @@ class G1Tests(unittest.TestCase):
   n,a,b=self.start(mode=1);send(a,chat('g1:hello'));send(a,cache('tick',8))
   wait(lambda:any('[G1] calibration receiver_a=17 receiver_b=23' in line for line in n.lines))
   self.assertTrue(any(line.split('action_hex=',1)[1].split(' host_counter=',1)[0].replace(' ','').lower()==chat('g1:hello').hex() for line in n.lines if 'action_hex=' in line))
+  send(b,chat("g1:hello",832,832))
+  wait(lambda:any("calibration receiver_a=832 receiver_b=832" in line and "colour=1" in line for line in n.lines))
   self.assertFalse(any('[G1] fixed command' in line for line in n.lines))
 if __name__=='__main__':unittest.main()

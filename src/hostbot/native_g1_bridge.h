@@ -107,24 +107,16 @@ public:
    }
   for(size_t i=0;i<events.size();++i) {
    const Event &e=events[i];
-   if(e.opcode==0x60 && colour==0 && e.text=="g1:hello") {
+   if(e.opcode==0x60 && (colour==0 || (mode_==1 && colour<12)) && e.text=="g1:hello") {
     r.calibration=true;r.receiver_a=e.a;r.receiver_b=e.b;r.calibration_action=e.wire;
-    if(mode_==2 && active() && e.a==a_ && e.b==b_ && publisher_==255){publisher_=pid;calibrated_=true;}
+    if(mode_==2 && colour==0 && active() && e.a==a_ && e.b==b_ && publisher_==255){publisher_=pid;calibrated_=true;}
    }
    if(mode_==4 && e.opcode==0x6b && e.cache=="AIG1.w3v" && e.mission=="g1" && colour==0) {
-    if(e.key=="wire_version" && e.value==2 && publisher_==255){publisher_=pid;protocol_=2;}
-    if(pid==publisher_ && protocol_==2 && !bound_) {
-     if(e.key=="receiver0")meta0_=e.value;
-     if(e.key=="receiver11")meta11_=e.value;
-     if(meta0_ && meta11_) {
-      r.meta0=meta0_;r.meta11=meta11_;
-      // Handles supply a candidate only; no actor command before a real probe ACK.
-      if(meta0_<0x100000 || meta0_>0x10ffff || meta11_<0x100000 || meta11_>0x10ffff ||
-         (meta0_&0xffff)!=a_ || a_!=b_ || meta0_==meta11_) {
-       retired_=true;r.probe_failed=true;return r;
-      }
-      target_=meta11_&0xffff;bound_=calibrated_=true;r.bound=true;r.target=target_;
-     }
+    // Only a wire pair captured from the actual sender's chat is configured.
+    // JASS GetHandleId values are NOT wire object identifiers (real-client test).
+    // Rehosting can change a captured pair; require a new harmless probe ACK.
+    if(e.key=="wire_version" && e.value==2 && publisher_==255){
+     publisher_=pid;protocol_=2;target_=a_;bound_=calibrated_=true;r.bound=true;r.target=target_;
     }
     if(e.key=="probe" && pid==publisher_ && probe_sent_ && !verified_ && e.value==epoch_ && !r.probe_packet && tick_>probe_tick_ && tick_<=probe_tick_+20) {
      verified_=true;r.probe_ready=true;
@@ -144,7 +136,7 @@ public:
     if(!probe_sent_ && tick_>=8) {
      probe_sent_=true;r.probe_packet=true;probe_tick_=last_sent_tick_=tick_;
      std::ostringstream probe;probe<<"~g1:"<<epoch_<<":0:"<<tick_<<":0";
-     std::string text=probe.str();r.downlink.push_back(0x60);put32(r.downlink,target_);put32(r.downlink,target_);
+     std::string text=probe.str();r.downlink.push_back(0x60);put32(r.downlink,a_);put32(r.downlink,b_);
      r.downlink.insert(r.downlink.end(),text.begin(),text.end());r.downlink.push_back(0);
     }
     continue;
@@ -154,7 +146,7 @@ public:
    if(pending_ && !publisher_ack_ && tick_<last_sent_tick_+20)continue;
    last_sent_tick_=tick_;pending_=++seq_;publisher_ack_=false;acknowledgers_.clear();digests_.clear();
    std::ostringstream s;s<<"~g1:"<<epoch_<<":"<<seq_<<":"<<tick_<<":"<<(seq_%2 ? 1 : 2);
-   std::string text=s.str();r.downlink.push_back(0x60);put32(r.downlink,mode_==4?target_:a_);put32(r.downlink,mode_==4?target_:b_);
+   std::string text=s.str();r.downlink.push_back(0x60);put32(r.downlink,a_);put32(r.downlink,b_);
    r.downlink.insert(r.downlink.end(),text.begin(),text.end());r.downlink.push_back(0);
   }
   return r;

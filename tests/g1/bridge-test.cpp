@@ -40,8 +40,8 @@ int main(){
  Bytes original=cache("tick",8), cmd=chat("~g1:1:1:8:1"), want=original;
  want.insert(want.end(),cmd.begin(),cmd.end());assert(append_downlink(original,cmd));assert(original==want);
  Bytes full(1024,1), before=full;assert(!append_downlink(full,cmd));assert(full==before);
- // Per-player event handles are candidates, never actor authority before probe ACK.
- Session binding;binding.configure(4,821,821,9);
+ // A genuinely captured sender pair is still unverified after rehosting until probe ACK.
+ Session binding;binding.configure(4,832,832,9);
  Bytes meta=cache("wire_version",2), m0=cache("receiver0",0x100335), m11=cache("receiver11",0x100340);
  meta.insert(meta.end(),m0.begin(),m0.end());meta.insert(meta.end(),m11.begin(),m11.end());
  Result candidate=binding.process(1,0,meta,true);assert(candidate.bound && candidate.target==832);
@@ -53,17 +53,18 @@ int main(){
  assert(!binding.process(1,0,cache("probe",8),true).probe_ready);
  assert(binding.process(1,0,cache("probe",9),true).probe_ready);
  assert(binding.process(1,0,cache("tick",16),true).downlink==chat("~g1:9:1:16:1",832,832));
- Session timeout;timeout.configure(4,821,821,9);timeout.process(1,0,meta,true);
+ Session timeout;timeout.configure(4,832,832,9);timeout.process(1,0,meta,true);
  timeout.process(1,0,cache("tick",8),true);assert(timeout.process(1,0,cache("tick",29),true).probe_failed);
  assert(timeout.process(1,0,cache("tick",40),true).downlink.empty());
- Session mismatch;mismatch.configure(4,100,100,9);assert(mismatch.process(1,0,meta,true).probe_failed);
- Session early;early.configure(4,821,821,9);early.process(1,0,meta,true);
+ Session capture11;capture11.configure(1,0,0,9);assert(capture11.process(7,11,chat("g1:hello",832,832),true).calibration);
+ Session active11;active11.configure(2,832,832,9);assert(active11.process(7,11,chat("g1:hello",832,832),true).downlink.empty());assert(active11.process(7,11,cache("tick",8),true).downlink.empty());
+ Session early;early.configure(4,832,832,9);early.process(1,0,meta,true);
  Bytes forged=cache("tick",8), early_ack=cache("probe",9), later_tick=cache("tick",9);
  forged.insert(forged.end(),early_ack.begin(),early_ack.end());forged.insert(forged.end(),later_tick.begin(),later_tick.end());
  Result premature=early.process(1,0,forged,true);assert(premature.probe_packet && !premature.probe_ready);
  // Probe expiry is checked against the whole batch, even with ACK before tick.
  for(unsigned reverse=0;reverse<2;++reverse) {
-  Session stale;stale.configure(4,821,821,9);stale.process(1,0,meta,true);
+  Session stale;stale.configure(4,832,832,9);stale.process(1,0,meta,true);
   stale.process(1,0,cache("tick",8),true);stale.process(1,0,cache("tick",9),true);
   Bytes ack_first=cache(reverse?"tick":"probe",reverse?29:9);
   Bytes tail=cache(reverse?"probe":"tick",reverse?9:29);

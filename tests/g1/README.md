@@ -35,3 +35,12 @@ checks without repeating the unchanged periodic-message suite. Mode-3 tests
 also verify the explicit fake sender, eleven-human budget, owner/reserved
 rejection without kicks, and wrong-map isolation. These synthetic checks do
 not establish that a real client executes the control command.
+
+
+The current automatic control uses `bot_g1_receiver_binding = wire_probe` in
+mode 3 with the complete colour-11 **wire capture**, not JASS handles. The map
+publishes protocol v2 automatically; native gates actor commands on a fresh
+causal probe ACK. Capture-only mode 1 logs all human colours without granting
+active publisher authority to non-red players. Negative settings and ACK order
+cases are covered. A real event-handle experiment disproved low-word conversion;
+its failure is recorded in the acceptance receipt rather than treated as a fix.

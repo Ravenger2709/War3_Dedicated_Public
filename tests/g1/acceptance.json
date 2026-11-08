@@ -6,14 +6,14 @@
   "map_sha256": "5a5c7658eaefca4e0c1e7c7b56ca43aecc9958265267f0e836b17baa42ba3e76",
   "test_toolchain_image_id": "sha256:f2754a594e3b7883b452f33d1498e90e64d1deb9299d278b266cd5c84292adc9",
   "native_binary_profile": "release-O2",
-  "native_binary_sha256": "8b3f2af03b1231350569dbc2780c1812e421752f202066c13983d5e7dabfebed",
+  "native_binary_sha256": "d26d7f4ee66e48e728f17c4c12b425b4e3b7a6ce0adb6eb7448eb5c8ce97ab1a",
   "source_files_sha256": {
-    "src/hostbot/native_g1_bridge.h": "186c22c2bac232738705be0ae42882bde8e73edec6ebb54aa0f43d528d26b275",
-    "patches/ghostplusplus-modern-linux.patch": "6d383343d5c5523a8e3227c0ebfce65127552a47720040fbcd11e9eec1705f18",
+    "src/hostbot/native_g1_bridge.h": "91888a04959877b2f338baf037eb032909b3e7778cd561211e479db346962989",
+    "patches/ghostplusplus-modern-linux.patch": "4370d671d2ca1045a03b59687dc32e6d743b83d4f40b8e11c09026fd5b2a68c2",
     "scripts/build-ghost.sh": "4d3729f1df001fd2cc83648f596fb1f58e33caf5484966e1206c876eaa963e09",
-    "third_party/ghost.lock.json": "3af7838830dd25b95d016806275ec0f930f6462bbfa0a22cdf2038dbf9f9ebfc",
-    "tests/g1/bridge-test.cpp": "494d9a3632133d8f6c95a2911b20503bb2251e267e2de556b847ed2ba90b274b",
-    "tests/g1/native-bridge-test.py": "e6d09cf90d7e893e1d63ead9739ffec9e250105a5b4247eab4d9f7486a2048fc",
+    "third_party/ghost.lock.json": "ca0fe29d74dcceb1a35c359871401af8732e042d73c715e12628c099f6fa5a88",
+    "tests/g1/bridge-test.cpp": "5c98f51fe0182a195f3bb70cfda420c338fa9f3fdb351b4a3eaa867b59b967e5",
+    "tests/g1/native-bridge-test.py": "059be835e9fee990ef821904013bde03782fe2f715d17747180bf0426a567029",
     "tests/g1/build-native-tests.sh": "4df254b68d68e1e5320bc140c2c4ac178b235423aa8ec76fe83e3ce3ca22e97f",
     "docker/g1/Dockerfile": "d16e483360bfe9aa088d4ebf67277c4949bc54e931f3bf6272884e6d2556aca2",
     "scripts/g1-lan-prepare.py": "115c70d1e42220ac161d82ef918dbe79682798211e5f608f02c7269bb4261716",
@@ -28,7 +28,7 @@
     "deterministic_fuzz_inputs": 50000,
     "actual_cgame_w3gs": {
       "passed": 8,
-      "scope": "Synthetic event metadata, harmless probe before authority, wrong/early ACK rejection, exact map pin, sender capacity/ownership and native CRC/replay; no engine execution"
+      "scope": "Synthetic genuine-wire-pair configuration, harmless probe before authority, wrong/early/expired ACK rejection, colour-aware capture, invalid configuration, exact map pin, sender capacity/ownership and native CRC/replay; no engine execution"
     },
     "multimatch_lifecycle": {
       "passed": 5
@@ -48,7 +48,7 @@
     "probe_expiry_batch_order": "PASS_ACK_BEFORE_AND_AFTER_EXPIRED_TICK"
   },
   "real_client_gates": {
-    "one_client_roundtrip_and_callback_capture": "AUTOMATIC_PROBE_AND_COMMAND_ACK_PENDING",
+    "one_client_roundtrip_and_callback_capture": "SENDER11_WIRE_CAPTURE_THEN_FRESH_PROBE_PENDING",
     "two_client_digest_and_desync": "NOT_RUN",
     "pause_lag_and_fallback": "NOT_RUN",
     "real_replay_playback_without_network": "NOT_RUN",
@@ -74,7 +74,7 @@
     "tcp_closed_after_ms": 6400,
     "root_cause": "UNCONFIRMED"
   },
-  "transport": "reserved_sender_event_probe_candidate",
+  "transport": "captured_sender_wire_probe",
   "previous_lan_transport_smoke": {
     "synthetic_peer": true,
     "engine_executed": false,
@@ -101,8 +101,8 @@
     "sender_player": 11,
     "reserved_human_slots": 1,
     "effective_human_capacity": 11,
-    "stock_client_result": "NOT_RUN_THIS_RELEASE",
-    "receiver_binding": "event_probe"
+    "stock_client_result": "SENDER11_CALIBRATION_PENDING",
+    "receiver_binding": "wire_probe"
   },
   "slot_preserving_real_client_attempts": {
     "separate_record": "NO_ACK",
@@ -115,5 +115,14 @@
     "native_commands_queued": 76,
     "command_acks_received": 0,
     "client_roundtrip": "NOT_PASSED"
+  },
+  "event_handle_experiment": {
+    "map_version": "0.1.4",
+    "publisher_metadata_received": true,
+    "event0_handle_low": 91,
+    "event11_handle_low": 102,
+    "previous_player0_wire_receiver": 821,
+    "result": "HANDLE_CONVERSION_DISPROVED_NO_ACTOR_AUTHORITY",
+    "command_acks": 0
   }
 }

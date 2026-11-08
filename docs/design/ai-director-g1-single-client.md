@@ -3,10 +3,11 @@
 This is an isolated CI/CD development instance. No production AMP, Star, iCCup account, VPN configuration, LLM service or Warcraft engine runs on the server. A real **TFT 1.26a / build 6401** client runs on the operator's LAN computer.
 
 Current artifact 0.1.4 is the explicit **reserved-sender positive control**: use
-native mode 3 with `bot_g1_receiver_binding = event_probe`, lobby
+native mode 3 with `bot_g1_receiver_binding = wire_probe`, lobby
 `G1 Receiver Probe`, one visible `FakePlayer`, and eleven real-human places.
-The twelve-human real-PID candidate has not passed. Receiver handles provide
-only a candidate; a real map probe ACK must arrive before any actor order.
+The twelve-human real-PID candidate has not passed. Configure only a genuine colour-11 wire capture for this exact map. A fresh
+real map probe ACK must arrive before any actor order. JASS event handles
+are not wire identifiers; that earlier mapping experiment failed.
 
 ## Prepare the host
 
@@ -60,9 +61,8 @@ a local hello callback or a successful probe alone does not prove actor orders.
 The footman receives alternating move/hold orders; after reaching its fixed
 destination it can appear stationary even while healthy command ACKs continue.
 
-If the event candidate does not match the previously captured player-0 anchor,
-or the probe expires after twenty simulation ticks, native disables actor
-commands for that game. Record the typed failure and map/native hashes; do not
+If the captured sender receiver pair fails its fresh probe within twenty
+simulation ticks, native disables actor commands for that game. Record the typed failure and map/native hashes; do not
 retry arbitrary receiver IDs or treat synthetic ACKs as real execution.
 
 ## Manual capture fallback (historical profiles)
@@ -76,10 +76,23 @@ Manual mode 2 (real publisher PID) and mode 3 (reserved sender) require the
 observed pair and the exact map SHA; use `bot_g1_receiver_binding = manual`
 (default). Those older real-client attempts produced no command ACK and are
 not accepted fixes. Do not transplant calibration from a different release
-without checking it. The current event-probe profile validates its candidate
-against the configured real-traffic anchor and a new real-client probe.
+without checking it. The current wire-probe profile uses a real colour-11 capture and verifies
+that pair again through a harmless real-client probe after rehosting.
 
 Single-client success does not establish absence of multiplayer desync.
 Two-client comparison, pause/lag/replay, isolation and twelve-human acceptance
 remain pending. Preserve bounded session evidence only in private storage;
 never put local addresses, player names or raw replays in public acceptance.
+
+
+## Obtain a genuine colour-11 sender capture
+
+Use mode 1 with manual binding, the exact same map, and no fake sender. Close
+rows 0 through 10 in the native map configuration, keeping only colour 11 open.
+The real client joins `G1 Sender Calibration`, downloads and starts normally,
+then types `g1:hello` once in ordinary match chat. Native logs the complete
+receiver pair, known hello action and **colour=11**. No orders are injected.
+Do not infer a wire ID from an event or trigger handle. Reopen all rows, enable
+mode 3 with `wire_probe` and that observed pair, then rejoin as red/colour0.
+The fresh probe ACK remains mandatory because cross-match stability has not
+been established. This needs one real client in two sequential matches.
