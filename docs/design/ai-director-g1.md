@@ -203,3 +203,23 @@ behavior and adds a previous-tick position plus two delayed post-hold samples.
 The audit accepts a completed-order zero only with verified position stability,
 logical timing, no natural arrival/superseding order, and command/ACK recovery.
 This is a diagnostic correction; 0.1.5 is not retroactively declared a safety pass.
+
+
+## Verified physical stop (0.1.6)
+
+The real one-client run passed the controlled lease scenario. At logical tick
+68 the unit was at X=209 and moving toward X=512. The lease ended at 68; at
+expiry tick 69 it was at X=246 and accepted hold. Tick-70 and tick-74 position
+samples both remained at X=246, away from the target. No intervening actor
+command or natural arrival explained the stop. The observation stall lasted
+49..89, and commands plus fresh ACKs recovered afterward. Current order zero
+after the completed immediate hold was preserved as raw evidence rather than
+rewritten to an expected value.
+
+The completed replay passed CRC/record checks with 47 actor commands and 46
+ACKs; the final queued command was unconfirmed at user exit. This passes the
+known-fixture one-client controlled physical-stop check, not two-client desync,
+peer packet-loss recovery, full twelve-human transport or engine replay playback.
+The user did not request replay delivery, so no download service was started.
+Existing compiler-library hashes were rechecked, but exact installation
+provenance remains unverified. Production AMP and VPN were not accessed.

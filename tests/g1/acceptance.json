@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "status": "SINGLE_CLIENT_CONTROL_PAUSE_RESUME_PASS_FULL_G1_PENDING",
+  "status": "ONE_CLIENT_TRANSPORT_AND_CONTROLLED_SAFETY_PASS_FULL_G1_PENDING",
   "target_client": "1.26.0.6401",
-  "maps_commit": "a5c02f16c5ff4f309d933304d8441b586656861c",
-  "map_sha256": "5a5c7658eaefca4e0c1e7c7b56ca43aecc9958265267f0e836b17baa42ba3e76",
+  "maps_commit": "54734f97592072118108a4eb2fd3b224662c169c",
+  "map_sha256": "acbd5550213a340aeda08114e9b91be262309e8c2bd9c254ce92e29a8c3dfd1f",
   "test_toolchain_image_id": "sha256:f2754a594e3b7883b452f33d1498e90e64d1deb9299d278b266cd5c84292adc9",
   "native_binary_profile": "release-O2",
   "native_binary_sha256": "3d1efb8cb6103789854ef1f855957afe5df8299f67f49c1ee8cd519c1676ba64",
@@ -38,13 +38,13 @@
       "passed": 5
     },
     "classic_fixture_tests": {
-      "passed": 15
+      "passed": 23
     },
     "existing_host_mpq_analysis": {
       "human_capacity": 12,
       "reserved_bridge_slots": 1,
       "effective_human_capacity": 11,
-      "map_version": "0.1.4"
+      "map_version": "0.1.6"
     },
     "lan_configuration_tests": {
       "passed": 2
@@ -111,15 +111,15 @@
     }
   },
   "real_client_gates": {
-    "one_client_roundtrip_and_callback_capture": "PASS_CURRENT_NATIVE_REAL_CLIENT_PROBE_AND_30_CONSECUTIVE_ACKS",
+    "one_client_roundtrip_and_callback_capture": "PASS_MAP016_FRESH_PROBE_AND46_ACKS",
     "two_client_digest_and_desync": "NOT_RUN",
-    "pause_lag_and_fallback": "PAUSE_RESUME_PASS_LAG_AND_FALLBACK_PENDING",
-    "real_replay_playback_without_network": "NOT_RUN",
+    "pause_lag_and_fallback": "ONE_CLIENT_PAUSE_HOST_STALL_AND_CONTROLLED_LEASE_PASS_PEER_LAG_PENDING",
+    "real_replay_playback_without_network": "NOT_RUN_OPERATOR_DID_NOT_REQUEST_REPLAY_DELIVERY",
     "full_twelve_human_capacity_execution": "NOT_PASSED_POSITIVE_CONTROL_RESERVES_ONE_SLOT",
     "exact_126a_standard_library_installation_provenance": "UNVERIFIED",
     "pause_resume": "PASS_ONE_REAL_CLIENT_WITH_ACK_RESUMPTION",
     "lag_recovery": "CONTROLLED_HOST_STALL_PASS_PEER_LAG_AND_PACKET_LOSS_NOT_RUN",
-    "lease_fallback": "RETEST_WITH_DELAYED_PHYSICAL_SAMPLES_PENDING",
+    "lease_fallback": "PASS_MAP016_ONE_REAL_CLIENT_CONTROLLED_STALL_WITH_PHYSICAL_SAMPLES",
     "controlled_host_stall": "PASS_8_SECONDS_SAME_PROCESS_ACKS_RESUMED"
   },
   "production_amp_changed": false,
@@ -129,7 +129,7 @@
     "patch_sha256": "da894553e962643fef457d44e4050d1890e9d86d7bd118217ad98856faccb5a4",
     "scope": "Initial bridge CGame tests before the three G1-only solo-start exceptions; not a sanitizer claim for the current native binary."
   },
-  "map_version": "0.1.4",
+  "map_version": "0.1.6",
   "vpn_changed": false,
   "previous_real_client_attempt": {
     "map_version": "0.1.1",
@@ -168,7 +168,7 @@
     "sender_player": 11,
     "reserved_human_slots": 1,
     "effective_human_capacity": 11,
-    "stock_client_result": "PASS_ONE_REAL_CLIENT_RESERVED_SENDER_CONTROL",
+    "stock_client_result": "PASS_ONE_CLIENT_ROUNDTRIP_PAUSE_AND_CONTROLLED_LEASE",
     "receiver_binding": "wire_probe"
   },
   "slot_preserving_real_client_attempts": {
@@ -202,40 +202,59 @@
     "command_ack": "PASS_44_CONSECUTIVE_REAL_CLIENT"
   },
   "real_client_observation": {
-    "map_version": "0.1.4",
+    "map_version": "0.1.6",
     "native_binary_sha256": "3d1efb8cb6103789854ef1f855957afe5df8299f67f49c1ee8cd519c1676ba64",
     "receiver_a": 832,
     "receiver_b": 832,
     "probe_ack_confirmed": true,
-    "consecutive_command_acks": 30,
-    "first_sequence": 1,
-    "last_sequence": 30,
-    "publisher_colour": 0,
-    "sender_colour": 11,
-    "pause_resume": {
-      "operator_confirmed": true,
-      "ack_gap_seconds": 11.376,
-      "before_sequence": 8,
-      "after_sequence": 9,
-      "sequence_continues": true,
-      "native_action_rejections": 0,
-      "remote_closes": 0,
-      "container_restarts": 0,
-      "replay_records": "PASS_ONE_PAUSE_ONE_RESUME_162_COMMANDS_162_ACKS"
+    "actor_commands": 47,
+    "command_acks": 46,
+    "unconfirmed_at_match_end": 1,
+    "controlled_observation_stall": {
+      "result": "PASS_ONE_REAL_CLIENT_PHYSICAL_LEASE_STOP_AND_RECOVERY",
+      "stall_ticks": [
+        49,
+        89
+      ],
+      "lease_end": 68,
+      "hold_tick": 69,
+      "position_before_hold": [
+        209,
+        0
+      ],
+      "position_at_hold": [
+        246,
+        0
+      ],
+      "post_hold_positions": [
+        [
+          246,
+          0
+        ],
+        [
+          246,
+          0
+        ]
+      ],
+      "sample_ticks": [
+        70,
+        74
+      ],
+      "move_target": [
+        512,
+        0
+      ],
+      "current_order_after_hold": 0,
+      "hold_accepted": true,
+      "commands_and_acks_recovered": true,
+      "all_consistency_checks_passed": true
     },
     "network": "LOCAL_LAN",
     "amp_changed": false,
     "vpn_changed": false,
-    "scope": "One real client reserved-sender control; pause/resume live test only, no lag/fallback, engine replay playback or twelve-human claim",
-    "completed_replay": {
-      "duration_ms": 336500,
-      "actor_commands": 162,
-      "ack_count": 162,
-      "pause_actions": 1,
-      "resume_actions": 1,
-      "structural_integrity": "PASS",
-      "engine_playback": "NOT_ASSESSED"
-    }
+    "engine_replay_playback": "NOT_RUN",
+    "two_client_desync": "NOT_RUN",
+    "full_twelve_humans": "NOT_PASSED"
   },
   "capacity_followup": {
     "status": "PROPOSED_NOT_IMPLEMENTED",
@@ -279,14 +298,6 @@
     },
     "native_binary_sha256": "d26d7f4ee66e48e728f17c4c12b425b4e3b7a6ce0adb6eb7448eb5c8ce97ab1a"
   },
-  "next_safety_map": {
-    "maps_commit": "fe3d39a",
-    "version": "0.1.6",
-    "map_sha256": "acbd5550213a340aeda08114e9b91be262309e8c2bd9c254ce92e29a8c3dfd1f",
-    "classic_map_tests_passed": 23,
-    "real_client": "PENDING_DELAYED_POSITION_SAMPLES",
-    "receiver_pair": "PRIOR_GENUINE_CAPTURE_CANDIDATE_FRESH_PROBE_REQUIRED"
-  },
   "safety_015_observation": {
     "actor_commands": 91,
     "ack_count": 91,
@@ -308,5 +319,46 @@
     },
     "lease_gate": "PENDING_DELAYED_SAMPLES",
     "engine_playback": "NOT_RUN"
+  },
+  "previous_real_client_observation_pause_014": {
+    "map_version": "0.1.4",
+    "native_binary_sha256": "3d1efb8cb6103789854ef1f855957afe5df8299f67f49c1ee8cd519c1676ba64",
+    "receiver_a": 832,
+    "receiver_b": 832,
+    "probe_ack_confirmed": true,
+    "consecutive_command_acks": 30,
+    "first_sequence": 1,
+    "last_sequence": 30,
+    "publisher_colour": 0,
+    "sender_colour": 11,
+    "pause_resume": {
+      "operator_confirmed": true,
+      "ack_gap_seconds": 11.376,
+      "before_sequence": 8,
+      "after_sequence": 9,
+      "sequence_continues": true,
+      "native_action_rejections": 0,
+      "remote_closes": 0,
+      "container_restarts": 0,
+      "replay_records": "PASS_ONE_PAUSE_ONE_RESUME_162_COMMANDS_162_ACKS"
+    },
+    "network": "LOCAL_LAN",
+    "amp_changed": false,
+    "vpn_changed": false,
+    "scope": "One real client reserved-sender control; pause/resume live test only, no lag/fallback, engine replay playback or twelve-human claim",
+    "completed_replay": {
+      "duration_ms": 336500,
+      "actor_commands": 162,
+      "ack_count": 162,
+      "pause_actions": 1,
+      "resume_actions": 1,
+      "structural_integrity": "PASS",
+      "engine_playback": "NOT_ASSESSED"
+    }
+  },
+  "stdlib_provenance_review": {
+    "cached_hashes_match_recorded_baseline": true,
+    "exact_126a_installation_origin": "UNVERIFIED",
+    "scope": "Existing cached metadata inspection only; no original installation supplied"
   }
 }
