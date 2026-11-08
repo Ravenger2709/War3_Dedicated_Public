@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "DUAL_REAL_SENDER_PROBE_OFFLINE_PASS_GENUINE_CALIBRATION_PENDING",
+  "status": "DUAL_REAL_SENDER_PROBE_GENUINE_PAIRS_CAPTURED_CALLBACK_TEST_PENDING",
   "target_client": "1.26.0.6401",
   "maps_commit": "d4e188171751c13336eda3a8106910a071870003",
   "map_sha256": "3dece954b410008c69758424bd3bde948d1d20192c55e44950cc5922f9e2d6c6",
@@ -468,7 +468,7 @@
   },
   "dual_probe_experiment": {
     "native_mode": 4,
-    "runtime_staging": "CAPTURE_ONLY_MODE1",
+    "runtime_staging": "PROBE_ONLY_MODE4_ACTIVE",
     "wire_version": 3,
     "real_sender_colours": [
       0,
@@ -476,13 +476,23 @@
     ],
     "reserved_human_slots": 0,
     "effective_human_capacity": 12,
-    "fresh_pair_capture": "PENDING_BOTH_COLOURS_CURRENT_RELEASE",
-    "genuine_peer_probe_acks": "PENDING",
+    "fresh_pair_capture": "PASS_TWO_GENUINE_COLOURS_ON_MAP018",
+    "genuine_peer_probe_acks": "PENDING_REAL_TEST",
     "actor_commands": "DISABLED_IN_NATIVE_AND_MAP",
     "model_sanitizer_scenarios": 26,
     "native_and_python_checks": 72,
     "map_checks": 38,
     "engine_execution": "PENDING",
-    "full_twelve_human_execution": "NOT_PASSED"
+    "full_twelve_human_execution": "NOT_PASSED",
+    "genuine_receiver_pairs": {
+      "colour0": [
+        821,
+        821
+      ],
+      "colour1": [
+        822,
+        822
+      ]
+    }
   }
 }
