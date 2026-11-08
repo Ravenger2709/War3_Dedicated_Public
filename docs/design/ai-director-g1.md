@@ -84,8 +84,9 @@ slot, synthetic client ACK or production deployment is used as a substitute.
 ## Explicit reserved-sender positive control
 
 Mode 3 is a **separate control profile**, not the slot-preserving solution.
-It is still off by default and requires an exact map SHA plus a real publisher
-hello matching the configured receiver pair. On that map only, native creates
+It is still off by default and requires an exact map SHA. Manual binding also
+requires a real publisher hello matching the configured receiver pair; the
+automatic wire-probe binding is described below. On that map only, native creates
 one ordinary fake-human sender in the initially open human colour-11 row.
 No other row may be replaced to create it. Its action uses that participant's
 PID; the real publisher remains colour 0. The matching 0.1.3 fixture explicitly
@@ -133,4 +134,14 @@ The map timer emits metadata, tick, then deferred probe or digest/command ACK.
 World changes remain synchronous on all peers. Manual binding remains the
 default and other maps remain untouched. Synthetic probe tests do not prove a
 real callback, order application or desync safety. Full capacity remains eleven
-real humans for this control profile. No actual command ACK has passed yet.
+real humans for this control profile. The actual one-client result is recorded below; full G1 acceptance remains pending.
+
+
+Colour-11 stock-client calibration for fixture 0.1.4 has now produced the
+complete genuine receiver pair **832/832**; the earlier red-player capture was
+821/821. This records observed wire values, not a general mapping formula.
+After rehosting, the fake-sender probe received a genuine ACK, followed by
+44 consecutive command ACKs. The digest position component changed, providing
+additional evidence of actual map order execution. This passes the one-client
+control round trip. Full multiplayer acceptance remains pending; the successful
+fresh probe, rather than unchanged map bytes, establishes this session binding.

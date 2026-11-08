@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "status": "POSITIVE_CONTROL_ONLY_REAL_CLIENT_PENDING",
+  "status": "SINGLE_CLIENT_CONTROL_ROUNDTRIP_PASS_FULL_G1_PENDING",
   "target_client": "1.26.0.6401",
-  "maps_commit": "0deed39683a1b6bb8727f545552c95fd456bbc47",
+  "maps_commit": "a5c02f16c5ff4f309d933304d8441b586656861c",
   "map_sha256": "5a5c7658eaefca4e0c1e7c7b56ca43aecc9958265267f0e836b17baa42ba3e76",
   "test_toolchain_image_id": "sha256:f2754a594e3b7883b452f33d1498e90e64d1deb9299d278b266cd5c84292adc9",
   "native_binary_profile": "release-O2",
@@ -48,7 +48,7 @@
     "probe_expiry_batch_order": "PASS_ACK_BEFORE_AND_AFTER_EXPIRED_TICK"
   },
   "real_client_gates": {
-    "one_client_roundtrip_and_callback_capture": "SENDER11_WIRE_CAPTURE_THEN_FRESH_PROBE_PENDING",
+    "one_client_roundtrip_and_callback_capture": "PASS_REAL_CLIENT_PROBE_AND_44_CONSECUTIVE_COMMAND_ACKS",
     "two_client_digest_and_desync": "NOT_RUN",
     "pause_lag_and_fallback": "NOT_RUN",
     "real_replay_playback_without_network": "NOT_RUN",
@@ -101,7 +101,7 @@
     "sender_player": 11,
     "reserved_human_slots": 1,
     "effective_human_capacity": 11,
-    "stock_client_result": "SENDER11_CALIBRATION_PENDING",
+    "stock_client_result": "PASS_SINGLE_CLIENT_11_HUMAN_CONTROL_ONLY",
     "receiver_binding": "wire_probe"
   },
   "slot_preserving_real_client_attempts": {
@@ -124,5 +124,30 @@
     "previous_player0_wire_receiver": 821,
     "result": "HANDLE_CONVERSION_DISPROVED_NO_ACTOR_AUTHORITY",
     "command_acks": 0
+  },
+  "sender11_wire_capture": {
+    "map_version": "0.1.4",
+    "colour": 11,
+    "receiver_a": 832,
+    "receiver_b": 832,
+    "genuine_known_hello_action": true,
+    "rehost_probe_ack": "PASS_REAL_CLIENT",
+    "command_ack": "PASS_44_CONSECUTIVE_REAL_CLIENT"
+  },
+  "real_client_observation": {
+    "map_version": "0.1.4",
+    "receiver_a": 832,
+    "receiver_b": 832,
+    "probe_ack_confirmed": true,
+    "consecutive_command_acks": 44,
+    "first_sequence": 1,
+    "last_sequence": 44,
+    "position_digest_component_changed": true,
+    "publisher_colour": 0,
+    "sender_colour": 11,
+    "network": "LOCAL_LAN",
+    "amp_changed": false,
+    "vpn_changed": false,
+    "scope": "Control profile only; no two-client desync/replay or twelve-human claim"
   }
 }
