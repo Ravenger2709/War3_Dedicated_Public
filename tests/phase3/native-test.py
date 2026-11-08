@@ -1840,6 +1840,77 @@ class GameplayTests(unittest.TestCase):
         finally:
             n.stop()
 
+    def test_ai_total_target_includes_predefined_computers_with_one_free_row(self):
+        # Twelve physical rows: cooperative 8+4, three teams with 9+3,
+        # and four teams with twelve human-capable rows.
+        layouts = ((2, set(range(8, 12))), (3, {3, 7, 11}), (4, set()))
+        for teams, fixed in layouts:
+            with self.subTest(teams=teams, fixed=len(fixed)):
+                n = self.ai_native({'bot_lobby_refresh_interval': '30'}, target=11,
+                                   slots=12, map_players=12, teams=teams)
+                cfg = n.root / 'synthetic.cfg'
+                head = cfg.read_text().split('map_slot1')[0]
+                rows = []
+                for sid in range(12):
+                    team = (0 if sid < 8 else 1) if teams == 2 else sid // (12 // teams)
+                    rows.append([0, 100 if sid in fixed else 255,
+                                 2 if sid in fixed else 0, int(sid in fixed),
+                                 team, sid, 32, 1, 100])
+                cfg.write_text(head + ''.join('map_slot' + str(sid+1) + ' = ' +
+                                              ' '.join(map(str, row)) + '\n'
+                                              for sid, row in enumerate(rows)))
+                try:
+                    n.start().create(); n.command('ownerless')
+                    state = self.ai_capture(n, players=0, computer_players=11,
+                                            ai_owned=11-len(fixed), max_players=12)
+                    fixed_rows = {sid: bytes(rows[sid]) for sid in fixed}
+                    def protected(state):
+                        actual = self.ai_rows(state)
+                        self.assertEqual(sum(row[2] == 0 for row in actual), 1)
+                        for sid, row in fixed_rows.items():
+                            self.assertEqual(actual[sid], row)
+                    protected(state)
+                    n.command('refresh')
+                    state = self.ai_wait(n, refresh_pending=True)
+                    self.assertEqual(sum(row[2] == 0 for row in self.ai_rows(state)), 0)
+                    self.assertNotIn(state['refresh_sid'], fixed)
+                    a = n.peer('First')
+                    state = self.ai_capture(n, a, players=1, computer_players=10,
+                                            ai_owned=10-len(fixed), refresh_pending=False)
+                    protected(state); guard = self.ai_guard(a)
+                    n.command('agerefresh')
+                    self.ai_wait(n, refresh_pending=True)
+                    b = n.peer('Next')
+                    state = self.ai_capture(n, a, b, players=2, computer_players=9,
+                                            ai_owned=9-len(fixed), refresh_pending=False)
+                    protected(state); self.ai_unchanged(guard, b)
+                    b.close()
+                    state = self.ai_capture(n, a, players=1, computer_players=10,
+                                            ai_owned=10-len(fixed))
+                    protected(state); self.ai_unchanged(guard, state=state)
+                    a.close()
+                    protected(self.ai_capture(n, players=0, computer_players=11,
+                                               ai_owned=11-len(fixed)))
+                finally:
+                    n.stop()
+
+    def test_ai_predefined_computers_do_not_allow_fewer_than_two_human_rows(self):
+        for humans in (0, 1):
+            with self.subTest(humans=humans):
+                n = self.ai_native(target=11, slots=12, teams=2)
+                cfg = n.root / 'synthetic.cfg'
+                head = cfg.read_text().split('map_slot1')[0]
+                cfg.write_text(head + ''.join(
+                    f'map_slot{sid+1} = 0 {255 if sid < humans else 100} '
+                    f'{0 if sid < humans else 2} {0 if sid < humans else 1} '
+                    f'{sid % 2} {sid} 32 1 100\n' for sid in range(12)))
+                try:
+                    n.start().create()
+                    wait(lambda: any('approved AI configuration does not fit this map' in line for line in n.lines))
+                    wait(lambda: any(line.startswith('TEST EXIT ') for line in n.lines))
+                finally:
+                    n.stop()
+
     def test_ai_capacity_minus_one_refresh_admits_join_and_restores_departed_computer(self):
         for capacity in (8, 12):
             for route in ('normal', 'scored'):

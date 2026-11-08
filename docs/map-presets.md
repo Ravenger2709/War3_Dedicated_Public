@@ -85,12 +85,13 @@ are accepted only as a migration input for a one-item cycle.
 | `vote.required_percent` | Percentage of human yes votes required. |
 | `vote.timeout` / `vote.cooldown` | Optional vote duration and cooldown in seconds. |
 | `ai.enabled` | Explicitly enable computer slots for a map with detected AI support. |
-| `ai.target` | Initial computer population, 2–12, bounded by map capacity. |
+| `ai.target` | Initial total computer population, including predefined computers; 2–12, bounded by map capacity. |
 | `ai.skill` | `0` Easy, `1` Normal, `2` Insane. |
 
-Computer population is `max(0, target - human_players)`: a human joining replaces
-one owned computer; a human leaving the lobby restores it. Existing computer
-rows defined by the map are preserved. Computers do not count towards human
+The managed computer count is `max(0, target - human_players - fixed_computers)`,
+bounded by available slots and reservations. A human joining replaces one owned
+computer; a human leaving the lobby restores it. Computer rows defined by the
+map remain fixed and count towards the total target. Computers do not count towards human
 vote or auto-start requirements. Their difficulty follows the preset.
 
 Use booleans `true` and `false` in JSON. AMP's yes/no presentation does not change
