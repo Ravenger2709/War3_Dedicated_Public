@@ -62,6 +62,12 @@ inline bool decimal(const std::string &s,uint32_t &out) {
  for(size_t i=0;i<s.size();++i){if(s[i]<'0'||s[i]>'9')return false;n=n*10+s[i]-'0';if(n>0xffffffffULL)return false;}
  out=static_cast<uint32_t>(n);return true;
 }
+// Experimental coalescing: keep the publisher's original and generated actions
+// in one bounded PID record. Packet CRC is recalculated by native aggregation.
+inline bool append_downlink(Bytes &original,const Bytes &downlink) {
+ if(original.size()>1024 || downlink.size()>1024-original.size())return false;
+ original.insert(original.end(),downlink.begin(),downlink.end());return true;
+}
 inline void put32(Bytes &v,uint32_t n) {for(unsigned i=0;i<4;++i)v.push_back((n>>(i*8))&255);}
 struct Result {
  bool allowed,calibration,ack,snapshot;uint32_t receiver_a,receiver_b,ack_sequence,digest;

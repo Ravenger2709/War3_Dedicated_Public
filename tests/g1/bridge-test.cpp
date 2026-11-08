@@ -37,6 +37,9 @@ int main(){
  Session calibration;calibration.configure(1,0,0,1);Bytes unknown(1,255);
  assert(calibration.process(1,0,unknown,true).allowed);
  assert(calibration.process(1,0,cache("tick",8),true).downlink.empty());
+ Bytes original=cache("tick",8), cmd=chat("~g1:1:1:8:1"), want=original;
+ want.insert(want.end(),cmd.begin(),cmd.end());assert(append_downlink(original,cmd));assert(original==want);
+ Bytes full(1024,1), before=full;assert(!append_downlink(full,cmd));assert(full==before);
  // Deterministic malformed-byte fuzz, no process state mutation on rejected batch.
  uint32_t seed=123;for(unsigned k=0;k<50000;++k){Bytes v(k%90);for(size_t i=0;i<v.size();++i){seed=1664525*seed+1013904223;v[i]=seed>>24;}std::vector<Event> e;decode(v,e);}
  std::cout<<"G1 action boundary, ownership, isolation, expiry, rejection and fuzz checks PASS\n";

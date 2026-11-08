@@ -71,7 +71,7 @@
     }
   ],
   "patch_sha256": {
-    "patches/ghostplusplus-modern-linux.patch": "ce53ec4b27481e38aa2c20aecc5cdf5a1361267f90970c677975673678c7d720"
+    "patches/ghostplusplus-modern-linux.patch": "7a908d750f4fccab198423fee205e5fd49f6ec3a1d715911b38e78586afd5737"
   },
   "stormlib": {
     "repository": "https://github.com/ladislav-zezula/StormLib.git",

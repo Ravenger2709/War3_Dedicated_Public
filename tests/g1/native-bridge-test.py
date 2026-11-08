@@ -11,6 +11,16 @@ def chat(text,a=17,b=23):return b'\x60'+struct.pack('<II',a,b)+text.encode()+b'\
 def cache(key,val):return b'\x6bAIG1.w3v\0g1\0'+key.encode()+b'\0'+struct.pack('<I',val)
 def send(peer,data):peer.sock.sendall(g.frame(0x26,struct.pack('<I',zlib.crc32(data))+data))
 def found(peer,raw):return any(p[1] in (0x0c,0x48) and raw in p[6:] for p in peer.frames)
+def action_records(packet):
+ if packet[1]!=0x0c or len(packet)<=8:return []
+ assert struct.unpack_from('<H',packet,6)[0]==zlib.crc32(packet[8:])&0xffff
+ offset=8;records=[]
+ while offset<len(packet):
+  pid=packet[offset];size=struct.unpack_from('<H',packet,offset+1)[0]
+  payload=packet[offset+3:offset+3+size];assert len(payload)==size
+  records.append((pid,payload));offset+=3+size
+ assert offset==len(packet)
+ return records
 class G1Tests(unittest.TestCase):
  setUp=g.GameplayTests.setUp
  tearDown=g.GameplayTests.tearDown
@@ -33,8 +43,18 @@ class G1Tests(unittest.TestCase):
   send(b,chat('g1:hello'));send(b,cache('tick',8));time.sleep(.2)
   self.assertFalse(any('[G1] fixed command' in line for line in n.lines))
   send(a,chat('g1:hello'));wait(lambda:any('[G1] calibration' in line for line in n.lines))
+  wait(lambda:any((a.pid,chat('g1:hello')) in action_records(p) for p in b.frames))
   send(a,cache('tick',8));expected=chat(f'~g1:{epoch}:1:8:1')
   wait(lambda:found(a,expected) and found(b,expected))
+  packet=next(p for p in b.frames if p[1]==0x0c and expected in p[8:])
+  self.assertEqual(struct.unpack_from('<H',packet,6)[0],zlib.crc32(packet[8:])&0xffff)
+  offset=8;records=[]
+  while offset<len(packet):
+   pid=packet[offset];size=struct.unpack_from('<H',packet,offset+1)[0]
+   payload=packet[offset+3:offset+3+size];self.assertEqual(len(payload),size)
+   records.append((pid,payload));offset+=3+size
+  self.assertEqual(offset,len(packet))
+  self.assertEqual([payload for pid,payload in records if pid==a.pid],[cache('tick',8)+expected])
   for peer in (a,b):send(peer,cache('digest',1234)+cache('ack',1))
   wait(lambda:len([line for line in n.lines if '[G1] ack ' in line])==2)
   self.assertTrue(all('digest=1234' in line for line in n.lines if '[G1] ack ' in line))

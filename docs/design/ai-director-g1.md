@@ -61,3 +61,22 @@ Original bridge/session/parser/test implementation, Apache-2.0, authored here. W
 - The repository's pinned Apache GHost source, for CIncomingAction ownership, queue aggregation and replay storage.
 
 The fixture uses its own terrain/JASS/assets, not a redistributed Warcraft installation or protected user map.
+
+## Stock-client diagnostic experiment
+
+The first real-client attempt with fixture 0.1.1 loaded and produced a genuine
+hello action (both receiver fields 821). One reverse command reached the native
+queue/replay, but no ACK arrived; the server observed a remote TCP close at
+6.4 simulation seconds. The operator reported a stationary visible footman
+and no intentional exit. This is **not a successful round trip**.
+
+The next candidate coalesces generated downlink bytes into the publisher's
+original bounded action record, rather than adding a second same-PID record.
+Native serialization recalculates packet CRC and replay records the merged
+bytes. Oversized batches remain unchanged and command retry waits for the
+existing simulation expiry. Duplicate-PID rejection is an **unproven
+hypothesis**, so this is an A/B transport experiment, not a confirmed repair.
+Fixture 0.1.2 adds display-only startup/hello/command/rejection diagnostics;
+actual guards, orders and ACK logic are unchanged. A fresh stock-client test
+must distinguish callback nondelivery from explicit map rejection. No reserved
+slot, synthetic client ACK or production deployment is used as a substitute.

@@ -405,7 +405,7 @@ index 8b54fcd..864ac7a 100644
  	// record everything we need to ban each player in case we decide to do so later
  	// this is because when a player leaves the game an admin might want to ban that player
 diff --git a/ghost/game_base.cpp b/ghost/game_base.cpp
-index 121bc52..5191574 100644
+index 121bc52..a644057 100644
 --- a/ghost/game_base.cpp
 +++ b/ghost/game_base.cpp
 @@ -25,6 +25,7 @@
@@ -941,7 +941,7 @@ index 121bc52..5191574 100644
  
  	// send slot info to the new player
  	// the SLOTINFOJOIN packet also tells the client their assigned PID and that the join was successful
-@@ -2594,7 +2730,23 @@ bool CBaseGame :: EventPlayerAction( CGamePlayer *player, CIncomingAction *actio
+@@ -2594,6 +2730,22 @@ bool CBaseGame :: EventPlayerAction( CGamePlayer *player, CIncomingAction *actio
  		return false;
  	}
  
@@ -955,16 +955,15 @@ index 121bc52..5191574 100644
 +		if( bridge.calibration ) CONSOLE_Print( "[G1] calibration receiver_a=" + UTIL_ToString( bridge.receiver_a ) + " receiver_b=" + UTIL_ToString( bridge.receiver_b ) + " action_hex=" + UTIL_ByteArrayToHexString( bridge.calibration_action ) + " host_counter=" + UTIL_ToString( m_HostCounter ) );
 +		if( bridge.ack ) CONSOLE_Print( "[G1] ack pid=" + UTIL_ToString( player->GetPID( ) ) + " sequence=" + UTIL_ToString( bridge.ack_sequence ) + " digest=" + UTIL_ToString( bridge.digest ) + " host_counter=" + UTIL_ToString( m_HostCounter ) );
 +	}
- 	m_Actions.push( action );
 +	if( !bridge.downlink.empty( ) )
 +	{
-+		BYTEARRAY crc;
-+		m_Actions.push( new CIncomingAction( player->GetPID( ), crc, bridge.downlink ) );
-+		CONSOLE_Print( "[G1] fixed command queued host_counter=" + UTIL_ToString( m_HostCounter ) );
++		if( war3g1::append_downlink( *action->GetAction( ), bridge.downlink ) )
++			CONSOLE_Print( "[G1] fixed command queued merged=1 host_counter=" + UTIL_ToString( m_HostCounter ) );
++		else CONSOLE_Print( "[G1] command deferred because action batch is full" );
 +	}
+ 	m_Actions.push( action );
  
  	// check for players saving the game and notify everyone
- 
 @@ -2830,7 +2982,8 @@ void CBaseGame :: EventPlayerChatToHost( CGamePlayer *player, CIncomingChatPlaye
  
  			if( Message == "?trigger" )
