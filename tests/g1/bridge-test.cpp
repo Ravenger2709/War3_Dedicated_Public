@@ -73,6 +73,26 @@ int main(){
   assert(expired.probe_failed && !expired.probe_ready && expired.downlink.empty());
   assert(!stale.active() && stale.process(1,0,cache("tick",40),true).downlink.empty());
  }
+ // A simulation pause or ignored lag observation cannot advance authority/time.
+ Session paused;paused.configure(4,832,832,20);paused.process(1,0,meta,true);
+ assert(paused.process(1,0,cache("tick",8),true).probe_packet);
+ assert(!paused.process(1,0,cache("tick",100),false).probe_failed);
+ assert(!paused.process(1,0,cache("probe",20),false).probe_ready);
+ assert(!paused.process(1,0,chat("~g1:forged"),false).allowed);
+ paused.process(1,0,cache("tick",9),true);
+ assert(paused.process(1,0,cache("probe",20),true).probe_ready);
+ assert(paused.process(1,0,cache("tick",16),true).downlink==chat("~g1:20:1:16:1",832,832));
+ for(unsigned i=0;i<100;++i)assert(paused.process(1,0,cache("tick",16),true).downlink.empty());
+ // Retiring a publisher blocks both later ticks and repeat protocol handshakes.
+ paused.depart(1);
+ assert(paused.process(1,0,meta,true).downlink.empty());
+ assert(paused.process(1,0,cache("tick",40),true).downlink.empty());
+ Session fresh;fresh.configure(4,832,832,21);fresh.process(1,0,meta,true);
+ assert(fresh.process(1,0,cache("tick",8),true).probe_packet);
+ fresh.process(1,0,cache("tick",9),true);
+ assert(!fresh.process(1,0,cache("probe",20),true).probe_ready);
+ assert(fresh.process(1,0,cache("probe",21),true).probe_ready);
+ assert(fresh.process(1,0,cache("tick",16),true).downlink==chat("~g1:21:1:16:1",832,832));
  // Deterministic malformed-byte fuzz, no process state mutation on rejected batch.
  uint32_t seed=123;for(unsigned k=0;k<50000;++k){Bytes v(k%90);for(size_t i=0;i<v.size();++i){seed=1664525*seed+1013904223;v[i]=seed>>24;}std::vector<Event> e;decode(v,e);}
  std::cout<<"G1 action boundary, ownership, isolation, expiry, rejection and fuzz checks PASS\n";

@@ -12,14 +12,17 @@
     "patches/ghostplusplus-modern-linux.patch": "4370d671d2ca1045a03b59687dc32e6d743b83d4f40b8e11c09026fd5b2a68c2",
     "scripts/build-ghost.sh": "4d3729f1df001fd2cc83648f596fb1f58e33caf5484966e1206c876eaa963e09",
     "third_party/ghost.lock.json": "ca0fe29d74dcceb1a35c359871401af8732e042d73c715e12628c099f6fa5a88",
-    "tests/g1/bridge-test.cpp": "5c98f51fe0182a195f3bb70cfda420c338fa9f3fdb351b4a3eaa867b59b967e5",
+    "tests/g1/bridge-test.cpp": "2a4b0ad4ee0aa41539a7197bb92966c2fdd8663b9bce5132ab867fe3beac23c2",
     "tests/g1/native-bridge-test.py": "059be835e9fee990ef821904013bde03782fe2f715d17747180bf0426a567029",
-    "tests/g1/build-native-tests.sh": "4df254b68d68e1e5320bc140c2c4ac178b235423aa8ec76fe83e3ce3ca22e97f",
+    "tests/g1/build-native-tests.sh": "167d30c661c28cb635171ded0ac96fce43971e74eeece169f1aa192e47d548bb",
     "docker/g1/Dockerfile": "d16e483360bfe9aa088d4ebf67277c4949bc54e931f3bf6272884e6d2556aca2",
     "scripts/g1-lan-prepare.py": "115c70d1e42220ac161d82ef918dbe79682798211e5f608f02c7269bb4261716",
     "tests/g1/test_lan_prepare.py": "68d28f1357f8d544429683a545da82cd61a581630c6eb3c3da5b9ee645cb0aba",
     "tests/g1/lan-smoke.py": "c944bb44d073812548c3605103eda6154d2399f733a2080cdeaa0cc7a01ea96e",
-    "tests/offline/ghost_lifecycle.py": "b3471da089bf7fc55abd3cd9cf3dd5a4e87bbc97a4d717787f7f09cf2f81568e"
+    "tests/offline/ghost_lifecycle.py": "b3471da089bf7fc55abd3cd9cf3dd5a4e87bbc97a4d717787f7f09cf2f81568e",
+    "tests/g1/native-isolation-test.py": "5af17e9f03c488fbdbcb26049b51aea8ef98f0f41a63086b54544ff71eb038c9",
+    "tests/g1/replay-audit.py": "71a469f7ead735e8684cc4c500cd5a157584cbdffcba7d5f82a9b02c7c22c755",
+    "tests/g1/test_replay_audit.py": "8fa8ca3853b1d815a526a9dd427e75d94e370b2fee057716985e54b9d444757d"
   },
   "automatic_checks": {
     "exact_native_source_guard": "PASS",
@@ -45,7 +48,19 @@
     "lan_configuration_tests": {
       "passed": 2
     },
-    "probe_expiry_batch_order": "PASS_ACK_BEFORE_AND_AFTER_EXPIRED_TICK"
+    "probe_expiry_batch_order": "PASS_ACK_BEFORE_AND_AFTER_EXPIRED_TICK",
+    "same_process_g1_isolation": {
+      "passed": 1,
+      "scope": "Two CGame sessions, synthetic peers only; different probe epochs, independent sequence and recipients, publisher departure isolation"
+    },
+    "simulation_clock_and_retirement": "PASS_SESSION_MODEL_NOT_ENGINE_PAUSE",
+    "replay_auditor": {
+      "synthetic_tests_passed": 21,
+      "completed_lan_samples": 4,
+      "all_samples_container_and_record_integrity": "PASS",
+      "historical_failed_samples_ack_count": 0,
+      "scope": "Structural CRC and action-boundary audit only; no engine playback or desync proof"
+    }
   },
   "real_client_gates": {
     "one_client_roundtrip_and_callback_capture": "PASS_REAL_CLIENT_PROBE_AND_44_CONSECUTIVE_COMMAND_ACKS",
@@ -149,5 +164,12 @@
     "amp_changed": false,
     "vpn_changed": false,
     "scope": "Control profile only; no two-client desync/replay or twelve-human claim"
+  },
+  "capacity_followup": {
+    "status": "PROPOSED_NOT_IMPLEMENTED",
+    "design": "docs/design/ai-director-g1-capacity.md",
+    "real_clients_required": 2,
+    "current_reserved_slots": 1,
+    "current_human_capacity": 11
   }
 }

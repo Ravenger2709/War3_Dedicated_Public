@@ -44,3 +44,35 @@ causal probe ACK. Capture-only mode 1 logs all human colours without granting
 active publisher authority to non-red players. Negative settings and ACK order
 cases are covered. A real event-handle experiment disproved low-word conversion;
 its failure is recorded in the acceptance receipt rather than treated as a fix.
+
+`native-isolation-test.py` runs two actual CGame sessions in one native process
+with synthetic peers and identical receiver pairs. It verifies independent
+probe epochs, separate command sequences and packet recipients, and survival
+of the second session when the first publisher leaves. This tests routing and
+lifetime only, not two independently executing Warcraft worlds. The C++ suite
+also checks repeated simulation ticks, ignored lag observations and retirement
+followed by a fresh session; these are not an engine pause/lease test.
+
+## Replay structure audit
+
+```sh
+python3 tests/g1/test_replay_audit.py
+python3 tests/g1/replay-audit.py /input/completed-test.w3g
+```
+
+Mount only the selected test replay read-only; use the same non-root container
+with `--network none` and a 256 MiB memory limit. The stdlib auditor checks
+native TFT 26/build 6401 headers, folded block CRCs, bounded zlib streams and
+record/action boundaries. Input is limited to 64 MiB compressed and less than
+128 MiB expanded, with bounded records and command summaries. It outputs fixed
+error codes or protocol scalars, without player names, addresses or chat.
+Unknown grammar refuses the semantic report. Header/record integrity does not
+establish that a command came from the trusted host or was applied by an engine.
+
+The report distinguishes harmless probes, actor commands, exported ACK/digest,
+and pause/resume records. ACK-to-epoch attribution is an inference from replay
+order: the original incoming network batches cannot be reconstructed. It does
+not certify receiver binding, replay playback or multiplayer desync safety.
+The four completed earlier LAN attempts passed structural checks and retained
+their original zero-ACK result. The currently running successful match is not
+included until native closes and writes its replay.

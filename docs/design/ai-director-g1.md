@@ -1,11 +1,11 @@
 # G1: classic native action bridge, no LLM
 
-Status: **experimental implementation; real-client gate pending**. Production AMP is untouched. This is a narrow spike for the authored AI Director G1 map, not a production API, provider worker, SDK, bot takeover or general replay decoder.
+Status: **single-client reserved-sender round trip passed; full G1 pending**. Production AMP is untouched. This is a narrow spike for the authored AI Director G1 map, not a production API, provider worker, SDK, bot takeover or general replay decoder.
 
 ## What exists
 
 - Map-to-host: classic `SyncStoredInteger` actions (`0x6b`), cache `AIG1.w3v`, mission `g1`, keys `tick`, `digest`, `ack`.
-- Host-to-map: synthetic trigger-chat action (`0x60`, two little-endian uint32 receiver fields and NUL-terminated text) queued in the existing `CBaseGame::m_Actions` queue with the existing colour-0 human PID. It follows normal action aggregation and replay recording. No slot is reserved and no fake sender is allocated.
+- Host-to-map: synthetic trigger-chat action (`0x60`, two little-endian uint32 receiver fields and NUL-terminated text), using normal native action aggregation and replay recording. The verified mode-3 control uses a fake sender in colour 11, reducing real-human capacity to eleven. Earlier real-PID mode-2 candidates did not pass the stock-client round trip and remain experimental.
 - Fixed payload: `~g1:<host_counter>:<sequence>:<source_tick>:<kind>`, kind 1 move to `(512,0)`, kind 2 hold. No arbitrary coordinates, unit handles, orders, JASS, strings or remote API input.
 - Immutable per-match session. Whole action batches are boundary-decoded before side effects; client-origin reserved downlinks are rejected before forwarding, including loading/lag/retired state. Unknown or malformed actions are rejected only in the explicitly active pinned fixture. Ordinary maps and mode 0 retain their old path.
 - The map alone chooses the map-owned neutral-passive actor, validates ownership/liveness/epoch/increasing sequence/five-second simulation lease, then orders it on every peer. Every peer emits ACK plus an integer digest covering sequence, applied count, kind and sampled actor position. The host logs PID, sequence and digest. An ACK means only that peer reported application, not proof of correct simulation.
@@ -23,10 +23,10 @@ bot_g1_bridge_mode = 1
 bot_g1_map_sha256 = <sha256 of exact G1 release>
 ```
 
-Mode 1 only observes calibration, never injects commands or rejects unknown actions. Load the fixture with a stock 1.26a client in colour 0 and type `g1:hello`. Save the original action capture and the typed calibration line:
+Mode 1 only observes calibration, never injects commands or rejects unknown actions. Load the fixture with a stock 1.26a client in the intended sender colour and type `g1:hello`. For the working mode-3 control this means colour 11, not red/colour 0. Save the original action capture and typed calibration line:
 
 ```text
-[G1] calibration receiver_a=<uint32> receiver_b=<uint32> action_hex=<bounded known hello action> host_counter=<uint32>
+[G1] calibration receiver_a=<uint32> receiver_b=<uint32> action_hex=<bounded known hello action> host_counter=<uint32> colour=<0..11>
 ```
 
 **These fields must be observed from actual native traffic.** In manual binding, handle IDs are not a substitute for this traffic capture. Synthetic test values 17/23 are deliberately arbitrary. Capture twice with fresh matches and record whether mapping is stable; do not blindly reuse a previous map/release's pair. Active mode additionally requires the same pair in its in-game `g1:hello` handshake:
