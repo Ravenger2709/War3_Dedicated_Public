@@ -53,3 +53,18 @@ engine behavior caused it. The next candidate in
 [the capacity plan](ai-director-g1-capacity.md) uses two genuine senders and
 therefore requires two real clients. No repeated ten-minute two-client baseline
 is needed merely to check this initial single-client route.
+
+## Initial real-client observation
+
+The first 0.1.7 attempt with historical pair 821/821 recorded one probe, zero
+probe ACKs and zero actor commands. Native saved a 2.4-second completed session;
+the operator still saw an open game window and a stationary footman. Replay
+container and record integrity passed. This does not identify the cause or
+establish that the current receiver pair is correct.
+
+Before abandoning self-delivery, use a fresh capture-only match on the same map
+and one real red client. Set global mode 1 and binding `manual`; do not send any
+generated downlink. Ask the operator to type `g1:hello` once in common in-game
+chat after loading. Record the genuine action's receiver pair and compare it
+with the historical candidate. A fresh active attempt still requires its own
+harmless probe ACK; genuine hello capture alone grants no actor authority.
