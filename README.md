@@ -73,6 +73,18 @@ iCCup rotation and deployment acceptance remain pending. See the
 Unknown-crash ownership or unresolved cycle state blocks new hosting until
 reconciliation; it must not be erased to force a restart.
 
+## AI Director design proposal
+
+The [AI Director implementation plan](docs/design/ai-director-plan.md) studies
+an optional model service, AMP/standalone settings and a reusable map SDK.
+It includes an [existing-project review](docs/design/ai-director-research.md)
+and a [candidate classic transport protocol](docs/design/ai-director-protocol.md).
+
+**Design only:** no AI service, new AMP controls or map bridge are implemented
+by this documentation branch. Stock Warcraft III 1.26a transport, unchanged
+player capacity and multiplayer/replay correctness require a native-client
+proof before implementation proceeds.
+
 ## Provenance and rights
 
 The native host is based on [GHost++](https://github.com/ghostBot/ghostplusplus), originally by **Trevor Hogan**, with important bundled dependencies credited separately. The compatibility/gameplay modifications are published as a patch against a pinned upstream commit. The design was informed by public [iCCup](https://iccup.com/dota/files.html), [PvPGN](https://github.com/pvpgn/pvpgn-server), [unmclient](https://github.com/mothefuunnick/unmclient), [IrInA-related sources](https://github.com/kirill-782/irinabot-ru-site) and the official [CubeCoders AMPTemplates](https://github.com/CubeCoders/AMPTemplates). Research references are not claims that their proprietary files or code have been incorporated. See [ATTRIBUTION.md](ATTRIBUTION.md) and [src/hostbot/NOTICE.md](src/hostbot/NOTICE.md) for author, license and redistribution details.

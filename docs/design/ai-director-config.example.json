@@ -1,0 +1,81 @@
+{
+  "document_kind": "design_example_not_runtime_config",
+  "schema_version": 1,
+  "status": "design_only_transport_unverified",
+  "ai_service": {
+    "enabled": false,
+    "mode": "off",
+    "provider": {
+      "adapter": "openai_responses",
+      "base_url": "https://api.openai.com/v1",
+      "model": null,
+      "api_key_file": "/run/secrets/ai-provider-key",
+      "response_mode": "capability_checked",
+      "parameters": {}
+    },
+    "scheduler": {
+      "decision_interval_seconds": 10,
+      "event_debounce_seconds": 2,
+      "http_deadline_seconds": 4,
+      "max_snapshot_age_game_seconds": 6,
+      "plan_lease_game_seconds_from_snapshot": 15,
+      "max_input_tokens": 4096,
+      "max_output_tokens": 600,
+      "max_inflight_per_scope": 1,
+      "max_inflight_per_instance": 2,
+      "queue_policy": "latest_snapshot_per_control_scope"
+    },
+    "budgets": {
+      "requests_per_minute_per_instance": 12,
+      "total_tokens_per_hour_per_instance": 500000,
+      "count_cached_input_tokens": true,
+      "reserve_inflight_usage": true,
+      "persist_usage_ledger": true,
+      "money_cap_usd": null,
+      "price_profile": null
+    },
+    "transport": {
+      "profile": "classic_126a_action_bridge_candidate",
+      "require_accepted_transport_evidence": true,
+      "preserve_player_capacity": true,
+      "ipc": "unix_socket",
+      "frame_payload_bytes_candidate": 96,
+      "absolute_max_fragments_candidate": 64,
+      "active_snapshot_max_fragments_candidate": 8,
+      "active_decision_max_fragments_candidate": 2,
+      "uplink_frames_per_wall_second_per_scope": 16,
+      "downlink_frames_per_wall_second_per_scope": 4,
+      "end_to_end_freshness_admission": true,
+      "receipt_window_commands": 128
+    },
+    "fallback": {
+      "kind": "local_ai",
+      "release_control_priority": true
+    },
+    "logging": {
+      "log_raw_provider_payloads": false,
+      "retention_hours": 24,
+      "total_limit_mib": 128
+    }
+  },
+  "preset_extension_example": {
+    "external_ai": {
+      "enabled": false,
+      "mode": "inherit",
+      "adapter_id": null,
+      "adapter_version": null,
+      "policy_profile": "autonomous",
+      "model_override": null,
+      "verified_map_sha256": null
+    }
+  },
+  "activation_requirements": [
+    "This is a design example; current runtime validators do not accept it.",
+    "enabled=false or global mode=off forces effective off.",
+    "Preset and runtime mode cannot exceed global mode; all scopes share instance limits.",
+    "Active mode requires accepted stock-1.26a transport evidence and exact map/adapter binding.",
+    "Model ID, adapter ID and versions must be filled and capability-checked before enabling.",
+    "A model requiring authentication must have a valid private key file.",
+    "Hot apply is a future explicitly tested control capability, not an existing AMP feature."
+  ]
+}
