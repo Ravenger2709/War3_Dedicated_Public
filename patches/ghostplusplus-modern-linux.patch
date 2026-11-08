@@ -405,7 +405,7 @@ index 8b54fcd..864ac7a 100644
  	// record everything we need to ban each player in case we decide to do so later
  	// this is because when a player leaves the game an admin might want to ban that player
 diff --git a/ghost/game_base.cpp b/ghost/game_base.cpp
-index 121bc52..7b918b8 100644
+index 121bc52..6d9723a 100644
 --- a/ghost/game_base.cpp
 +++ b/ghost/game_base.cpp
 @@ -25,6 +25,7 @@
@@ -495,7 +495,7 @@ index 121bc52..7b918b8 100644
  		m_Slots = m_Map->GetSlots( );
  
 +	if( m_GHost->m_G1Mode && !m_SaveGame && NativeMapSHA256Matches( *m_Map->GetMapData( ), m_GHost->m_G1MapSHA256 ) )
-+		m_G1Bridge.configure( m_GHost->m_G1Mode == 3 ? 2 : m_GHost->m_G1Mode, m_GHost->m_G1ReceiverA, m_GHost->m_G1ReceiverB, m_HostCounter );
++		m_G1Bridge.configure( m_GHost->m_G1EventProbe ? 4 : m_GHost->m_G1Mode == 3 ? 2 : m_GHost->m_G1Mode, m_GHost->m_G1ReceiverA, m_GHost->m_G1ReceiverB, m_HostCounter );
 +	string nativePath = m_Map->GetMapPath( );
 +	m_NativeMapName = nativePath.substr( nativePath.find_last_of( "/\\" ) == string::npos ? 0 : nativePath.find_last_of( "/\\" ) + 1 );
 +	m_NativeCapacity = NativeMaxPlayers( );
@@ -947,7 +947,7 @@ index 121bc52..7b918b8 100644
  
  	// send slot info to the new player
  	// the SLOTINFOJOIN packet also tells the client their assigned PID and that the join was successful
-@@ -2594,8 +2736,31 @@ bool CBaseGame :: EventPlayerAction( CGamePlayer *player, CIncomingAction *actio
+@@ -2594,8 +2736,35 @@ bool CBaseGame :: EventPlayerAction( CGamePlayer *player, CIncomingAction *actio
  		return false;
  	}
  
@@ -959,6 +959,9 @@ index 121bc52..7b918b8 100644
 +		bridge = m_G1Bridge.process( player->GetPID( ), colour, *action->GetAction( ), m_GameLoaded && !m_Lagging );
 +		if( !bridge.allowed ) { CONSOLE_Print( "[G1] action rejected" ); delete action; return false; }
 +		if( bridge.calibration ) CONSOLE_Print( "[G1] calibration receiver_a=" + UTIL_ToString( bridge.receiver_a ) + " receiver_b=" + UTIL_ToString( bridge.receiver_b ) + " action_hex=" + UTIL_ByteArrayToHexString( bridge.calibration_action ) + " host_counter=" + UTIL_ToString( m_HostCounter ) );
++		if( bridge.bound ) CONSOLE_Print( "[G1] receiver candidate event0=" + UTIL_ToString( bridge.meta0 ) + " event11=" + UTIL_ToString( bridge.meta11 ) + " target=" + UTIL_ToString( bridge.target ) );
++		if( bridge.probe_ready ) CONSOLE_Print( "[G1] receiver probe ACK confirmed; actor commands enabled" );
++		if( bridge.probe_failed ) CONSOLE_Print( "[G1] receiver binding failed or probe timed out; actor commands disabled; event0=" + UTIL_ToString( bridge.meta0 ) + " event11=" + UTIL_ToString( bridge.meta11 ) );
 +		if( bridge.ack ) CONSOLE_Print( "[G1] ack pid=" + UTIL_ToString( player->GetPID( ) ) + " sequence=" + UTIL_ToString( bridge.ack_sequence ) + " digest=" + UTIL_ToString( bridge.digest ) + " host_counter=" + UTIL_ToString( m_HostCounter ) );
 +	}
 +	bool control = m_G1Bridge.enabled( ) && m_GHost->m_G1Mode == 3;
@@ -974,13 +977,14 @@ index 121bc52..7b918b8 100644
 +	{
 +		BYTEARRAY crc;
 +		m_Actions.push( new CIncomingAction( m_FakePlayerPID, crc, bridge.downlink ) );
-+		CONSOLE_Print( "[G1] fixed command queued control_sender=11 host_counter=" + UTIL_ToString( m_HostCounter ) );
++		if( bridge.probe_packet ) CONSOLE_Print( "[G1] receiver probe queued host_counter=" + UTIL_ToString( m_HostCounter ) );
++		else CONSOLE_Print( "[G1] fixed command queued control_sender=11 host_counter=" + UTIL_ToString( m_HostCounter ) );
 +	}
 +
  	// check for players saving the game and notify everyone
  
  	if( !action->GetAction( )->empty( ) && (*action->GetAction( ))[0] == 6 )
-@@ -2830,7 +2995,8 @@ void CBaseGame :: EventPlayerChatToHost( CGamePlayer *player, CIncomingChatPlaye
+@@ -2830,7 +2999,8 @@ void CBaseGame :: EventPlayerChatToHost( CGamePlayer *player, CIncomingChatPlaye
  
  			if( Message == "?trigger" )
  				SendChat( player, m_GHost->m_Language->CommandTrigger( string( 1, m_GHost->m_CommandTrigger ) ) );
@@ -990,7 +994,7 @@ index 121bc52..7b918b8 100644
  			{
  				// extract the command trigger, the command, and the payload
  				// e.g. "!say hello world" -> command: "say", payload: "hello world"
-@@ -2879,12 +3045,34 @@ bool CBaseGame :: EventPlayerBotCommand( CGamePlayer *player, string command, st
+@@ -2879,12 +3049,34 @@ bool CBaseGame :: EventPlayerBotCommand( CGamePlayer *player, string command, st
  
  void CBaseGame :: EventPlayerChangeTeam( CGamePlayer *player, unsigned char team )
  {
@@ -1026,7 +1030,7 @@ index 121bc52..7b918b8 100644
  	{
  		unsigned char oldSID = GetSIDFromPID( player->GetPID( ) );
  		unsigned char newSID = GetEmptySlot( team, player->GetPID( ) );
-@@ -2941,10 +3129,16 @@ void CBaseGame :: EventPlayerChangeTeam( CGamePlayer *player, unsigned char team
+@@ -2941,10 +3133,16 @@ void CBaseGame :: EventPlayerChangeTeam( CGamePlayer *player, unsigned char team
  			SendAllSlotInfo( );
  		}
  	}
@@ -1043,7 +1047,7 @@ index 121bc52..7b918b8 100644
  	// player is requesting a colour change
  
  	if( m_SaveGame )
-@@ -2971,6 +3165,7 @@ void CBaseGame :: EventPlayerChangeColour( CGamePlayer *player, unsigned char co
+@@ -2971,6 +3169,7 @@ void CBaseGame :: EventPlayerChangeColour( CGamePlayer *player, unsigned char co
  
  void CBaseGame :: EventPlayerChangeRace( CGamePlayer *player, unsigned char race )
  {
@@ -1051,7 +1055,7 @@ index 121bc52..7b918b8 100644
  	// player is requesting a race change
  
  	if( m_SaveGame )
-@@ -2996,6 +3191,7 @@ void CBaseGame :: EventPlayerChangeRace( CGamePlayer *player, unsigned char race
+@@ -2996,6 +3195,7 @@ void CBaseGame :: EventPlayerChangeRace( CGamePlayer *player, unsigned char race
  
  void CBaseGame :: EventPlayerChangeHandicap( CGamePlayer *player, unsigned char handicap )
  {
@@ -1059,7 +1063,7 @@ index 121bc52..7b918b8 100644
  	// player is requesting a handicap change
  
  	if( m_SaveGame )
-@@ -3164,9 +3360,92 @@ void CBaseGame :: EventGameRefreshed( string server )
+@@ -3164,9 +3364,92 @@ void CBaseGame :: EventGameRefreshed( string server )
  	}
  }
  
@@ -1153,7 +1157,7 @@ index 121bc52..7b918b8 100644
  
  	// encode the HCL command string in the slot handicaps
  	// here's how it works:
-@@ -3212,7 +3491,11 @@ void CBaseGame :: EventGameStarted( )
+@@ -3212,7 +3495,11 @@ void CBaseGame :: EventGameStarted( )
  
  					unsigned char HandicapIndex = ( m_Slots[CurrentSlot].GetHandicap( ) - 50 ) / 10;
  					unsigned char CharIndex = HCLChars.find( *si );
@@ -1166,7 +1170,7 @@ index 121bc52..7b918b8 100644
  				}
  
  				SendAllSlotInfo( );
-@@ -3234,9 +3517,25 @@ void CBaseGame :: EventGameStarted( )
+@@ -3234,9 +3521,25 @@ void CBaseGame :: EventGameStarted( )
  	if( m_SlotInfoChanged )
  		SendAllSlotInfo( );
  
@@ -1193,7 +1197,7 @@ index 121bc52..7b918b8 100644
  
  	// since we use a fake countdown to deal with leavers during countdown the COUNTDOWN_START and COUNTDOWN_END packets are sent in quick succession
  	// send a start countdown packet
-@@ -3635,7 +3934,7 @@ unsigned char CBaseGame :: GetHostPID( )
+@@ -3635,7 +3938,7 @@ unsigned char CBaseGame :: GetHostPID( )
  	return 255;
  }
  
@@ -1202,7 +1206,7 @@ index 121bc52..7b918b8 100644
  {
  	if( m_Slots.size( ) > 255 )
  		return 255;
-@@ -3662,7 +3961,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3662,7 +3965,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  
                  for( unsigned char i = 0; i < m_Slots.size( ); ++i )
  		{
@@ -1211,7 +1215,7 @@ index 121bc52..7b918b8 100644
  				return i;
  		}
  
-@@ -3672,7 +3971,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3672,7 +3975,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  
                          for( unsigned char i = 0; i < m_Slots.size( ); ++i )
  			{
@@ -1220,7 +1224,7 @@ index 121bc52..7b918b8 100644
  					return i;
  			}
  
-@@ -3686,7 +3985,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3686,7 +3989,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  			{
  				CGamePlayer *Player = GetPlayerFromSID( i );
  
@@ -1229,7 +1233,7 @@ index 121bc52..7b918b8 100644
  				{
  					LeastDownloaded = m_Slots[i].GetDownloadStatus( );
  					LeastSID = i;
-@@ -3702,7 +4001,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
+@@ -3702,7 +4005,7 @@ unsigned char CBaseGame :: GetEmptySlot( bool reserved )
  			{
  				CGamePlayer *Player = GetPlayerFromSID( i );
  
@@ -1238,7 +1242,7 @@ index 121bc52..7b918b8 100644
  					return i;
  			}
  		}
-@@ -3772,10 +4071,12 @@ unsigned char CBaseGame :: GetEmptySlot( unsigned char team, unsigned char PID )
+@@ -3772,10 +4075,12 @@ unsigned char CBaseGame :: GetEmptySlot( unsigned char team, unsigned char PID )
  
  void CBaseGame :: SwapSlots( unsigned char SID1, unsigned char SID2 )
  {
@@ -1251,7 +1255,7 @@ index 121bc52..7b918b8 100644
  
  		if( m_Map->GetMapOptions( ) & MAPOPT_FIXEDPLAYERSETTINGS )
  		{
-@@ -3798,12 +4099,16 @@ void CBaseGame :: SwapSlots( unsigned char SID1, unsigned char SID2 )
+@@ -3798,12 +4103,16 @@ void CBaseGame :: SwapSlots( unsigned char SID1, unsigned char SID2 )
  			m_Slots[SID2] = Slot1;
  		}
  
@@ -1268,7 +1272,7 @@ index 121bc52..7b918b8 100644
  	if( SID < m_Slots.size( ) )
  	{
  		if( kick )
-@@ -3819,13 +4124,20 @@ void CBaseGame :: OpenSlot( unsigned char SID, bool kick )
+@@ -3819,13 +4128,20 @@ void CBaseGame :: OpenSlot( unsigned char SID, bool kick )
  		}
  
  		CGameSlot Slot = m_Slots[SID];
@@ -1290,7 +1294,7 @@ index 121bc52..7b918b8 100644
  	if( SID < m_Slots.size( ) )
  	{
  		if( kick )
-@@ -3848,6 +4160,7 @@ void CBaseGame :: CloseSlot( unsigned char SID, bool kick )
+@@ -3848,6 +4164,7 @@ void CBaseGame :: CloseSlot( unsigned char SID, bool kick )
  
  void CBaseGame :: ComputerSlot( unsigned char SID, unsigned char skill, bool kick )
  {
@@ -1298,7 +1302,7 @@ index 121bc52..7b918b8 100644
  	if( SID < m_Slots.size( ) && skill < 3 )
  	{
  		if( kick )
-@@ -3863,15 +4176,18 @@ void CBaseGame :: ComputerSlot( unsigned char SID, unsigned char skill, bool kic
+@@ -3863,15 +4180,18 @@ void CBaseGame :: ComputerSlot( unsigned char SID, unsigned char skill, bool kic
  		}
  
  		CGameSlot Slot = m_Slots[SID];
@@ -1318,7 +1322,7 @@ index 121bc52..7b918b8 100644
  		// make sure the requested colour isn't already taken
  
  		bool Taken = false;
-@@ -3895,6 +4211,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
+@@ -3895,6 +4215,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
  
  			m_Slots[TakenSID].SetColour( m_Slots[SID].GetColour( ) );
  			m_Slots[SID].SetColour( colour );
@@ -1326,7 +1330,7 @@ index 121bc52..7b918b8 100644
  			SendAllSlotInfo( );
  		}
  		else if( !Taken )
-@@ -3902,6 +4219,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
+@@ -3902,6 +4223,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
  			// the requested colour isn't used by ANY slot
  
  			m_Slots[SID].SetColour( colour );
@@ -1334,7 +1338,7 @@ index 121bc52..7b918b8 100644
  			SendAllSlotInfo( );
  		}
  	}
-@@ -3909,6 +4227,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
+@@ -3909,6 +4231,7 @@ void CBaseGame :: ColourSlot( unsigned char SID, unsigned char colour )
  
  void CBaseGame :: OpenAllSlots( )
  {
@@ -1342,7 +1346,7 @@ index 121bc52..7b918b8 100644
  	bool Changed = false;
  
          for( vector<CGameSlot> :: iterator i = m_Slots.begin( ); i != m_Slots.end( ); ++i )
-@@ -3926,6 +4245,7 @@ void CBaseGame :: OpenAllSlots( )
+@@ -3926,6 +4249,7 @@ void CBaseGame :: OpenAllSlots( )
  
  void CBaseGame :: CloseAllSlots( )
  {
@@ -1350,7 +1354,7 @@ index 121bc52..7b918b8 100644
  	bool Changed = false;
  
          for( vector<CGameSlot> :: iterator i = m_Slots.begin( ); i != m_Slots.end( ); ++i )
-@@ -3943,6 +4263,7 @@ void CBaseGame :: CloseAllSlots( )
+@@ -3943,6 +4267,7 @@ void CBaseGame :: CloseAllSlots( )
  
  void CBaseGame :: ShuffleSlots( )
  {
@@ -1358,7 +1362,7 @@ index 121bc52..7b918b8 100644
  	// we only want to shuffle the player slots
  	// that means we need to prevent this function from shuffling the open/closed/computer slots too
  	// so we start by copying the player slots to a temporary vector
-@@ -4102,6 +4423,8 @@ vector<unsigned char> CBaseGame :: BalanceSlotsRecursive( vector<unsigned char>
+@@ -4102,6 +4427,8 @@ vector<unsigned char> CBaseGame :: BalanceSlotsRecursive( vector<unsigned char>
  
  void CBaseGame :: BalanceSlots( )
  {
@@ -1367,7 +1371,7 @@ index 121bc52..7b918b8 100644
  	if( !( m_Map->GetMapOptions( ) & MAPOPT_FIXEDPLAYERSETTINGS ) )
  	{
  		CONSOLE_Print( "[GAME: " + m_GameName + "] error balancing slots - can't balance slots without fixed player settings" );
-@@ -4276,6 +4599,7 @@ void CBaseGame :: AddToSpoofed( string server, string name, bool sendMessage )
+@@ -4276,6 +4603,7 @@ void CBaseGame :: AddToSpoofed( string server, string name, bool sendMessage )
  
  void CBaseGame :: AddToReserved( string name )
  {
@@ -1375,7 +1379,7 @@ index 121bc52..7b918b8 100644
  	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
  
  	// check that the user is not already reserved
-@@ -4346,12 +4670,19 @@ void CBaseGame :: SaveGameData( )
+@@ -4346,12 +4674,19 @@ void CBaseGame :: SaveGameData( )
  
  void CBaseGame :: StartCountDown( bool force )
  {
@@ -1396,7 +1400,7 @@ index 121bc52..7b918b8 100644
  		}
  		else
  		{
-@@ -4431,24 +4762,102 @@ void CBaseGame :: StartCountDown( bool force )
+@@ -4431,24 +4766,102 @@ void CBaseGame :: StartCountDown( bool force )
  			if( StillDownloading.empty( ) && NotSpoofChecked.empty( ) && NotPinged.empty( ) )
  			{
  				m_CountDownStarted = true;
@@ -1509,7 +1513,7 @@ index 121bc52..7b918b8 100644
  		// check if everyone has the map
  
  		string StillDownloading;
-@@ -4522,14 +4931,19 @@ void CBaseGame :: StartCountDownAuto( bool requireSpoofChecks )
+@@ -4522,14 +4935,19 @@ void CBaseGame :: StartCountDownAuto( bool requireSpoofChecks )
  
  		if( StillDownloading.empty( ) && NotSpoofChecked.empty( ) && NotPinged.empty( ) )
  		{
@@ -1530,7 +1534,7 @@ index 121bc52..7b918b8 100644
  	// disconnect every player and set their left reason to the passed string
  	// we use this function when we want the code in the Update function to run before the destructor (e.g. saving players to the database)
  	// therefore calling this function when m_GameLoading || m_GameLoaded is roughly equivalent to setting m_Exiting = true
-@@ -4581,10 +4995,13 @@ void CBaseGame :: DeleteVirtualHost( )
+@@ -4581,10 +4999,13 @@ void CBaseGame :: DeleteVirtualHost( )
  
  void CBaseGame :: CreateFakePlayer( )
  {
@@ -1544,7 +1548,7 @@ index 121bc52..7b918b8 100644
  
  	if( SID < m_Slots.size( ) )
  	{
-@@ -4605,6 +5022,7 @@ void CBaseGame :: CreateFakePlayer( )
+@@ -4605,6 +5026,7 @@ void CBaseGame :: CreateFakePlayer( )
  
  void CBaseGame :: DeleteFakePlayer( )
  {
@@ -1552,7 +1556,7 @@ index 121bc52..7b918b8 100644
  	if( m_FakePlayerPID == 255 )
  		return;
  
-@@ -4618,3 +5036,620 @@ void CBaseGame :: DeleteFakePlayer( )
+@@ -4618,3 +5040,620 @@ void CBaseGame :: DeleteFakePlayer( )
  	SendAllSlotInfo( );
  	m_FakePlayerPID = 255;
  }
@@ -2328,7 +2332,7 @@ index ed6c35a..3771785 100644
  	virtual void StopLaggers( string reason );
  	virtual void CreateVirtualHost( );
 diff --git a/ghost/ghost.cpp b/ghost/ghost.cpp
-index c723c77..de89243 100644
+index c723c77..5dafe67 100644
 --- a/ghost/ghost.cpp
 +++ b/ghost/ghost.cpp
 @@ -18,6 +18,8 @@
@@ -3280,7 +3284,7 @@ index c723c77..de89243 100644
  	string BotCommandTrigger = CFG->GetString( "bot_commandtrigger", "!" );
  
  	if( BotCommandTrigger.empty( ) )
-@@ -1367,6 +2091,40 @@ void CGHost :: SetConfigs( CConfig *CFG )
+@@ -1367,6 +2091,43 @@ void CGHost :: SetConfigs( CConfig *CFG )
  	m_BanMethod = CFG->GetInt( "bot_banmethod", 1 );
  	m_IPBlackListFile = CFG->GetString( "bot_ipblacklistfile", "ipblacklist.txt" );
  	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 10 );
@@ -3311,17 +3315,20 @@ index c723c77..de89243 100644
 +	m_ExternalStatusPath = CFG->GetString( "bot_externalstatuspath", string( ) );
 +	m_StatusName = NativeTrim( CFG->GetString( "bot_statusname", "War3 Dedicated" ) );
 +	if( m_StatusName.empty( ) || m_StatusName.size( ) > 48 || m_StatusName.find_first_not_of( "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _.-" ) != string::npos ) m_Phase3ConfigValid = false;
++	string g1Binding = CFG->GetString( "bot_g1_receiver_binding", "manual" );
++	m_G1EventProbe = g1Binding == "event_probe";
 +	m_G1Mode = m_G1ReceiverA = m_G1ReceiverB = 0;
 +	m_G1MapSHA256 = CFG->GetString( "bot_g1_map_sha256", "" );
 +	if( !war3g1::decimal( CFG->GetString( "bot_g1_bridge_mode", "0" ), m_G1Mode ) || m_G1Mode > 3 ||
 +	    ( m_G1Mode && ( m_G1MapSHA256.size( ) != 64 || m_G1MapSHA256.find_first_not_of( "0123456789abcdef" ) != string::npos ) ) ||
 +	    ( m_G1Mode >= 2 && ( !war3g1::decimal( CFG->GetString( "bot_g1_receiver_a", "" ), m_G1ReceiverA ) ||
 +	                        !war3g1::decimal( CFG->GetString( "bot_g1_receiver_b", "" ), m_G1ReceiverB ) ) ) ) m_Phase3ConfigValid = false;
++	if( ( g1Binding != "manual" && g1Binding != "event_probe" ) || ( m_G1EventProbe && m_G1Mode != 3 ) ) m_Phase3ConfigValid = false;
 +	if( !m_Phase3ConfigValid ) { CONSOLE_Print( "[GHOST] invalid native gameplay configuration" ); m_Enabled = false; m_Exiting = true; }
  	m_Latency = CFG->GetInt( "bot_latency", 100 );
  	m_SyncLimit = CFG->GetInt( "bot_synclimit", 50 );
  	m_VoteKickAllowed = CFG->GetInt( "bot_votekickallowed", 1 ) == 0 ? false : true;
-@@ -1392,7 +2150,7 @@ void CGHost :: ExtractScripts( )
+@@ -1392,7 +2153,7 @@ void CGHost :: ExtractScripts( )
  	string PatchMPQFileName = m_Warcraft3Path + "War3Patch.mpq";
  	HANDLE PatchMPQ;
  
@@ -3330,7 +3337,7 @@ index c723c77..de89243 100644
  	{
  		CONSOLE_Print( "[GHOST] loading MPQ file [" + PatchMPQFileName + "]" );
  		HANDLE SubFile;
-@@ -1408,7 +2166,7 @@ void CGHost :: ExtractScripts( )
+@@ -1408,7 +2169,7 @@ void CGHost :: ExtractScripts( )
  				char *SubFileData = new char[FileLength];
  				DWORD BytesRead = 0;
  
@@ -3339,7 +3346,7 @@ index c723c77..de89243 100644
  				{
  					CONSOLE_Print( "[GHOST] extracting Scripts\\common.j from MPQ file to [" + m_MapCFGPath + "common.j]" );
  					UTIL_FileWrite( m_MapCFGPath + "common.j", (unsigned char *)SubFileData, BytesRead );
-@@ -1435,7 +2193,7 @@ void CGHost :: ExtractScripts( )
+@@ -1435,7 +2196,7 @@ void CGHost :: ExtractScripts( )
  				char *SubFileData = new char[FileLength];
  				DWORD BytesRead = 0;
  
@@ -3348,7 +3355,7 @@ index c723c77..de89243 100644
  				{
  					CONSOLE_Print( "[GHOST] extracting Scripts\\blizzard.j from MPQ file to [" + m_MapCFGPath + "blizzard.j]" );
  					UTIL_FileWrite( m_MapCFGPath + "blizzard.j", (unsigned char *)SubFileData, BytesRead );
-@@ -1524,9 +2282,523 @@ void CGHost :: LoadIPToCountryData( )
+@@ -1524,9 +2285,523 @@ void CGHost :: LoadIPToCountryData( )
  	}
  }
  
@@ -3873,7 +3880,7 @@ index c723c77..de89243 100644
  	{
                  for( vector<CBNET *> :: iterator i = m_BNETs.begin( ); i != m_BNETs.end( ); ++i )
  		{
-@@ -1648,6 +2920,13 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
+@@ -1648,6 +2923,13 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
  		return;
  	}
  
@@ -3887,7 +3894,7 @@ index c723c77..de89243 100644
  	CONSOLE_Print( "[GHOST] creating game [" + gameName + "]" );
  
  	if( saveGame )
-@@ -1655,7 +2934,15 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
+@@ -1655,7 +2937,15 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
  	else
  		m_CurrentGame = new CGame( this, map, NULL, m_HostPort, gameState, gameName, ownerName, creatorName, creatorServer );
  
@@ -3905,7 +3912,7 @@ index c723c77..de89243 100644
  	if( m_SaveGame )
  	{
 diff --git a/ghost/ghost.h b/ghost/ghost.h
-index c9678d3..6a908a0 100644
+index c9678d3..050ef2f 100644
 --- a/ghost/ghost.h
 +++ b/ghost/ghost.h
 @@ -34,6 +34,7 @@ class CGPSProtocol;
@@ -3979,13 +3986,14 @@ index c9678d3..6a908a0 100644
  class CGHost
  {
  public:
-@@ -53,6 +110,13 @@ public:
+@@ -53,6 +110,14 @@ public:
  	CCRC32 *m_CRC;							// for calculating CRC's
  	CSHA1 *m_SHA;							// for calculating SHA1's
  	vector<CBNET *> m_BNETs;				// all our battle.net connections (there can be more than one)
 +	CExternalPublisher *m_ExternalPublisher; // optional file intents, never authentication
 +	uint32_t m_G1Mode, m_G1ReceiverA, m_G1ReceiverB;
 +	string m_G1MapSHA256;
++	bool m_G1EventProbe;
 +	string m_LifecycleDirectory, m_LifecycleGeneration;
 +	int m_LifecycleDirFD;
 +	unsigned long m_LifecycleDirDevice, m_LifecycleDirInode;
@@ -3993,7 +4001,7 @@ index c9678d3..6a908a0 100644
  	CBaseGame *m_CurrentGame;				// this game is still in the lobby state
  	CAdminGame *m_AdminGame;				// this "fake game" allows an admin who knows the password to control the bot from the local network
  	vector<CBaseGame *> m_Games;			// these games are in progress
-@@ -63,6 +127,12 @@ public:
+@@ -63,6 +128,12 @@ public:
  	CLanguage *m_Language;					// language
  	CMap *m_Map;							// the currently loaded map
  	CMap *m_AdminMap;						// the map to use in the admin game
@@ -4006,7 +4014,7 @@ index c9678d3..6a908a0 100644
  	CMap *m_AutoHostMap;					// the map to use when autohosting
  	CSaveGame *m_SaveGame;					// the save game to use
  	vector<PIDPlayer> m_EnforcePlayers;		// vector of pids to force players to use in the next game (used with saved games)
-@@ -115,6 +185,27 @@ public:
+@@ -115,6 +186,27 @@ public:
  	uint32_t m_BanMethod;					// config value: ban method (ban by name/ip/both)
  	string m_IPBlackListFile;				// config value: IP blacklist file (ipblacklist.txt)
  	uint32_t m_LobbyTimeLimit;				// config value: auto close the game lobby after this many minutes without any reserved players
@@ -4034,7 +4042,7 @@ index c9678d3..6a908a0 100644
  	uint32_t m_Latency;						// config value: the latency (by default)
  	uint32_t m_SyncLimit;					// config value: the maximum number of packets a player can fall out of sync before starting the lag screen (by default)
  	bool m_VoteKickAllowed;					// config value: if votekicks are allowed or not
-@@ -162,6 +253,8 @@ public:
+@@ -162,6 +254,8 @@ public:
  	void SetConfigs( CConfig *CFG );
  	void ExtractScripts( );
  	void LoadIPToCountryData( );

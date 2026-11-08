@@ -29,7 +29,7 @@ Mode 1 only observes calibration, never injects commands or rejects unknown acti
 [G1] calibration receiver_a=<uint32> receiver_b=<uint32> action_hex=<bounded known hello action> host_counter=<uint32>
 ```
 
-**These fields must be observed from actual native traffic.** `GetHandleId` is not used and is not a substitute. Synthetic test values 17/23 are deliberately arbitrary. Capture twice with fresh matches and record whether mapping is stable; do not blindly reuse a previous map/release's pair. Active mode additionally requires the same pair in its in-game `g1:hello` handshake:
+**These fields must be observed from actual native traffic.** In manual binding, handle IDs are not a substitute for this traffic capture. Synthetic test values 17/23 are deliberately arbitrary. Capture twice with fresh matches and record whether mapping is stable; do not blindly reuse a previous map/release's pair. Active mode additionally requires the same pair in its in-game `g1:hello` handshake:
 
 ```ini
 bot_g1_bridge_mode = 2
@@ -101,3 +101,28 @@ experiments (separate and coalesced records) have produced zero real ACKs so
 far. The control is intended to isolate sender identity; it must not silently
 reduce production capacity or be promoted as the final G1 design. No DLL,
 LLM/provider, Star/iCCup account, AMP or VPN is used in this LAN experiment.
+
+
+## Automatic per-player event probe (fixture 0.1.4)
+
+The manual reserved-sender control stayed connected but produced no actual
+command ACK. Its player-0 chat receiver pair may not address the event
+registered for the reserved player. This remains a hypothesis until a real
+client confirms the new probe.
+
+Only explicit mode 3 accepts `bot_g1_receiver_binding = event_probe`.
+The fixture emits protocol version 2 and the player-0/player-11 event handles
+once from the real publisher. Native range-checks both and compares the
+player-0 low word against the previously observed wire anchor. The player-11
+low word is a **candidate**, not an established wire mapping. Native sends a
+harmless sequence-0/kind-0 probe under the reserved sender PID. No actor order
+is enabled until a matching publisher probe ACK arrives on a later simulation
+tick, in a later action batch, within twenty ticks. Expiry is checked against
+the whole incoming batch, including ACK-before-tick ordering. Timeout or an
+anchor mismatch disables commands for that game.
+
+The map timer emits metadata, then tick, then deferred probe or digest/command
+ACK. World changes remain synchronous on all peers. Manual binding remains the
+default and other maps remain untouched. Passing synthetic probe tests does
+not establish a real Warcraft callback, actual order application or desync
+safety. Full capacity is still eleven real humans for this control profile.

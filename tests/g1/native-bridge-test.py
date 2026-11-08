@@ -25,9 +25,9 @@ class G1Tests(unittest.TestCase):
  setUp=g.GameplayTests.setUp
  tearDown=g.GameplayTests.tearDown
  native=g.GameplayTests.native
- def start(self,mode=2,pin=None):
+ def start(self,mode=2,pin=None,binding="manual"):
   n=self.native({'bot_g1_bridge_mode':str(mode),'bot_g1_map_sha256':pin or hashlib.sha256(b'').hexdigest(),
-   'bot_g1_receiver_a':'17','bot_g1_receiver_b':'23','bot_countdownseconds':'1','bot_savereplays':'1'})
+   'bot_g1_receiver_a':'821' if binding=='event_probe' else '17','bot_g1_receiver_b':'821' if binding=='event_probe' else '23','bot_g1_receiver_binding':binding,'bot_countdownseconds':'1','bot_savereplays':'1'})
   # Existing synthetic CGame fixture intentionally has no MPQ bytes.
   # Pin that exact empty byte string for this wire-only test.
   replay=n.root/'replays';replay.mkdir();n.cfg.write_text(n.cfg.read_text()+f'bot_replaypath = {replay}/\n')
@@ -83,6 +83,15 @@ class G1Tests(unittest.TestCase):
   packet=next(p for p in b.frames if p[1]==0x0c and expected in p[8:])
   self.assertIn((fake,expected),action_records(packet))
   send(a,cache('digest',321)+cache('ack',1));wait(lambda:any('[G1] ack ' in line for line in n.lines))
+ def test_automatic_event_binding_probes_before_actor_commands(self):
+  n,a,b=self.start(mode=3,binding='event_probe');epoch=n.state()['host_counter']
+  send(a,cache('wire_version',2)+cache('receiver0',0x100335)+cache('receiver11',0x100340)+cache('tick',8))
+  probe=chat(f'~g1:{epoch}:0:8:0',832,832);wait(lambda:found(a,probe) and found(b,probe))
+  self.assertFalse(any('[G1] fixed command queued' in line for line in n.lines))
+  send(a,cache('tick',9)+cache('probe',epoch))
+  wait(lambda:any('[G1] receiver probe ACK confirmed' in line for line in n.lines))
+  send(a,cache('tick',16));command=chat(f'~g1:{epoch}:1:16:1',832,832);wait(lambda:found(b,command))
+  send(a,cache('digest',777)+cache('ack',1));wait(lambda:any('[G1] ack ' in line and 'digest=777' in line for line in n.lines))
  def test_control_human_budget_is_eleven_and_fake_row_is_preserved(self):
   n=self.native({'bot_g1_bridge_mode':'3','bot_g1_map_sha256':hashlib.sha256(b'').hexdigest(),'bot_g1_receiver_a':'17','bot_g1_receiver_b':'23'}).start().create()
   fake=bytes(int(word,16) for word in n.state()['slots_hex'].split())[11*9:12*9]

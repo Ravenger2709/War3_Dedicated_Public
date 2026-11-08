@@ -2,9 +2,11 @@
 
 This is an isolated CI/CD development instance. No production AMP, Star, iCCup account, VPN configuration, LLM service or Warcraft engine runs on the server. A real **TFT 1.26a / build 6401** client runs on the operator's LAN computer.
 
-Current artifact 0.1.3 is the explicit **reserved-sender positive control**: use
-native mode 3, lobby `G1 Sender Control`, one visible `FakePlayer`, and eleven
-real-human places. The twelve-human real-PID candidate has not passed.
+Current artifact 0.1.4 is the explicit **reserved-sender positive control**: use
+native mode 3 with `bot_g1_receiver_binding = event_probe`, lobby
+`G1 Receiver Probe`, one visible `FakePlayer`, and eleven real-human places.
+The twelve-human real-PID candidate has not passed. Receiver handles provide
+only a candidate; a real map probe ACK must arrive before any actor order.
 
 ## Prepare the host
 
@@ -43,18 +45,41 @@ python3 tests/g1/lan-smoke.py --server LAN_IP --broadcast LAN_BROADCAST \
 
 The synthetic probe downloads the actual map, compares SHA-256, waits for normal solo auto-start and receives gameplay action timeslots. It never sends `g1:hello`, fabricated callback pairs, digest or ACK. This is transport evidence, not engine execution. After it exits, confirm a new empty lobby is advertised before the real-client handoff.
 
-## Operator: first entry (capture only)
+## Operator: current automatic probe
 
-1. Open Warcraft III TFT 1.26a and choose **Local Area Network** (not Battle.net/iCCup).
-2. Choose the supplied test lobby: **G1 Bridge 1.26a** for the capture candidate, or **G1 Sender Control** for the explicit reserved-sender control. The supplied LAN address is diagnostic information; the game is selected in the LAN list.
-3. Remain in the first/red human row (colour 0). Download the map to 100%, then wait for automatic start (latency checks may take about 30 seconds).
-4. In the match, confirm the map displays the G1 instructions and the neutral footman is visible.
-5. Type exactly **`g1:hello`** in ordinary game chat, then remain connected for about 15 seconds and report loading/visibility/return-to-menu/disconnect results.
+1. Leave any previous G1 match. Open **Local Area Network** in TFT 1.26a.
+2. Join **G1 Receiver Probe** and remain in the first/red human row (colour 0).
+3. Download to 100% and wait for automatic start (latency checks may take about 30 seconds).
+4. Do not type a command. Metadata and a harmless receiver probe are automatic.
+5. Watch for `G1 receiver probe received`, `G1 probe confirmation sent`, then
+   `G1 applied sequence=... digest=...`. Remain connected for about 20 seconds.
 
-**The footman standing still is expected in capture mode.** The host must record a genuine action `0x60`, both receiver fields and the exact known hello action. Synthetic 17/23 fixture values must never be promoted as if they came from the real client.
+The maintainer must independently observe native **probe ACK** and increasing
+**command ACK** sequences/digests from the real client. Queue/replay presence,
+a local hello callback or a successful probe alone does not prove actor orders.
+The footman receives alternating move/hold orders; after reaching its fixed
+destination it can appear stationary even while healthy command ACKs continue.
 
-## Second entry (after the real capture is reviewed)
+If the event candidate does not match the previously captured player-0 anchor,
+or the probe expires after twenty simulation ticks, native disables actor
+commands for that game. Record the typed failure and map/native hashes; do not
+retry arbitrary receiver IDs or treat synthetic ACKs as real execution.
 
-Leave the first match when instructed. The maintainer pins the observed receiver pair for that exact map and switches only this test container to mode 2 for the real-PID candidate, or mode 3 for the current reserved-sender control. Join the new LAN lobby, let it start and type `g1:hello` again. Now check move/hold application, increasing sequence/digest and actual host ACKs; then test a brief pause/resume and a fresh match. A single client does not establish absence of multiplayer desync. Two-client comparison/replay and all other G1 acceptance gates remain pending.
+## Manual capture fallback (historical profiles)
 
-Preserve only the bounded test-session evidence/replay in private storage. Do not store local infrastructure addresses or user names in the public acceptance example.
+The preparation helper defaults to **mode 1 capture only**. A stock client in
+colour 0 types `g1:hello` in ordinary game chat. It is a map diagnostic without
+an exclamation mark. Capture the actual 0x60 receiver pair and action; mode 1
+never injects commands. A stationary footman is expected in this profile.
+
+Manual mode 2 (real publisher PID) and mode 3 (reserved sender) require the
+observed pair and the exact map SHA; use `bot_g1_receiver_binding = manual`
+(default). Those older real-client attempts produced no command ACK and are
+not accepted fixes. Do not transplant calibration from a different release
+without checking it. The current event-probe profile validates its candidate
+against the configured real-traffic anchor and a new real-client probe.
+
+Single-client success does not establish absence of multiplayer desync.
+Two-client comparison, pause/lag/replay, isolation and twelve-human acceptance
+remain pending. Preserve bounded session evidence only in private storage;
+never put local addresses, player names or raw replays in public acceptance.

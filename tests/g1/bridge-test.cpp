@@ -40,6 +40,38 @@ int main(){
  Bytes original=cache("tick",8), cmd=chat("~g1:1:1:8:1"), want=original;
  want.insert(want.end(),cmd.begin(),cmd.end());assert(append_downlink(original,cmd));assert(original==want);
  Bytes full(1024,1), before=full;assert(!append_downlink(full,cmd));assert(full==before);
+ // Per-player event handles are candidates, never actor authority before probe ACK.
+ Session binding;binding.configure(4,821,821,9);
+ Bytes meta=cache("wire_version",2), m0=cache("receiver0",0x100335), m11=cache("receiver11",0x100340);
+ meta.insert(meta.end(),m0.begin(),m0.end());meta.insert(meta.end(),m11.begin(),m11.end());
+ Result candidate=binding.process(1,0,meta,true);assert(candidate.bound && candidate.target==832);
+ Result probe=binding.process(1,0,cache("tick",8),true);
+ assert(probe.probe_packet && probe.downlink==chat("~g1:9:0:8:0",832,832));
+ assert(!binding.process(1,0,cache("probe",9),true).probe_ready); // clock has not advanced
+ assert(binding.process(1,0,cache("tick",9),true).downlink.empty());
+ assert(!binding.process(2,1,cache("probe",9),true).probe_ready);
+ assert(!binding.process(1,0,cache("probe",8),true).probe_ready);
+ assert(binding.process(1,0,cache("probe",9),true).probe_ready);
+ assert(binding.process(1,0,cache("tick",16),true).downlink==chat("~g1:9:1:16:1",832,832));
+ Session timeout;timeout.configure(4,821,821,9);timeout.process(1,0,meta,true);
+ timeout.process(1,0,cache("tick",8),true);assert(timeout.process(1,0,cache("tick",29),true).probe_failed);
+ assert(timeout.process(1,0,cache("tick",40),true).downlink.empty());
+ Session mismatch;mismatch.configure(4,100,100,9);assert(mismatch.process(1,0,meta,true).probe_failed);
+ Session early;early.configure(4,821,821,9);early.process(1,0,meta,true);
+ Bytes forged=cache("tick",8), early_ack=cache("probe",9), later_tick=cache("tick",9);
+ forged.insert(forged.end(),early_ack.begin(),early_ack.end());forged.insert(forged.end(),later_tick.begin(),later_tick.end());
+ Result premature=early.process(1,0,forged,true);assert(premature.probe_packet && !premature.probe_ready);
+ // Probe expiry is checked against the whole batch, even with ACK before tick.
+ for(unsigned reverse=0;reverse<2;++reverse) {
+  Session stale;stale.configure(4,821,821,9);stale.process(1,0,meta,true);
+  stale.process(1,0,cache("tick",8),true);stale.process(1,0,cache("tick",9),true);
+  Bytes ack_first=cache(reverse?"tick":"probe",reverse?29:9);
+  Bytes tail=cache(reverse?"probe":"tick",reverse?9:29);
+  ack_first.insert(ack_first.end(),tail.begin(),tail.end());
+  Result expired=stale.process(1,0,ack_first,true);
+  assert(expired.probe_failed && !expired.probe_ready && expired.downlink.empty());
+  assert(!stale.active() && stale.process(1,0,cache("tick",40),true).downlink.empty());
+ }
  // Deterministic malformed-byte fuzz, no process state mutation on rejected batch.
  uint32_t seed=123;for(unsigned k=0;k<50000;++k){Bytes v(k%90);for(size_t i=0;i<v.size();++i){seed=1664525*seed+1013904223;v[i]=seed>>24;}std::vector<Event> e;decode(v,e);}
  std::cout<<"G1 action boundary, ownership, isolation, expiry, rejection and fuzz checks PASS\n";

@@ -70,34 +70,65 @@ inline bool append_downlink(Bytes &original,const Bytes &downlink) {
 }
 inline void put32(Bytes &v,uint32_t n) {for(unsigned i=0;i<4;++i)v.push_back((n>>(i*8))&255);}
 struct Result {
- bool allowed,calibration,ack,snapshot;uint32_t receiver_a,receiver_b,ack_sequence,digest;
+ bool allowed,calibration,ack,snapshot,bound,probe_ready,probe_failed,probe_packet;uint32_t receiver_a,receiver_b,ack_sequence,digest,meta0,meta11,target;
  Bytes downlink,calibration_action;
- Result():allowed(true),calibration(false),ack(false),snapshot(false),receiver_a(0),receiver_b(0),ack_sequence(0),digest(0){}
+ Result():allowed(true),calibration(false),ack(false),snapshot(false),bound(false),probe_ready(false),probe_failed(false),probe_packet(false),receiver_a(0),receiver_b(0),ack_sequence(0),digest(0),meta0(0),meta11(0),target(0){}
 };
 class Session {
  unsigned mode_;uint32_t a_,b_,epoch_,publisher_,tick_,seq_,pending_,last_sent_tick_;
+ uint32_t protocol_,meta0_,meta11_,target_,probe_tick_;
+ bool bound_,probe_sent_,verified_;
  bool retired_,calibrated_,publisher_ack_;std::set<uint32_t> acknowledgers_;std::map<uint32_t,uint32_t> digests_;
 public:
- Session():mode_(0),a_(0),b_(0),epoch_(0),publisher_(255),tick_(0),seq_(0),pending_(0),last_sent_tick_(0),retired_(false),calibrated_(false),publisher_ack_(false){}
+ Session():mode_(0),a_(0),b_(0),epoch_(0),publisher_(255),tick_(0),seq_(0),pending_(0),last_sent_tick_(0),protocol_(0),meta0_(0),meta11_(0),target_(0),probe_tick_(0),bound_(false),probe_sent_(false),verified_(false),retired_(false),calibrated_(false),publisher_ack_(false){}
  void configure(unsigned mode,uint32_t a,uint32_t b,uint32_t epoch) {
   *this=Session(); mode_=mode;a_=a;b_=b;epoch_=epoch;
  }
  bool enabled()const{return mode_!=0;}
- bool active()const{return mode_==2 && !retired_;}
+ bool active()const{return (mode_==2 || mode_==4) && !retired_;}
  void depart(uint32_t pid) {if(pid==publisher_){retired_=true;pending_=0;}}
  Result process(uint32_t pid,unsigned colour,const Bytes &v,bool running) {
   Result r;if(!enabled())return r;
   std::vector<Event> events;
-  if(!decode(v,events)){if(mode_==2)r.allowed=false;return r;}
+  if(!decode(v,events)){if(mode_>=2)r.allowed=false;return r;}
   // Validate whole action batch before any observation mutates session state.
-  if(mode_==2)for(size_t i=0;i<events.size();++i)
+  if(mode_>=2)for(size_t i=0;i<events.size();++i)
    if(events[i].opcode==0x60 && events[i].text.compare(0,4,"~g1:")==0){r.allowed=false;return r;}
   if(!running || retired_)return r;
+  // A late publisher clock anywhere in this batch invalidates the outstanding
+  // probe before an earlier ACK can grant authority using the previous clock.
+  if(mode_==4 && probe_sent_ && !verified_ && pid==publisher_ && colour==0)
+   for(size_t i=0;i<events.size();++i) {
+    const Event &e=events[i];
+    if(e.opcode==0x6b && e.cache=="AIG1.w3v" && e.mission=="g1" && e.key=="tick" &&
+       e.value>tick_ && e.value<=10000000 && e.value>probe_tick_+20) {
+     retired_=true;r.probe_failed=true;return r;
+    }
+   }
   for(size_t i=0;i<events.size();++i) {
    const Event &e=events[i];
    if(e.opcode==0x60 && colour==0 && e.text=="g1:hello") {
     r.calibration=true;r.receiver_a=e.a;r.receiver_b=e.b;r.calibration_action=e.wire;
-    if(active() && e.a==a_ && e.b==b_ && publisher_==255){publisher_=pid;calibrated_=true;}
+    if(mode_==2 && active() && e.a==a_ && e.b==b_ && publisher_==255){publisher_=pid;calibrated_=true;}
+   }
+   if(mode_==4 && e.opcode==0x6b && e.cache=="AIG1.w3v" && e.mission=="g1" && colour==0) {
+    if(e.key=="wire_version" && e.value==2 && publisher_==255){publisher_=pid;protocol_=2;}
+    if(pid==publisher_ && protocol_==2 && !bound_) {
+     if(e.key=="receiver0")meta0_=e.value;
+     if(e.key=="receiver11")meta11_=e.value;
+     if(meta0_ && meta11_) {
+      r.meta0=meta0_;r.meta11=meta11_;
+      // Handles supply a candidate only; no actor command before a real probe ACK.
+      if(meta0_<0x100000 || meta0_>0x10ffff || meta11_<0x100000 || meta11_>0x10ffff ||
+         (meta0_&0xffff)!=a_ || a_!=b_ || meta0_==meta11_) {
+       retired_=true;r.probe_failed=true;return r;
+      }
+      target_=meta11_&0xffff;bound_=calibrated_=true;r.bound=true;r.target=target_;
+     }
+    }
+    if(e.key=="probe" && pid==publisher_ && probe_sent_ && !verified_ && e.value==epoch_ && !r.probe_packet && tick_>probe_tick_ && tick_<=probe_tick_+20) {
+     verified_=true;r.probe_ready=true;
+    }
    }
    if(!active()||!calibrated_||e.opcode!=0x6b||e.cache!="AIG1.w3v"||e.mission!="g1")continue;
    if(e.key=="digest") {digests_[pid]=e.value;continue;}
@@ -108,12 +139,22 @@ public:
    }
    if(pid!=publisher_ || colour!=0 || e.key!="tick" || e.value<=tick_ || e.value>10000000)continue;
    tick_=e.value;r.snapshot=true;
+   if(mode_==4 && !verified_) {
+    if(probe_sent_ && tick_>probe_tick_+20){retired_=true;r.probe_failed=true;return r;}
+    if(!probe_sent_ && tick_>=8) {
+     probe_sent_=true;r.probe_packet=true;probe_tick_=last_sent_tick_=tick_;
+     std::ostringstream probe;probe<<"~g1:"<<epoch_<<":0:"<<tick_<<":0";
+     std::string text=probe.str();r.downlink.push_back(0x60);put32(r.downlink,target_);put32(r.downlink,target_);
+     r.downlink.insert(r.downlink.end(),text.begin(),text.end());r.downlink.push_back(0);
+    }
+    continue;
+   }
    // At most one command per two simulated seconds; no wall-clock retries.
    if(tick_<last_sent_tick_+8 || !r.downlink.empty())continue;
    if(pending_ && !publisher_ack_ && tick_<last_sent_tick_+20)continue;
    last_sent_tick_=tick_;pending_=++seq_;publisher_ack_=false;acknowledgers_.clear();digests_.clear();
    std::ostringstream s;s<<"~g1:"<<epoch_<<":"<<seq_<<":"<<tick_<<":"<<(seq_%2 ? 1 : 2);
-   std::string text=s.str();r.downlink.push_back(0x60);put32(r.downlink,a_);put32(r.downlink,b_);
+   std::string text=s.str();r.downlink.push_back(0x60);put32(r.downlink,mode_==4?target_:a_);put32(r.downlink,mode_==4?target_:b_);
    r.downlink.insert(r.downlink.end(),text.begin(),text.end());r.downlink.push_back(0);
   }
   return r;
