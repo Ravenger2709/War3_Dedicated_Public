@@ -42,6 +42,30 @@ class NextPresetTests(unittest.TestCase):
             for peer in n.peers: peer.close()
             n.stop()
 
+    def test_ai_total_target_counts_fixed_rows_in_pending_and_catalog_validation(self):
+        for teams, fixed in ((2, set(range(8, 12))), (3, {3, 7, 11}), (4, set())):
+            with self.subTest(teams=teams, fixed=len(fixed)):
+                n = self.native(slots=12, map_players=12, teams=teams)
+                try:
+                    n.start()
+                    head = (n.root / 'synthetic.cfg').read_text().split('map_slot1')[0]
+                    rows = ''.join(f'map_slot{sid+1} = 0 {100 if sid in fixed else 255} '
+                                   f'{2 if sid in fixed else 0} {int(sid in fixed)} '
+                                   f'{(0 if sid < 8 else 1) if teams == 2 else sid // (12 // teams)} '
+                                   f'{sid} 32 1 100\n' for sid in range(12))
+                    path = n.root / 'fixed-ai.cfg'
+                    path.write_text(head + rows + '\ntest_max = 12\ntest_auto_enabled = 0\n'
+                                    'test_autostart = 4\ntest_ai = 1\ntest_ai_target = 11\n'
+                                    'test_min_humans = 1\ntest_vote_min = 2\n')
+                    command = 'presetvalidate ' + str(path)
+                    n.proc.stdin.write(command + '\n'); n.proc.stdin.flush()
+                    self.assertTrue(n.marker('TEST PRESETVALIDATE ').endswith(' 1'))
+                    n.marker('TEST COMMAND ' + command)
+                    self.assertTrue(self.apply(n, path))
+                    self.assertIsNone(n.host_state()['lobby'])
+                finally:
+                    n.stop()
+
     def test_missing_local_map_is_rejected_despite_complete_metadata(self):
         n = self.native()
         try:

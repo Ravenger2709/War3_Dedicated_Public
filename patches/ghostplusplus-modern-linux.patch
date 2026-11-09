@@ -2270,7 +2270,7 @@ index ed6c35a..37ba5c8 100644
  	virtual void StopLaggers( string reason );
  	virtual void CreateVirtualHost( );
 diff --git a/ghost/ghost.cpp b/ghost/ghost.cpp
-index c723c77..0023f4e 100644
+index c723c77..5bdb200 100644
 --- a/ghost/ghost.cpp
 +++ b/ghost/ghost.cpp
 @@ -18,6 +18,8 @@
@@ -3284,7 +3284,7 @@ index c723c77..0023f4e 100644
  				{
  					CONSOLE_Print( "[GHOST] extracting Scripts\\blizzard.j from MPQ file to [" + m_MapCFGPath + "blizzard.j]" );
  					UTIL_FileWrite( m_MapCFGPath + "blizzard.j", (unsigned char *)SubFileData, BytesRead );
-@@ -1524,9 +2276,523 @@ void CGHost :: LoadIPToCountryData( )
+@@ -1524,9 +2276,524 @@ void CGHost :: LoadIPToCountryData( )
  	}
  }
  
@@ -3760,7 +3760,7 @@ index c723c77..0023f4e 100644
 +    {
 +        vector<CGameSlot> slots = map->GetSlots( );
 +        set<unsigned char> colours, teams;
-+        uint32_t humanSlots = 0;
++        uint32_t humanSlots = 0, fixedComputers = 0;
 +        if( slots.size( ) > 12 ) return false;
 +        for( size_t i = 0; i < slots.size( ); ++i )
 +        {
@@ -3769,9 +3769,10 @@ index c723c77..0023f4e 100644
 +            if( !colours.insert( slot.GetColour( ) ).second ) return false;
 +            teams.insert( slot.GetTeam( ) );
 +            if( !slot.GetComputer( ) ) ++humanSlots;
++            else if( slot.GetSlotStatus( ) == SLOTSTATUS_OCCUPIED ) ++fixedComputers;
 +        }
-+        if( teams.size( ) < 2 || teams.size( ) > map->GetMapNumTeams( ) ||
-+            s.LobbyAITarget > min( humanSlots, s.MaxPlayers ) ) return false;
++        if( humanSlots < 2 || teams.size( ) < 2 || teams.size( ) > map->GetMapNumTeams( ) ||
++            s.LobbyAITarget > min( humanSlots + fixedComputers, s.MaxPlayers ) ) return false;
 +    }
 +
 +    return true;
@@ -3809,7 +3810,7 @@ index c723c77..0023f4e 100644
  	{
                  for( vector<CBNET *> :: iterator i = m_BNETs.begin( ); i != m_BNETs.end( ); ++i )
  		{
-@@ -1648,6 +2914,13 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
+@@ -1648,6 +2915,13 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
  		return;
  	}
  
@@ -3823,7 +3824,7 @@ index c723c77..0023f4e 100644
  	CONSOLE_Print( "[GHOST] creating game [" + gameName + "]" );
  
  	if( saveGame )
-@@ -1655,7 +2928,15 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
+@@ -1655,7 +2929,15 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
  	else
  		m_CurrentGame = new CGame( this, map, NULL, m_HostPort, gameState, gameName, ownerName, creatorName, creatorServer );
  

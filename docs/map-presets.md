@@ -91,7 +91,8 @@ are accepted only as a migration input for a one-item cycle.
 The managed computer count is `max(0, target - human_players - fixed_computers)`,
 bounded by available slots and reservations. A human joining replaces one owned
 computer; a human leaving the lobby restores it. Computer rows defined by the
-map remain fixed and count towards the total target. Computers do not count towards human
+map remain fixed and count towards the total target. Both lobby creation and native
+rotation-catalog validation use this same population limit. Computers do not count towards human
 vote or auto-start requirements. Their difficulty follows the preset.
 
 Use booleans `true` and `false` in JSON. AMP's yes/no presentation does not change

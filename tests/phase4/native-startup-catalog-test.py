@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline direct native catalog construction; startup wiring and IPC pending."""
 import importlib.util
+import json
 import fcntl
 import os
 from pathlib import Path
@@ -48,6 +49,36 @@ class StartupCatalogTests(unittest.TestCase):
             else:
                 self.assertEqual(value[-1], '0')
             self.assertIsNone(n.host_state()['lobby'])
+
+    def test_sealed_catalog_accepts_total_ai_target_with_fixed_computers(self):
+        if Path('/sys/fs/cgroup').stat().st_ino != 1:
+            self.skipTest('full cgroup hierarchy required')
+        for fixed in (set(range(8, 12)), {3, 7, 11}, set()):
+            with self.subTest(fixed=len(fixed)):
+                self.catalog.a.unlink()
+                self.catalog.a = self.catalog.builder.mpq(script=fixtures.fixture.AI_SCRIPT,
+                    info=fixtures.fixture.info_fixture(statuses=[2 if sid in fixed else 1 for sid in range(12)]),
+                    name='a.w3x')
+                entry=self.catalog.doc['presets'][0]
+                entry.update(max_players=12, start={'autostart_enabled':False,'autostart_players':4},
+                             ai={'enabled':True,'target':11,'skill':1})
+                self.catalog.doc.pop('capabilities',None)
+                self.catalog.preset_path.write_text(json.dumps(self.catalog.doc))
+                with self.catalog.prepare(('one',)) as prepared:
+                    bundle=seal_startup_manifest(prepared);self.addCleanup(bundle.close)
+                    n=self.native_fixture.native({'bot_maxgames':'2'},slots=12)
+                    try:
+                        shutil.copyfile(self.catalog.a,n.root/'a.w3x')
+                        (n.root/'synthetic.cfg').write_text('map_path = Maps\\Download\\a.w3x\nmap_localpath = a.w3x\n')
+                        for script in ('common.j','blizzard.j'):
+                            (n.root/script).write_bytes(b'globals\nendglobals\n')
+                        n.passed_fds=bundle.pass_fds();n.start()
+                        command=f'catalog {bundle.manifest_fd}'
+                        n.proc.stdin.write(command+'\n');n.proc.stdin.flush()
+                        result=n.marker('TEST CATALOG ').split();n.marker('TEST COMMAND '+command)
+                        self.assertEqual(result[2:4],['1','1'])
+                        self.assertIsNone(n.host_state()['lobby'])
+                    finally:n.stop()
 
     def test_bad_second_map_capacity_aborts_catalog_without_pending(self):
         with self.catalog.prepare() as prepared:
