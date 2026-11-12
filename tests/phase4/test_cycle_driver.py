@@ -23,6 +23,73 @@ def manifest():
 
 
 class DriverTests(unittest.TestCase):
+    def test_negative_ack_waits_for_native_mailbox_cleanup(self):
+        self.driver.step(select=True, capacity_available=True)
+        request = self.catalog._request(self.catalog.data['pending'])
+        path = self.ipc / ('ack-' + request.request_id + '.ready')
+        path.write_bytes(request.payload() + b'status=rejected\n'); path.chmod(0o600)
+        self.assertEqual(self.driver.step(select=True, capacity_available=True).state, 'awaiting_ack_cleanup')
+        self.assertEqual(self.cursor.state['index'], 0)
+        self.assertTrue((self.ipc / 'next.ready').exists())
+        (self.ipc / 'next.ready').unlink()
+        self.assertEqual(self.driver.step(select=True, capacity_available=True).state, 'rejected_skipped')
+        self.assertEqual(self.cursor.state['index'], 1)
+
+    def test_rejected_lobby_does_not_pin_the_same_request_forever(self):
+        now = [100.0]
+        self.driver.clock = lambda: now[0]
+        first = self.driver.step(select=True, capacity_available=True)
+        ack = self.ack('rejected')
+        outcome = self.driver.step(select=True, capacity_available=True)
+        self.assertEqual(outcome.state, 'rejected_skipped')
+        self.assertEqual(outcome.request_id, first.request_id)
+        self.assertEqual(self.cursor.state['index'], 1)
+        self.assertTrue(ack.exists())
+        self.assertIsNone(self.catalog.data['pending'])
+        self.assertEqual(self.driver.step(select=True, capacity_available=True).state, 'retry_wait')
+        now[0] += 1
+        next_request = self.driver.step(select=True, capacity_available=True)
+        self.assertNotEqual(next_request.request_id, first.request_id)
+        self.ack('staged')
+        self.driver.step(self.obs())
+        self.assertIsNotNone(self.cursor.state['pending'])
+
+    def test_all_rejected_cycle_backs_off_without_losing_running_match_history(self):
+        now = [100.0]
+        self.driver.clock = lambda: now[0]
+        self.cursor.reserve_external('f'*32, 17)
+        event = {'version': 1, 'event': 'game_started', 'session_generation': 'f'*32,
+                 'host_counter': 17, 'match_id': 'e'*32}
+        self.cursor.consume_external(event)
+        history = self.cursor.state['last_started']
+        for expected_delay in (1, 30, 1, 60):
+            self.driver.step(select=True, capacity_available=True)
+            self.ack('rejected')
+            result = self.driver.step(select=True, capacity_available=True)
+            self.assertEqual(result.retry_seconds, expected_delay)
+            for _ in range(10):
+                self.assertEqual(self.driver.step(select=True, capacity_available=True).state, 'retry_wait')
+            self.assertEqual(self.cursor.state['last_started'], history)
+            self.assertEqual(self.cursor._find_external('counter', 'f'*32, 17), (17, 'e'*32))
+            now[0] += expected_delay
+
+    def test_negative_ack_with_expired_native_observation_does_not_advance(self):
+        self.driver.step(select=True, capacity_available=True)
+        self.ack('rejected')
+        before = dict(self.cursor.state)
+        self.assertEqual(self.driver.step(select=True, capacity_available=True, revalidate=lambda: False).state,
+                         'observation_stale')
+        self.assertEqual(self.cursor.state, before)
+        self.assertIsNotNone(self.catalog.data['pending'])
+
+    def test_uncertain_ack_remains_fenced_without_selection_advance(self):
+        self.driver.step(select=True, capacity_available=True)
+        self.ack('uncertain')
+        for _ in range(20):
+            self.assertEqual(self.driver.step(select=True, capacity_available=True).state, 'uncertain')
+        self.assertEqual(self.cursor.state['index'], 0)
+        self.assertFalse(list(self.root.glob('rejected-selection-*.json')))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)

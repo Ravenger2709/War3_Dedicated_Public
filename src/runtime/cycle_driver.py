@@ -10,6 +10,7 @@ A catalog-bound close v2 durably records its exact request before retirement.
 """
 from dataclasses import dataclass
 import re
+import time
 
 from .catalog_requests import CatalogRequests, CatalogRequestError
 from .cycle_coordinator import CycleCoordinator
@@ -40,6 +41,8 @@ class DriverResult:
     state: str
     request_id: str | None = None
     marker: str | None = None
+    retry_seconds: int = 0
+    preset_id: str | None = None
 
 
 class CycleDriver:
@@ -49,13 +52,31 @@ class CycleDriver:
     server is normal, and in-flight work is still recovered. Set ``select`` only
     when the caller wishes to admit a new selection; retries never allocate IDs.
     """
-    def __init__(self, catalog, cursor, journal):
+    def __init__(self, catalog, cursor, journal, *, clock=time.monotonic):
         if not isinstance(catalog, CatalogRequests) or not isinstance(cursor, CycleState):
             raise TypeError('catalog and cursor required')
         if cursor.cycle != catalog.cycle:
             raise ValueError('catalog and cursor cycle mismatch')
         self.catalog, self.cursor, self.journal = catalog, cursor, journal
         self.coordinator = CycleCoordinator(cursor, journal, catalog_requests=catalog)
+        self.clock = clock
+        self.retry_at = 0.0
+        self.rejected_positions = set()
+        self.rejected_rounds = 0
+
+    def _skip_rejected(self, record):
+        if self.catalog.rejection_cleanup_pending(record):
+            return DriverResult('awaiting_ack_cleanup', record['request_id'])
+        self.catalog.retire_rejected(self.cursor, record['request_id'])
+        self.rejected_positions.add(record['position'])
+        delay = 1
+        if len(self.rejected_positions) == len(self.catalog.cycle):
+            self.rejected_rounds = min(self.rejected_rounds + 1, 5)
+            delay = min(30 * 2 ** (self.rejected_rounds - 1), 300)
+            self.rejected_positions.clear()
+        self.retry_at = self.clock() + delay
+        return DriverResult('rejected_skipped', record['request_id'], retry_seconds=delay,
+                            preset_id=self.catalog.cycle[record['position']])
 
     def _owned(self):
         self.cursor._require_lease()
@@ -115,11 +136,20 @@ class CycleDriver:
         if outcome:
             return DriverResult(outcome, record['request_id'])
         record = self.catalog.data['pending']
+        # Resume a cursor-committed rejection before enqueue's position check.
+        if record is not None and record['status'] == 'rejected':
+            if observation is not None:
+                return DriverResult('ignored')
+            if not permitted():
+                return DriverResult('observation_stale')
+            return self._skip_rejected(record)
         if record is None:
             if not select:
                 return DriverResult('idle')
             if not capacity_available:
                 return DriverResult('capacity_full')
+            if self.clock() < self.retry_at:
+                return DriverResult('retry_wait')
             if not permitted():
                 return DriverResult('observation_stale')
             self.catalog.enqueue(self.cursor)
@@ -131,10 +161,14 @@ class CycleDriver:
             if not permitted():
                 return DriverResult('observation_stale', request_id)
             marker = self.catalog.bind_reservation(self.cursor, request_id, observation.host_counter, self.journal)
+            self.rejected_positions.clear()
+            self.rejected_rounds = 0
             return DriverResult('reserved', request_id, marker)
         if not permitted():
             return DriverResult('observation_stale', request_id)
         _, status = self.catalog.dispatch(self.cursor)
+        if status == 'rejected' and observation is None:
+            return self._skip_rejected(self.catalog.data['pending'])
         if status in ('rejected', 'uncertain'):
             return DriverResult(status, request_id)
         if status != 'staged':
@@ -144,4 +178,6 @@ class CycleDriver:
         if not permitted():
             return DriverResult('observation_stale', request_id)
         marker = self.catalog.bind_reservation(self.cursor, request_id, observation.host_counter, self.journal)
+        self.rejected_positions.clear()
+        self.rejected_rounds = 0
         return DriverResult('reserved', request_id, marker)

@@ -22,6 +22,78 @@ def manifest():
 
 
 class CatalogRequestsTests(unittest.TestCase):
+    def rejected(self):
+        request = self.q.enqueue(self.cursor)
+        self.q.dispatch(self.cursor)
+        ack = self.ack(request, 'rejected')
+        self.q.dispatch(self.cursor)
+        return request, ack
+
+    def test_clean_rejection_advances_without_fabricating_native_events(self):
+        request, ack = self.rejected()
+        original = ack.read_bytes()
+        self.assertTrue(self.q.retire_rejected(self.cursor, request.request_id))
+        self.assertEqual(self.cursor.state['index'], 1)
+        self.assertIsNone(self.cursor.state['last_started'])
+        self.assertIsNone(self.cursor.state['pending'])
+        self.assertIsNone(self.q.data['pending'])
+        self.assertEqual(ack.read_bytes(), original)
+        self.assertEqual(list(self.journal.iterdir()), [])
+        self.assertEqual(len(list(self.root.glob('rejected-selection-*.json'))), 1)
+
+    def test_rejection_intent_resumes_before_cursor_write(self):
+        request, _ = self.rejected()
+        with patch.object(self.cursor, '_save', side_effect=OSError('cursor unavailable')):
+            with self.assertRaises(OSError): self.q.retire_rejected(self.cursor, request.request_id)
+        self.cursor = CycleState(self.root / 'cursor.json', ['one', 'one'])
+        q = self.reload()
+        q.retire_rejected(self.cursor, request.request_id)
+        self.assertEqual(self.cursor.state['index'], 1)
+        self.assertIsNone(q.data['pending'])
+
+    def test_sigkill_after_sqlite_advance_resumes_exactly_once(self):
+        request, ack = self.rejected()
+        self.cursor._enable_sqlite()
+        child = os.fork()
+        if child == 0:
+            with patch.object(self.q, '_save', side_effect=lambda _: os.kill(os.getpid(), signal.SIGKILL)):
+                self.q.retire_rejected(self.cursor, request.request_id)
+            os._exit(77)
+        _, status = os.waitpid(child, 0)
+        self.assertTrue(os.WIFSIGNALED(status))
+        self.cursor = CycleState(self.root / 'cursor.json', ['one', 'one'])
+        self.assertEqual(self.cursor.state['index'], 1)
+        q = self.reload()
+        q.retire_rejected(self.cursor, request.request_id)
+        self.assertEqual(self.cursor.state['index'], 1)
+        self.assertIsNone(q.data['pending'])
+        self.assertTrue(ack.exists())
+
+    def test_missing_or_changed_negative_ack_never_retires(self):
+        request, ack = self.rejected()
+        for replacement in (None, request.payload() + b'status=staged\n', request.payload().replace(b'a'*32, b'b'*32) + b'status=rejected\n'):
+            if replacement is None:
+                ack.unlink(missing_ok=True)
+            else:
+                ack.write_bytes(replacement); ack.chmod(0o600)
+            with self.assertRaises(ValueError): self.q.retire_rejected(self.cursor, request.request_id)
+            self.assertEqual(self.cursor.state['index'], 0)
+            self.assertIsNotNone(self.q.data['pending'])
+
+    def test_existing_human_match_reservation_blocks_rejection_retirement(self):
+        request, _ = self.rejected()
+        pending = self.cursor.reserve_external('f'*32, 7)
+        with self.assertRaises(ValueError): self.q.retire_rejected(self.cursor, request.request_id)
+        self.assertEqual(self.cursor.state['pending'], pending)
+
+    def test_uncertain_request_cannot_be_skipped(self):
+        request = self.q.enqueue(self.cursor)
+        self.q.dispatch(self.cursor)
+        self.ack(request, 'uncertain')
+        self.q.dispatch(self.cursor)
+        with self.assertRaises(ValueError): self.q.retire_rejected(self.cursor, request.request_id)
+        self.assertEqual(self.cursor.state['index'], 0)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)

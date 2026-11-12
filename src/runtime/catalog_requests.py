@@ -11,7 +11,7 @@ import secrets
 from pathlib import Path
 
 from .cycle_state import CycleState
-from .files import atomic_json, private_directory, private_json
+from .files import atomic_json, private_directory, private_json, private_bytes
 from .preload_ipc import Request, notify_request, read_ack
 from .preload_manifest import parse_startup_manifest
 from .reservation_marker import publish as publish_reservation
@@ -264,6 +264,74 @@ class CatalogRequests:
         if status is not None and record['status'] is None:
             self._save({**self.data, 'pending': {**record, 'status': status}})
         return request, status
+
+    def retire_rejected(self, cursor, request_id):
+        """Skip only an immutable, matching negative ACK before any reservation.
+
+        Keep native IPC untouched. The durable receipt is the cross-file intent:
+        recovery may observe either cursor value, but advances it exactly once.
+        This is an admission failure, never a synthetic match/close event.
+        """
+        if self.failed:
+            raise CatalogRequestError('storage uncertain; reopen')
+        record = self.data['pending']
+        if (record is None or record['request_id'] != request_id
+                or record['status'] != 'rejected' or record['counter'] is not None):
+            raise CatalogRequestError('request not cleanly rejected')
+        if read_ack(self.ipc_directory, self._request(record)) != 'rejected':
+            raise CatalogRequestError('rejected ACK unavailable')
+        if self.rejection_cleanup_pending(record):
+            raise CatalogRequestError('negative ACK mailbox not consumed')
+        state = self._cursor(cursor)
+        if state['pending'] is not None:
+            raise CatalogRequestError('cursor already reserved')
+        path = self.path.with_name('rejected-selection-' + self.generation + '-' + request_id + '.json')
+        if path.exists() or path.is_symlink():
+            intent = private_json(path)
+        else:
+            if state['index'] != record['position']:
+                raise CatalogRequestError('rejection cursor mismatch')
+            intent = {'version': 1, 'generation': self.generation, 'digest': self.digest,
+                      'request': record, 'before': state,
+                      'after': {**state, 'index': (state['index'] + 1) % len(self.indices),
+                                'changed_at': cursor.clock()}}
+            atomic_json(path, intent)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        if (set(intent) != {'version', 'generation', 'digest', 'request', 'before', 'after'}
+                or type(intent['version']) is not int or intent['version'] != 1
+                or intent['generation'] != self.generation or intent['digest'] != self.digest
+                or intent['request'] != record):
+            raise CatalogRequestError('rejection intent mismatch')
+        before, after = intent['before'], intent['after']
+        cursor._validate(before)
+        cursor._validate(after)
+        if (before['pending'] is not None or before['index'] != record['position']
+                or before['cycle'] != self.cycle
+                or after != {**before, 'index': (record['position'] + 1) % len(self.indices),
+                              'changed_at': after['changed_at']}
+                or state not in (before, after)):
+            raise CatalogRequestError('rejection state mismatch')
+        if read_ack(self.ipc_directory, self._request(record)) != 'rejected':
+            raise CatalogRequestError('rejected ACK changed')
+        if state != after:
+            cursor._save(after)
+        # A crash before this write replays the same receipt, not another advance.
+        self._save({**self.data, 'pending': None})
+        return True
+
+    def rejection_cleanup_pending(self, record):
+        """An ACK can precede native's final removal of the exact mailbox."""
+        try:
+            payload = private_bytes(self.ipc_directory / 'next.ready', 512)
+        except FileNotFoundError:
+            return False
+        if payload != self._request(record).payload():
+            raise CatalogRequestError('foreign mailbox during rejection')
+        return True
 
     def complete(self, cursor, request_id):
         """Retire only after the separately verified cursor start was committed."""

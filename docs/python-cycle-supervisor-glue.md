@@ -22,7 +22,22 @@ internal pump can dispatch and publish a marker only from a fresh matching
 owned-child observation and a capacity check. Native launch admission now
 checks the prepared automatic backend, cycle agreement, lease, journal and
 absence of unresolved launch/selection state rather than rejecting every cycle.
-Rotation errors block further cycle decisions without stopping existing matches.
+Uncertain rotation errors block further cycle decisions without stopping existing
+matches. A matching immutable `rejected` ACK before any lobby counter/reservation
+is different: it proves that this selection was not admitted. The driver records
+an immutable rejection intent, advances the cursor once, and tries the next
+position after one second. Native request/ACK files and match history remain
+unchanged. A crash between cursor commit and queue retirement resumes the same
+intent without advancing twice. Missing, changed, foreign or `uncertain` ACKs and
+existing reservations never authorize this path.
+
+If every position is rejected, admission pauses for 30 seconds, then retries the
+cycle with exponential delay capped at 300 seconds. Observing a real matching
+lobby clears that failure streak. The pause affects new lobby selections only;
+running matches and lifecycle consumption continue. Each rejection produces an
+English warning naming the skipped preset, next preset and delay, so an empty
+lobby is no longer silently pinned to a permanently negative request ID. A
+rejection is not recorded as a played match or an empty-lobby timeout.
 
 Early full-cycle validation (`8bbfe86`) runs before account-profile access and
 launch ownership. Final preparation revalidates and seals the inputs, uses the

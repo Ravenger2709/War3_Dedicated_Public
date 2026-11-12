@@ -664,6 +664,12 @@ class ICCupSupervisor(OperatorLogMixin,Supervisor):
                     select=record is None and event['phase'] in ('IDLE','IN_GAME')
                     result=driver.step(lobby,select=select,capacity_available=True,
                                        revalidate=lambda:self._cycle_current_observation()==observation)
+                    if result.state == 'rejected_skipped':
+                        self.log('cycle_selection_rejected',
+                                 preset=result.preset_id,
+                                 next_preset=self.cycle_control.state.current,
+                                 retry_seconds=result.retry_seconds)
+                        status['preset_id']=self.cycle_control.state.current
                     status['driver']=result.state
                     status['pending']=(self.cycle_control.state.state['pending'] is not None or
                                        driver.catalog.data['pending'] is not None)

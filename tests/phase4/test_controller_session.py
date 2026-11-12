@@ -166,6 +166,29 @@ class ControllerSessionTests(unittest.TestCase):
         self.assertIsNotNone(control.driver)
         return s,child,ipc,control,catalog
 
+    def test_immediate_rejected_ack_skips_without_restarting_owned_native(self):
+        from src.runtime.preload_ipc import notify_request
+        s, child, ipc, control, catalog = self.setup_catalog_child()
+        pid = child.process.pid
+        payload = {'version': 1, 'phase': 'IDLE', 'session_generation': 'a'*32,
+                   'active_games': 0, 'uptime_seconds': 0}
+        raw = ('[HOSTBOT_STATE] ' + json.dumps(payload) + '\n').encode()
+        s._native_line(child.generation, raw.decode(), child, child.reader_token, raw, time.monotonic())
+        def reject(directory, request):
+            notify_request(directory, request)
+            path = ipc / ('ack-' + request.request_id + '.ready')
+            path.write_bytes(request.payload() + b'status=rejected\n'); path.chmod(0o600)
+            (ipc / 'next.ready').unlink()
+        with patch('src.runtime.catalog_requests.notify_request', side_effect=reject):
+            s.cycle_next_scan = 0.
+            s._cycle_tick()
+        self.assertFalse(s.cycle_failed)
+        self.assertEqual(control.state.state['index'], 1)
+        self.assertIsNone(catalog.data['pending'])
+        self.assertIsNone(child.process.poll())
+        self.assertEqual(child.process.pid, pid)
+        self.assertIn('Lobby creation rejected for preset one.', s.output.getvalue())
+
     def test_catalog_close_v2_is_consumed_by_controller_with_owned_session(self):
         s,child,ipc,control,catalog=self.setup_catalog_child()
         catalog.enqueue(control.state)

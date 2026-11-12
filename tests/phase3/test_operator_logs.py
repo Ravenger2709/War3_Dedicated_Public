@@ -43,6 +43,13 @@ class Recorder(OperatorLogMixin):
 
 
 class OperatorLogTests(unittest.TestCase):
+    def test_rejected_selection_is_actionable_english_warning(self):
+        self.recorder.log('cycle_selection_rejected', preset='bvo', next_preset='footmen', retry_seconds=30)
+        output = self.recorder.output.getvalue()
+        self.assertIn('WARN supervisor: Lobby creation rejected for preset bvo.', output)
+        self.assertIn('Advancing to footmen; retry in 30 seconds.', output)
+        self.assertIn('Active matches are preserved.', output)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

@@ -150,6 +150,11 @@ class OperatorEvents:
                 message += ' ' + visible(fields.get('reason', '')).replace('_', ' ').capitalize().rstrip('.') + '.'
         elif kind == 'cycle_idle_rotation':
             message = 'Empty lobby timeout reached. Advancing to the next map; active matches are preserved.'
+        elif kind == 'cycle_selection_rejected':
+            level = 'WARN'
+            message = ('Lobby creation rejected for preset ' + visible(fields.get('preset', ''))
+                       + '. Advancing to ' + visible(fields.get('next_preset', ''))
+                       + '; retry in ' + visible(fields.get('retry_seconds', 0)) + ' seconds. Active matches are preserved.')
         elif kind == 'cycle_monitor':
             active, maximum = fields.get('active'), fields.get('maximum')
             if type(active) is not int or type(maximum) is not int:
