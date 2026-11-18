@@ -30,6 +30,13 @@ finite ancestor limits; a private namespace exposes only a subtree and is
 rejected. The cgroup filesystem stays read-only, the PID namespace stays
 private, all capabilities remain dropped, and the configured memory/PID limits
 still apply. This flag provides resource metadata, not host process execution.
+The headroom check accounts for clean inactive filesystem cache that Linux can
+reclaim under pressure. It keeps charges for shared memory, mapped pages,
+dirty data, and writeback. Unavailable or inconsistent cache counters give no
+credit. The hard cgroup limit and the catalog payload budget still apply.
+GHost logs whether a selection failed its catalog state, cgroup snapshot,
+memory budget, or preset staging check. Memory rejections report available
+and required bytes.
 
 `_cycle_permits_native_spawn` now permits the ordinary automatic catalog backend
 only with prepared, matching cycle configuration and an exclusively owned

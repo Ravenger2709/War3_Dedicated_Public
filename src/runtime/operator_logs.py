@@ -222,7 +222,9 @@ class OperatorEvents:
                 # Keep each player message, including repeated commands. The
                 # fixed prefix cannot be confused with Analytics join/leave.
                 return 'INFO', 'native', 'Player chat [' + chat['name'] + ']: ' + visible(chat['message'], 512)
-            elif text.startswith('[GHOST] ') and re.search(r'\berror\b|\bfailed\b|\binvalid\b', text, re.I):
+            elif text.startswith('[GHOST] ') and (
+                    text.startswith('[GHOST] catalog selection rejected: ')
+                    or re.search(r'\berror\b|\bfailed\b|\binvalid\b', text, re.I)):
                 level, component, message = 'WARN', 'native', visible(text[8:])
         elif kind in ('native_metadata_rejected', 'prefix_cleanup_failed', 'runtime_control_failed', 'launch_error'):
             if kind == 'native_metadata_rejected':

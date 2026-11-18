@@ -2270,7 +2270,7 @@ index ed6c35a..37ba5c8 100644
  	virtual void StopLaggers( string reason );
  	virtual void CreateVirtualHost( );
 diff --git a/ghost/ghost.cpp b/ghost/ghost.cpp
-index c723c77..5bdb200 100644
+index c723c77..51fc649 100644
 --- a/ghost/ghost.cpp
 +++ b/ghost/ghost.cpp
 @@ -18,6 +18,8 @@
@@ -3284,7 +3284,7 @@ index c723c77..5bdb200 100644
  				{
  					CONSOLE_Print( "[GHOST] extracting Scripts\\blizzard.j from MPQ file to [" + m_MapCFGPath + "blizzard.j]" );
  					UTIL_FileWrite( m_MapCFGPath + "blizzard.j", (unsigned char *)SubFileData, BytesRead );
-@@ -1524,9 +2276,524 @@ void CGHost :: LoadIPToCountryData( )
+@@ -1524,9 +2276,543 @@ void CGHost :: LoadIPToCountryData( )
  	}
  }
  
@@ -3309,10 +3309,23 @@ index c723c77..5bdb200 100644
 +        requestID.find_first_not_of("0123456789abcdef")!=string::npos || index>=m_Entries.size() ||
 +        host->m_NativePendingMap || host->m_NativePendingPreset || !host->m_Map || !host->m_AdminMap ||
 +        host->m_MaxGames!=m_MaxGames || host->m_Map->GetMapData()->size()!=m_DefaultSize ||
-+        host->m_AdminMap->GetMapData()->size()!=m_AdminSize ) return 0;
++        host->m_AdminMap->GetMapData()->size()!=m_AdminSize )
++    {
++        CONSOLE_Print("[GHOST] catalog selection rejected: catalog or pending selection state invalid");
++        return 0;
++    }
 +    uint64_t headroom=0, required=0;
-+    if(!NativePreloadCgroupHeadroom(headroom) ||
-+       !NativePreloadAdmissionBudget(m_InputSizes,m_DefaultSize,m_AdminSize,m_MaxGames,0,headroom,required)) return 0;
++    if(!NativePreloadCgroupHeadroom(headroom))
++    {
++        CONSOLE_Print("[GHOST] catalog selection rejected: cgroup memory snapshot unavailable");
++        return 0;
++    }
++    if(!NativePreloadAdmissionBudget(m_InputSizes,m_DefaultSize,m_AdminSize,m_MaxGames,0,headroom,required))
++    {
++        CONSOLE_Print("[GHOST] catalog selection rejected: memory budget (available bytes " +
++                      UTIL_ToString(headroom) + ", required bytes " + UTIL_ToString(required) + ")");
++        return 0;
++    }
 +    try
 +    {
 +        string pendingID=requestID, pendingDigest=m_ManifestDigest; // Allocate before changing the pending transaction.
@@ -3320,9 +3333,15 @@ index c723c77..5bdb200 100644
 +        bool ok=host->ApplyNativeNextPreset(m_Entries[index].Map,m_Entries[index].Settings);
 +        host->m_NativeCatalogStaging=false;
 +        if(ok) { host->m_NativePendingCatalogID.swap(pendingID); host->m_NativePendingCatalogDigest.swap(pendingDigest); host->m_NativePendingCatalogIndex=(uint32_t)index; }
++        if(!ok) CONSOLE_Print("[GHOST] catalog selection rejected: could not prepare staged preset");
 +        return ok ? 1 : 0;
 +    }
-+    catch(...) { host->m_NativeCatalogStaging=false; return 0; }
++    catch(...)
++    {
++        host->m_NativeCatalogStaging=false;
++        CONSOLE_Print("[GHOST] catalog selection rejected: exception while staging preset");
++        return 0;
++    }
 +}
 +
 +#ifndef WIN32
@@ -3810,7 +3829,7 @@ index c723c77..5bdb200 100644
  	{
                  for( vector<CBNET *> :: iterator i = m_BNETs.begin( ); i != m_BNETs.end( ); ++i )
  		{
-@@ -1648,6 +2915,13 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
+@@ -1648,6 +2934,13 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
  		return;
  	}
  
@@ -3824,7 +3843,7 @@ index c723c77..5bdb200 100644
  	CONSOLE_Print( "[GHOST] creating game [" + gameName + "]" );
  
  	if( saveGame )
-@@ -1655,7 +2929,15 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
+@@ -1655,7 +2948,15 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
  	else
  		m_CurrentGame = new CGame( this, map, NULL, m_HostPort, gameState, gameName, ownerName, creatorName, creatorServer );
  
@@ -3979,10 +3998,10 @@ index c9678d3..a6dee66 100644
  };
  
 diff --git a/ghost/map.cpp b/ghost/map.cpp
-index 2bc089b..5efbad4 100644
+index 2bc089b..b915dc4 100644
 --- a/ghost/map.cpp
 +++ b/ghost/map.cpp
-@@ -24,13 +24,637 @@
+@@ -24,13 +24,669 @@
  #include "sha1.h"
  #include "config.h"
  #include "map.h"
@@ -4525,6 +4544,38 @@ index 2bc089b..5efbad4 100644
 +#endif
 +
 +#ifndef WIN32
++// Credit only cold filesystem cache. tmpfs, dirty pages, pages being
++// written back, and mapped files keep their charge. Missing or inconsistent
++// statistics receive no credit; the kernel still enforces the hard limit.
++static uint64_t NativeColdFileCache( int dir, uint64_t current )
++{
++    string text;
++    if(!NativeCgroupText(dir,"memory.stat",16384,text)) return 0;
++    const char *keys[]={"inactive_file","file","shmem","file_dirty","file_writeback","file_mapped"};
++    uint64_t counters[6]={};
++    bool seen[6]={};
++    for(size_t pos=0;pos<text.size();)
++    {
++        size_t end=text.find('\n',pos), split=text.find(' ',pos);
++        if(end==string::npos || split==string::npos || split>=end) return 0;
++        string key=text.substr(pos,split-pos);
++        for(size_t i=0;i<6;++i)
++        {
++            if(key!=keys[i]) continue;
++            if(seen[i] || !NativeCgroupUInt(text.substr(split+1,end-split),counters[i])) return 0;
++            seen[i]=true;
++            break;
++        }
++        pos=end+1;
++    }
++    for(size_t i=0;i<6;++i) if(!seen[i] || counters[i]>current) return 0;
++    if(counters[2]>counters[1]) return 0;
++    uint64_t cold=min(counters[0],counters[1]-counters[2]);
++    for(size_t i=3;i<6;++i)
++        cold-=min(cold,counters[i]);
++    return cold;
++}
++
 +// The caller owns root; this walker owns only its duplicate.
 +static bool NativeCgroupWalk( int root, const string &membership, uint64_t &headroom )
 +{
@@ -4550,7 +4601,7 @@ index 2bc089b..5efbad4 100644
 +            if(!NativeCgroupUInt(value,maxvalue) || !maxvalue ||
 +               !NativeCgroupText(dir,"memory.current",64,value) || !NativeCgroupUInt(value,current) || current>maxvalue)
 +            { ok=false; break; }
-+            minimum=min(minimum,maxvalue-current); finite=true;
++            minimum=min(minimum,maxvalue-current+NativeColdFileCache(dir,current)); finite=true;
 +        }
 +        if(end==string::npos) { pos=membership.size(); break; }
 +        pos=end+1;
@@ -4621,7 +4672,7 @@ index 2bc089b..5efbad4 100644
  //
  // CMap
  //
-@@ -57,6 +681,18 @@ CMap :: CMap( CGHost *nGHost, CConfig *CFG, string nCFGFile ) : m_GHost( nGHost
+@@ -57,6 +713,18 @@ CMap :: CMap( CGHost *nGHost, CConfig *CFG, string nCFGFile ) : m_GHost( nGHost
  	Load( CFG, nCFGFile );
  }
  
@@ -4640,7 +4691,7 @@ index 2bc089b..5efbad4 100644
  CMap :: ~CMap( )
  {
  
-@@ -228,6 +864,12 @@ unsigned char CMap :: GetMapLayoutStyle( )
+@@ -228,6 +896,12 @@ unsigned char CMap :: GetMapLayoutStyle( )
  }
  
  void CMap :: Load( CConfig *CFG, string nCFGFile )
@@ -4653,7 +4704,7 @@ index 2bc089b..5efbad4 100644
  {
  	m_Valid = true;
  	m_CFGFile = nCFGFile;
-@@ -237,16 +879,40 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -237,16 +911,40 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  	m_MapLocalPath = CFG->GetString( "map_localpath", string( ) );
  	m_MapData.clear( );
  
@@ -4698,7 +4749,7 @@ index 2bc089b..5efbad4 100644
  	{
  		CONSOLE_Print( "[MAP] loading MPQ file [" + MapMPQFileName + "]" );
  		MapMPQReady = true;
-@@ -254,6 +920,15 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -254,6 +952,15 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  	else
  		CONSOLE_Print( "[MAP] warning - unable to load MPQ file [" + MapMPQFileName + "]" );
  
@@ -4714,7 +4765,7 @@ index 2bc089b..5efbad4 100644
  	// try to calculate map_size, map_info, map_crc, map_sha1
  
  	BYTEARRAY MapSize;
-@@ -278,13 +953,17 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -278,13 +985,17 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  		// calculate map_crc (this is not the CRC) and map_sha1
  		// a big thank you to Strilanc for figuring the map_crc algorithm out
  
@@ -4734,7 +4785,7 @@ index 2bc089b..5efbad4 100644
  
  			if( BlizzardJ.empty( ) )
  				CONSOLE_Print( "[MAP] unable to calculate map_crc/sha1 - unable to read file [" + m_GHost->m_MapCFGPath + "blizzard.j]" );
-@@ -306,14 +985,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -306,14 +1017,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  
  					if( SFileOpenFileEx( MapMPQ, "Scripts\\common.j", 0, &SubFile ) )
  					{
@@ -4758,7 +4809,7 @@ index 2bc089b..5efbad4 100644
  							{
  								CONSOLE_Print( "[MAP] overriding default common.j with map copy while calculating map_crc/sha1" );
  								OverrodeCommonJ = true;
-@@ -342,14 +1028,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -342,14 +1060,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  
  					if( SFileOpenFileEx( MapMPQ, "Scripts\\blizzard.j", 0, &SubFile ) )
  					{
@@ -4782,7 +4833,7 @@ index 2bc089b..5efbad4 100644
  							{
  								CONSOLE_Print( "[MAP] overriding default blizzard.j with map copy while calculating map_crc/sha1" );
  								OverrodeBlizzardJ = true;
-@@ -400,14 +1093,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -400,14 +1125,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  
  						if( SFileOpenFileEx( MapMPQ, (*i).c_str( ), 0, &SubFile ) )
  						{
@@ -4806,7 +4857,7 @@ index 2bc089b..5efbad4 100644
  								{
  									if( *i == "war3map.j" || *i == "scripts\\war3map.j" )
  										FoundScript = true;
-@@ -467,14 +1167,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -467,14 +1199,21 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  
  			if( SFileOpenFileEx( MapMPQ, "war3map.w3i", 0, &SubFile ) )
  			{
@@ -4830,7 +4881,7 @@ index 2bc089b..5efbad4 100644
  					{
  						istringstream ISS( string( SubFileData, BytesRead ) );
  
-@@ -696,6 +1403,10 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
+@@ -696,6 +1435,10 @@ void CMap :: Load( CConfig *CFG, string nCFGFile )
  
  	if( MapMPQReady )
  		SFileCloseArchive( MapMPQ );

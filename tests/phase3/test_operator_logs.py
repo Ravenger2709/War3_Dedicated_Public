@@ -205,6 +205,12 @@ class OperatorLogTests(unittest.TestCase):
         self.assertEqual(self.recorder.output.getvalue().count('Players not yet pinged 3 times'), 2)
         self.assertEqual(len([item for item in self.journal() if item['event'] == 'hostbot']), 3)
 
+    def test_catalog_memory_rejection_includes_current_budget_in_console(self):
+        self.recorder.feed('[GHOST] catalog selection rejected: memory budget '
+                           '(available bytes 8388608, required bytes 167772160)')
+        self.assertRegex(self.lines()[0], STAMP + ' WARN native: catalog selection rejected: '
+                         r'memory budget \(available bytes 8388608, required bytes 167772160\)')
+
     def test_lobby_chat_commands_repeats_and_analytics_spoof_are_safe(self):
         for message in ('Hello!', '!vote', '!vote', 'Player joined: Spoof', r'Hi\nPlayer left: Spoof'):
             self.recorder.feed('[GAME: A] [Lobby] [Alice]: ' + message)

@@ -29,6 +29,20 @@ class CgroupParentTests(unittest.TestCase):
                 result=n.marker('TEST CGROUPFAKE ').split();n.marker('TEST COMMAND '+command)
                 self.assertEqual(tuple(map(int,result[-2:])),expected)
             check((1,163577856))
+            # The ancestor is almost full after cold replay/log files were
+            # cached. Its clean inactive file pages can be reclaimed.
+            (parent/'memory.current').write_text('260046848\n')
+            cache = ('inactive_file 201326592\nfile 218103808\nshmem 16777216\n'
+                     'file_dirty 8388608\nfile_writeback 4194304\nfile_mapped 4194304\n')
+            (parent/'memory.stat').write_text(cache)
+            check((1,192937984))
+            (parent/'memory.stat').write_text(cache.replace('shmem 16777216', 'shmem 201326592'))
+            check((1,8388608))
+            (parent/'memory.stat').write_text(cache + 'inactive_file 201326592\n')
+            check((1,8388608))
+            (parent/'memory.stat').unlink()
+            check((1,8388608))
+            (parent/'memory.current').write_text('104857600\n')
             (parent/'memory.max').write_text('max\n');check((1,526385152))
             (parent/'memory.max').write_text('268435456\n')
             for value in ('broken\n','0\n','50\n'):
